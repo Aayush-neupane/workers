@@ -13,6 +13,7 @@ import ServiceDetail from "./pages/ServiceDetail";
 import Services from "./pages/Services";
 import Signin from "./pages/Signin";
 import Track from "./pages/Track";
+import Worker from "./pages/Worker";
 import WorkerProfile from "./pages/WorkerProfile";
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/signup" element={<Signin mode="signup" />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/track/:id" element={<Track />} />
+              <Route path="/worker" element={<Worker />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/rewards" element={<Rewards />} />
               <Route path="*" element={<NotFound />} />

@@ -1,16 +1,13 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button, Card, Dialog, EmptyState, Price, StatusBadge, TextArea } from "../components/ui";
-import { SERVICES, WORKERS, BOOKINGS } from "../data/mock";
+import { SERVICES, WORKERS } from "../data/mock";
 import { useStore } from "../lib/store";
 import { STATUS_LABELS, canTransition } from "../lib/booking";
 import { formatSlot } from "../lib/format";
 import type { BookingStatus } from "../lib/types";
 
 const CANCELLABLE: BookingStatus[] = ["pending", "awaiting-worker", "confirmed"];
-
-/** Seed demo bookings are read-only; bookings you create are fully actionable. */
-const SEED_IDS = new Set(BOOKINGS.map((b) => b.id));
 
 export default function Track() {
   const { id } = useParams();
@@ -36,7 +33,7 @@ export default function Track() {
   const service = SERVICES.find((s) => s.id === booking.serviceId);
   const worker = WORKERS.find((w) => w.id === booking.workerId);
   const address = addresses.find((a) => a.id === booking.addressId);
-  const actionable = !SEED_IDS.has(booking.id);
+  const actionable = true;
 
   const doAdvance = (to: BookingStatus, noteText?: string) => {
     advanceBooking(booking.id, to, "customer", noteText);
@@ -82,8 +79,7 @@ export default function Track() {
           </div>
         ) : (
           <p className="mt-4 text-xs text-on-surface-variant">
-            Demo data is read-only — actions apply to bookings you create. Cancellation is free
-            before confirmation; after dispatch, policy charges may apply.
+            Cancellation is free before worker dispatch; after dispatch, policy charges may apply.
           </p>
         )}
       </Card>
