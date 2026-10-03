@@ -492,5 +492,210 @@ for (const [email, title, body] of [
   }
 }
 
+/* ---------------- Wave 3: edge cases + history ---------------- */
+
+await ensureWorker("sagar@workers.local", "Sagar Rai", "9852600027",
+  "Furniture maker and repairer. Custom shelves, door alignment and polish.", 6, 120,
+  ["carpentry"], "verified", true);
+
+const ramesh = await ensureUser("ramesh@demo.local", "Ramesh Thapa", "9852600034", "Customer123!", "CUSTOMER");
+await ensureAddress(ramesh, "Home", "Damak-4, Rabi Chowk, House 21", "9852600034");
+
+// Verification history for wave-2 workers (admin verify tab reads this).
+{
+  const admin = await query<{ id: string }>(`SELECT id FROM users WHERE email = 'admin@workers.local'`);
+  const aid = admin.rows[0].id;
+  const hist: [string, string, string][] = [
+    ["Deepak Chaudhary", "verified", "ID + gas-handling certificate verified."],
+    ["Sunita Tamang", "verified", "References from 2 housing societies checked."],
+    ["Hari Prasad", "verified", "Trade test passed, background clear."],
+    ["Nabin KC", "verified", "ID verified, skill assessed on demo setup."],
+    ["Kamal BK", "under-review", "Documents received; reference check pending."],
+    ["Manoj Limbu", "suspended", "Suspended after upheld late-arrival complaint (BK-2010 review)."],
+  ];
+  for (const [wname, state, notes] of hist) {
+    const ex = await query(`SELECT id FROM verification_records WHERE worker_user_id = $1 AND state = $2 LIMIT 1`, [
+      workerIds[wname],
+      state,
+    ]);
+    if (ex.rowCount === 0) {
+      await query(
+        `INSERT INTO verification_records(worker_user_id, state, reviewer_id, notes) VALUES ($1, $2, $3, $4)`,
+        [workerIds[wname], state, aid, notes],
+      );
+    }
+  }
+  // Private verification documents (admin eyes only).
+  const docs: [string, string][] = [
+    ["Kamal BK", "citizenship-front.jpg"],
+    ["Kamal BK", "experience-letter.pdf"],
+    ["Deepak Chaudhary", "gas-certificate.jpg"],
+  ];
+  for (const [wname, kind] of docs) {
+    const ex = await query(
+      `SELECT id FROM verification_documents WHERE worker_user_id = $1 AND kind = $2 LIMIT 1`,
+      [workerIds[wname], kind],
+    );
+    if (ex.rowCount === 0) {
+      await query(
+        `INSERT INTO verification_documents(worker_user_id, kind, storage_path) VALUES ($1, $2, $3)`,
+        [workerIds[wname], kind, `verification/${workerIds[wname]}/${kind}`],
+      );
+    }
+  }
+}
+
+// An expired, never-accepted invite (shows the expiry path).
+{
+  const ex = await query(`SELECT id FROM worker_invites WHERE email = 'ghost@demo.local'`);
+  if (ex.rowCount === 0) {
+    await query(
+      `INSERT INTO worker_invites(email, name, token_hash, expires_at)
+       VALUES ('ghost@demo.local', 'Ghost Invite', 'expired-token-hash-demo', now() - interval '1 day')`,
+    );
+  }
+}
+
+const WAVE3 = [
+  // no, customerEmail, service, workerName|null, status, addrLabel, slot, instructions, est, final, method, pay, events
+  ["BK-2012", "ramesh@demo.local", "Furniture Repair", "Sagar Rai", "completed", "Home", "2026-09-24T10:00:00+05:45", "Dining table leg loose, 6 chairs wobbly.", 180000, 180000, "esewa", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2013", "gita@demo.local", "Switch, Socket & MCB Repair", "Bikash Thapa", "completed", "Home", "2026-09-26T11:00:00+05:45", "Hall MCB tripping on load.", 60000, 60000, "cash", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2014", "gita@demo.local", "Water Pump & Motor Repair", "Hari Prasad", "completed", "Home", "2026-09-28T10:00:00+05:45", "Motor not priming after outage.", 100000, 100000, "cash", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2015", "ramesh@demo.local", "Home Wi-Fi Setup & Optimization", "Nabin KC", "awaiting-worker", "Home", "2026-10-08T11:00:00+05:45", "New rental, ISP router only.", 120000, null, "esewa", "pending-verification", [["pending", "customer", ""], ["awaiting-worker", "admin", ""]]],
+] as const;
+
+for (const b of WAVE3) {
+  const [no, email, svcName, wName, status, addrLabel, slot, instr, est, fin, method, payStatus, events] = b;
+  const exists = await query(`SELECT id FROM bookings WHERE booking_no = $1`, [no]);
+  if (exists.rowCount > 0) continue;
+  const cu = await query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [email]);
+  const cid = cu.rows[0].id;
+  const svc = svcIds[svcName as string];
+  const catBps = (
+    await query<{ commission_bps: number }>(
+      `SELECT c.commission_bps FROM services s JOIN categories c ON c.id = s.category_id WHERE s.id = $1`,
+      [svc],
+    )
+  ).rows[0].commission_bps;
+  const wid = wName ? (workerIds[wName as string] ?? null) : null;
+  const aid = await addressId(cid, addrLabel as string);
+  const addrLine = (
+    await query<{ line: string }>(`SELECT line FROM addresses WHERE id = $1`, [aid])
+  ).rows[0].line;
+  const ins = await query<{ id: string }>(
+    `INSERT INTO bookings(booking_no, customer_id, service_id, worker_id, status, address_id,
+                          address_text, slot, instructions, estimate_paisa, final_paisa,
+                          payment_method, payment_status, commission_bps, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now() - interval '4 days') RETURNING id`,
+    [no, cid, svc, wid, status, aid, `${addrLine}, Damak`, slot, instr, est, fin, method, payStatus, catBps],
+  );
+  const bid = ins.rows[0].id;
+  for (const [st, by, note] of events as readonly (readonly [string, string, string])[]) {
+    await query(
+      `INSERT INTO booking_events(booking_id, status, by_role, note, created_at) VALUES ($1,$2,$3,$4, now() - interval '4 days')`,
+      [bid, st, by, note],
+    );
+  }
+  await query(`INSERT INTO payments(booking_id, provider, amount_paisa, status) VALUES ($1,$2,$3,$4)`, [
+    bid,
+    method,
+    (fin ?? est) as number,
+    payStatus === "paid" ? "verified" : "pending",
+  ]);
+  if (status === "completed" && fin !== null) {
+    const f = fin as number;
+    const comm = Math.floor((f * catBps) / 10000);
+    await query(
+      `INSERT INTO commission_ledger(booking_id, total_paisa, commission_paisa, worker_paisa, rate_bps, is_settled)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (booking_id) DO NOTHING`,
+      [bid, f, comm, f - comm, catBps, method !== "cash"],
+    );
+    const pts = Math.floor(f / 10000);
+    if (pts > 0) {
+      await query(
+        `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+         VALUES ($1, $2, 'earn', $3 || ' completed', $4) ON CONFLICT DO NOTHING`,
+        [cid, pts, no, bid],
+      );
+    }
+  }
+}
+
+// Gita now has 5 completions (2001, 2002, 2007, 2013, 2014) — milestone bonus.
+{
+  const n = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM bookings WHERE customer_id = $1 AND status = 'completed'`, [gita],
+  );
+  const has = await query(`SELECT id FROM reward_ledger WHERE user_id = $1 AND kind = 'bonus' LIMIT 1`, [gita]);
+  if (n.rows[0].n >= 5 && has.rowCount === 0) {
+    const ref = await query<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = 'BK-2014'`);
+    await query(
+      `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+       VALUES ($1, 100, 'bonus', '5-booking milestone', $2) ON CONFLICT DO NOTHING`,
+      [gita, ref.rows[0].id],
+    );
+  }
+}
+
+// Full refund case: BK-2012 paid online, then refunded (rewards reversed).
+{
+  const bk = await query<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = 'BK-2012'`);
+  const bid = bk.rows[0].id;
+  const pay = await query<{ id: string; amount_paisa: string }>(
+    `SELECT id, amount_paisa FROM payments WHERE booking_id = $1`, [bid],
+  );
+  const pid = pay.rows[0].id;
+  const ex = await query(`SELECT id FROM refunds WHERE payment_id = $1 LIMIT 1`, [pid]);
+  if (ex.rowCount === 0) {
+    const admin = await query<{ id: string }>(`SELECT id FROM users WHERE email = 'admin@workers.local'`);
+    await query(`INSERT INTO refunds(payment_id, amount_paisa, reason, by_user_id) VALUES ($1, $2, 'Customer cancelled within policy window', $3)`, [
+      pid,
+      Number(pay.rows[0].amount_paisa),
+      admin.rows[0].id,
+    ]);
+    await query(`UPDATE payments SET status = 'refunded' WHERE id = $1`, [pid]);
+    await query(`UPDATE bookings SET payment_status = 'refunded' WHERE id = $1`, [bid]);
+    await query(
+      `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+       SELECT b.customer_id,
+              -(SELECT COALESCE(SUM(points), 0) FROM reward_ledger WHERE ref_booking_id = b.id AND kind = 'earn'),
+              'reverse', 'Refund reversal', b.id
+       FROM bookings b WHERE b.id = $1 ON CONFLICT DO NOTHING`,
+      [bid],
+    );
+  }
+}
+
+// Reviews for wave-3 completions.
+for (const [no, wName, cemail, rating, text] of [
+  ["BK-2012", "Sagar Rai", "ramesh@demo.local", 5, "Table solid again, polish matched perfectly."],
+  ["BK-2013", "Bikash Thapa", "gita@demo.local", 5, "Found the faulty wire in minutes. Courteous."],
+  ["BK-2014", "Hari Prasad", "gita@demo.local", 4, "Pump works. Left some oil stains, cleaned after asking."],
+] as const) {
+  const bk = await query<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = $1`, [no]);
+  if (bk.rowCount === 0) continue;
+  const wu = await query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [
+    wName === "Sagar Rai" ? "sagar@workers.local" : wName === "Bikash Thapa" ? "bikash@workers.local" : "hari@workers.local",
+  ]);
+  const cu = await query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [cemail]);
+  await query(
+    `INSERT INTO reviews(booking_id, worker_user_id, customer_id, rating, text)
+     VALUES ($1, $2, $3, $4, $5) ON CONFLICT (booking_id) DO NOTHING`,
+    [bk.rows[0].id, wu.rows[0].id, cu.rows[0].id, rating, text],
+  );
+}
+
+// Worker-side notifications.
+for (const [email, title, body] of [
+  ["ram@workers.local", "New assignment", "BK-1061 needs a plumber."],
+  ["deepak@workers.local", "Dispute opened", "BK-2009 is disputed — settlement paused."],
+] as const) {
+  const u = await query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [email]);
+  const ex = await query(`SELECT id FROM notifications WHERE user_id = $1 AND title = $2 LIMIT 1`, [u.rows[0].id, title]);
+  if (ex.rowCount === 0) {
+    await query(`INSERT INTO notifications(user_id, title, body) VALUES ($1, $2, $3)`, [u.rows[0].id, title, body]);
+  }
+}
+
 console.log("[db] seed-demo ok");
 await pool.end();
