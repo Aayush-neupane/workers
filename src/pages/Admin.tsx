@@ -39,7 +39,7 @@ function saveMap(key: string, value: unknown) {
 const CHECKS = ["Identity document verified", "References checked", "Background check clear", "Skill assessed"];
 
 export default function Admin() {
-  const { bookings, advanceBooking, rewardTxs } = useStore();
+  const { bookings, addresses, advanceBooking, rewardTxs } = useStore();
   const [tab, setTab] = useState<Tab>("overview");
   const [verify, setVerify] = useState<Record<string, VerificationState>>(() => loadMap("wk-verify", {}));
   const [activeMap, setActiveMap] = useState<Record<string, boolean>>(() => loadMap("wk-active", {}));
@@ -49,6 +49,15 @@ export default function Admin() {
   const [checks, setChecks] = useState<Record<string, string[]>>({});
   const [assignSel, setAssignSel] = useState<Record<string, string>>({});
   const [replies, setReplies] = useState<Record<string, string>>({});
+  const [wards, setWards] = useState<boolean[]>(() => {
+    try {
+      const raw = localStorage.getItem("wk-wards");
+      if (raw) return JSON.parse(raw) as boolean[];
+    } catch {
+      /* default below */
+    }
+    return Array(10).fill(true) as boolean[];
+  });
   const [ticketExtra, setTicketExtra] = useState<Record<string, { from: string; text: string; at: string }[]>>({});
   const [audit, setAudit] = useState(loadAudit);
 
@@ -95,6 +104,16 @@ export default function Admin() {
   }, [completed, bookings]);
 
   const auditIt = (action: string, detail: string) => setAudit(logAudit(action, detail));
+
+  const toggleWard = (i: number) => {
+    setWards((prev) => {
+      const next = prev.map((v, j) => (j === i ? !v : v));
+      saveMap("wk-wards", next);
+      return next;
+    });
+  };
+
+  const openWards = wards.filter(Boolean).length;
 
   const setVerification = (id: string, v: VerificationState) => {
     setVerify((p) => {
@@ -179,13 +198,14 @@ export default function Admin() {
 
       {tab === "overview" && (
         <div className="mt-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[
               [`${bookings.length}`, "total bookings"],
               [formatNPR(revenue), "completed revenue"],
               [formatNPR(commissionEarned), "commission earned"],
               [formatNPR(cashOwed), "cash commission owed"],
               [`${disputes}`, "open disputes"],
+              [`Damak · ${openWards}/10 wards`, "coverage zone"],
             ].map(([v, l]) => (
               <Card key={l} className="p-4">
                 <p className="text-xl font-bold text-primary">{v}</p>
@@ -232,6 +252,10 @@ export default function Admin() {
               <div className="text-sm">
                 <Link to={`/track/${b.id}`} className="font-bold hover:text-primary">{b.id}</Link>
                 <p className="text-on-surface-variant">{SERVICES.find((s) => s.id === b.serviceId)?.name} · {formatSlot(b.slot)}</p>
+                <p className="mt-0.5 flex items-center gap-1.5">
+                  <Badge tone="success">Damak</Badge>
+                  <span className="text-on-surface-variant">{addresses.find((a) => a.id === b.addressId)?.line ?? "Address on file"}</span>
+                </p>
               </div>
               <div className="flex gap-2">
                 <label className="sr-only" htmlFor={`assign-${b.id}`}>Assign worker</label>
@@ -330,7 +354,34 @@ export default function Admin() {
       )}
 
       {tab === "services" && (
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="mt-4">
+          <Card className="ring-band dotgrid-light border-0 p-5 text-white">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-display text-xl font-semibold">Coverage zone: Damak (Jhapa)</h3>
+                <p className="mt-0.5 text-sm text-white/70">Single-city policy — every service inherits this zone. New cities need platform expansion approval.</p>
+              </div>
+              <Badge tone="marigold">{openWards}/10 wards open</Badge>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Open wards">
+              {wards.map((open, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    toggleWard(i);
+                    auditIt("coverage-ward", `Damak-${i + 1} ${open ? "closed" : "opened"}`);
+                  }}
+                  aria-pressed={open}
+                  className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
+                    open ? "bg-marigold-300 text-pine-950" : "bg-white/15 text-white/60"
+                  }`}
+                >
+                  W{i + 1}
+                </button>
+              ))}
+            </div>
+          </Card>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <Card className="p-5">
             <h3 className="font-bold">Commission rules (basis points · 1500 = 15%)</h3>
             <div className="mt-3 space-y-2">
@@ -365,11 +416,12 @@ export default function Admin() {
               {SERVICES.map((s) => (
                 <li key={s.id} className="flex items-center justify-between gap-2 border-t border-outline pt-2 first:border-0 first:pt-0">
                   <Link to={`/services/${s.id}`} className="font-semibold hover:text-primary">{s.name}</Link>
-                  <span className="text-on-surface-variant"><Price paisa={s.basePricePaisa} /> · <Rating value={s.rating} /></span>
+                  <span className="text-on-surface-variant"><Price paisa={s.basePricePaisa} /> · <Rating value={s.rating} /> · Damak</span>
                 </li>
               ))}
             </ul>
           </Card>
+          </div>
         </div>
       )}
 
