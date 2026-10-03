@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,8 +21,9 @@ const signupSchema = z.object({
   password: z.string().min(8, "Minimum 8 characters"),
 });
 
-function LoginForm({ onDone }: { onDone: (role: Role) => void }) {
+function LoginForm({ onDone }: { onDone: (role: Role, next: string | null) => void }) {
   const { signIn, authError } = useAuth();
+  const [params] = useSearchParams();
   const [busy, setBusy] = useState(false);
   const form = useForm<z.infer<typeof signinSchema>>({
     resolver: zodResolver(signinSchema) as unknown as Resolver<z.infer<typeof signinSchema>>,
@@ -35,7 +36,7 @@ function LoginForm({ onDone }: { onDone: (role: Role) => void }) {
         setBusy(true);
         const role = await signIn(f.email, f.password);
         setBusy(false);
-        if (role) onDone(role);
+        if (role) onDone(role, params.get("next"));
       })}
       className="space-y-4"
     >
@@ -57,7 +58,7 @@ function LoginForm({ onDone }: { onDone: (role: Role) => void }) {
   );
 }
 
-function SignupForm({ onDone }: { onDone: (role: Role) => void }) {
+function SignupForm({ onDone }: { onDone: (role: Role, next: string | null) => void }) {
   const { signUp, authError } = useAuth();
   const [busy, setBusy] = useState(false);
   const form = useForm<z.infer<typeof signupSchema>>({
@@ -71,7 +72,7 @@ function SignupForm({ onDone }: { onDone: (role: Role) => void }) {
         setBusy(true);
         const role = await signUp(f.name, f.phone, f.email, f.password);
         setBusy(false);
-        if (role) onDone(role);
+        if (role) onDone(role, null);
       })}
       className="space-y-4"
     >
@@ -143,7 +144,10 @@ function BrandPanel({ mode }: { mode: "signin" | "signup" }) {
 
 export default function Signin({ mode }: { mode: "signin" | "signup" }) {
   const navigate = useNavigate();
-  const done = (role: Role) => navigate(homeFor(role));
+  const done = (role: Role, next: string | null) => {
+    if (next && next.startsWith("/") && !next.startsWith("//")) navigate(next);
+    else navigate(homeFor(role));
+  };
   const signup = mode === "signup";
 
   return (
