@@ -104,6 +104,7 @@ export interface Booking {
   slot: string;
   instructions: string;
   estimatePaisa: number;
+  discountPaisa?: number;
   finalPaisa?: number;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;

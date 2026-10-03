@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Button, Card, Dialog, EmptyState, PageHero, Price, StatusBadge, TextArea } from "../components/ui";
 import { useStore } from "../lib/store";
 import { STATUS_LABELS, canTransition } from "../lib/booking";
-import { formatSlot } from "../lib/format";
+import { formatNPR, formatSlot } from "../lib/format";
 import type { Booking, BookingStatus } from "../lib/types";
 
 const CANCELLABLE: BookingStatus[] = ["pending", "awaiting-worker", "confirmed"];
@@ -86,6 +86,9 @@ export default function Track() {
           <div><dt className="text-on-surface-variant">Professional</dt><dd className="font-semibold">{booking.workerName ?? "Assigning…"}</dd></div>
           <div><dt className="text-on-surface-variant">Payment</dt><dd className="font-semibold">{booking.paymentMethod} · {booking.paymentStatus}</dd></div>
           <div><dt className="text-on-surface-variant">Estimate</dt><dd><Price paisa={booking.estimatePaisa} /></dd></div>
+          {(booking.discountPaisa ?? 0) > 0 && (
+            <div className="font-semibold text-success"><dt>Rewards discount</dt><dd>−{formatNPR(booking.discountPaisa ?? 0)}</dd></div>
+          )}
           <div><dt className="text-on-surface-variant">Final</dt><dd>{booking.finalPaisa !== undefined ? <Price paisa={booking.finalPaisa} /> : "Confirmed after the job"}</dd></div>
         </dl>
         <p className="mt-4 rounded-md bg-surface-container p-3 text-sm">

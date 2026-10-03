@@ -3,8 +3,9 @@ import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
-import { env } from "./config/env.js";
+import { env, isProd } from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/error.js";
+import { requestLog } from "./middleware/requestLog.js";
 import authRoutes from "./modules/auth.routes.js";
 import publicRoutes from "./modules/public.routes.js";
 import bookingRoutes from "./modules/bookings.routes.js";
@@ -23,6 +24,7 @@ export function createApp() {
 
   const origins = [env.APP_URL, env.STAFF_URL].map((s) => s.trim()).filter(Boolean);
   app.use(cors({ origin: origins, credentials: true }));
+  if (!isProd) app.use(requestLog);
 
   const strict = rateLimit({ windowMs: 60_000, max: 60 });
   const adminGuard = rateLimit({ windowMs: 60_000, max: 300 });

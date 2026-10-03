@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, ArrowRight, Camera, ShieldCheck } from "lucide-react";
-import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
 import { api, toService } from "../lib/api";
 import { useStore } from "../lib/store";
 import { earnPoints, redeemValue } from "../lib/booking";
@@ -47,6 +47,61 @@ const GATEWAY_LABEL: Record<PaymentMethod, string> = {
 
 const STEP_NAMES = ["Address", "Slot", "Details & pay", "Review"];
 
+/** First-address fast path: new customers add one without leaving checkout. */
+function QuickAddress({ onAdded }: { onAdded: (id: string) => void }) {
+  const { addAddress } = useStore();
+  const [label, setLabel] = useState("Home");
+  const [line, setLine] = useState("");
+  const [phone, setPhone] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setError("");
+        if (line.trim().length < 5) {
+          setError("Enter ward, street and house.");
+          return;
+        }
+        if (phone.trim().length < 10) {
+          setError("Enter a valid phone number.");
+          return;
+        }
+        setBusy(true);
+        addAddress({ label: label.trim() || "Home", line: line.trim(), city: "Damak", phone: phone.trim() })
+          .then((a) => onAdded(a.id))
+          .catch((err) => {
+            setError(err instanceof Error ? err.message : "Could not save address");
+            setBusy(false);
+          });
+      }}
+    >
+      <p className="text-sm text-on-surface-variant">
+        You have no saved addresses yet — add one to continue. It stays on your profile.
+      </p>
+      <Field label="Label">
+        <Select value={label} onChange={(e) => setLabel(e.target.value)}>
+          <option>Home</option>
+          <option>Shop</option>
+          <option>Office</option>
+        </Select>
+      </Field>
+      <Field label="Ward, street & house">
+        <TextField value={line} onChange={(e) => setLine(e.target.value)} placeholder="Damak-5, Himal Chowk, House 12" />
+      </Field>
+      <Field label="Phone">
+        <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" />
+      </Field>
+      {error && (
+        <p role="alert" className="text-sm font-medium text-error">{error}</p>
+      )}
+      <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save & continue"}</Button>
+    </form>
+  );
+}
+
 export default function Book() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -76,6 +131,7 @@ export default function Book() {
     register,
     trigger,
     watch,
+    setValue,
     handleSubmit,
     formState: { errors },
   } = useForm<Form>({
@@ -88,6 +144,12 @@ export default function Book() {
       useRewards: false,
     },
   });
+
+  useEffect(() => {
+    if (addresses.length > 0 && !watch("addressId")) {
+      setValue("addressId", addresses[0].id);
+    }
+  }, [addresses, setValue, watch]);
 
   if (missing) {
     return (
@@ -192,16 +254,25 @@ export default function Book() {
 
         <div className="mt-6 grid items-start gap-5 lg:grid-cols-[1fr_320px]">
           <Card className="p-6 md:p-7">
-            {step === 0 && (
-              <Field label="Service address" error={errors.addressId?.message}>
-                <Select {...register("addressId")}>
-                  {addresses.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.label} — {a.line}, {a.city}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+            {step === 0 && addresses.length === 0 ? (
+              <QuickAddress
+                onAdded={(id) => {
+                  setValue("addressId", id);
+                  void next();
+                }}
+              />
+            ) : (
+              step === 0 && (
+                <Field label="Service address" error={errors.addressId?.message}>
+                  <Select {...register("addressId")}>
+                    {addresses.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label} — {a.line}, {a.city}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )
             )}
 
             {step === 1 && (

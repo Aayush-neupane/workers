@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { api, post } from "./api";
+import { api, onUnauthorized, post } from "./api";
 import type { Role } from "./types";
 
 export interface SessionUser {
@@ -48,7 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    onUnauthorized(() => setUser(null));
     void refresh();
+    return () => onUnauthorized(null);
   }, [refresh]);
 
   const signIn = useCallback(async (email: string, password: string) => {

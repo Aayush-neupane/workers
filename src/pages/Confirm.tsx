@@ -5,7 +5,7 @@ import { Button, Card, EmptyState, Price, StatusBadge } from "../components/ui";
 import { api, toService } from "../lib/api";
 import { useStore } from "../lib/store";
 import { earnPoints } from "../lib/booking";
-import { formatSlot } from "../lib/format";
+import { formatNPR, formatSlot } from "../lib/format";
 import type { Booking, Service } from "../lib/types";
 
 export default function Confirm() {
@@ -82,7 +82,11 @@ export default function Confirm() {
           <div className="flex justify-between"><dt className="text-on-surface-variant">Address</dt><dd className="font-semibold">{booking.addressText || "—"}</dd></div>
           <div className="flex justify-between"><dt className="text-on-surface-variant">Payment</dt><dd className="font-semibold">{booking.paymentMethod === "cash" ? "Cash" : booking.paymentMethod === "esewa" ? "eSewa (verified)" : "Khalti (verified)"}</dd></div>
           <div className="flex justify-between"><dt className="text-on-surface-variant">Status</dt><dd><StatusBadge status={booking.status} /></dd></div>
-          <div className="flex justify-between text-base"><dt className="font-bold">Estimated total</dt><dd className="font-bold"><Price paisa={booking.estimatePaisa} /></dd></div>
+          <div className="flex justify-between"><dt className="text-on-surface-variant">Estimate</dt><dd><Price paisa={booking.estimatePaisa} /></dd></div>
+          {(booking.discountPaisa ?? 0) > 0 && (
+            <div className="flex justify-between font-semibold text-success"><dt>Rewards discount</dt><dd>−{formatNPR(booking.discountPaisa ?? 0)}</dd></div>
+          )}
+          <div className="flex justify-between text-base"><dt className="font-bold">Estimated total</dt><dd className="font-bold"><Price paisa={booking.estimatePaisa - (booking.discountPaisa ?? 0)} /></dd></div>
         </dl>
       </Card>
 

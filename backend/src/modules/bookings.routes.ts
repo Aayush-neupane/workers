@@ -9,7 +9,7 @@ import {
   canTransition,
   type BookingStatus,
 } from "../utils/transitions.js";
-import { calcCommission, earnPoints, redeemValue } from "../utils/money.js";
+import { calcCommission } from "../utils/money.js";
 
 const router = Router();
 
@@ -73,6 +73,13 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      // Reward rules come from platform settings, never hardcoded.
+      const settings = await client.query<{ value: Record<string, number> }>(
+        `SELECT value FROM settings WHERE id = 'platform'`,
+      );
+      const rules = settings.rows[0]?.value ?? {};
+      const redeemPoints = rules.redeemPoints ?? 100;
+      const redeemDiscount = rules.redeemDiscountPaisa ?? 5000;
       let discount = 0;
       if (f.useRewards) {
         const bal = await client.query(
@@ -80,35 +87,64 @@ router.post(
           [userId],
         );
         const pts = (bal.rows[0] as { pts: number }).pts;
-        if (pts < 100) {
+        if (pts < redeemPoints) {
           await client.query("ROLLBACK");
-          return res.status(400).json({ error: "Not enough points (100 needed)" });
+          return res.status(400).json({ error: `Not enough points (${redeemPoints} needed)` });
         }
         await client.query(
-          `INSERT INTO reward_ledger(user_id, points, kind, reason) VALUES ($1, -100, 'redeem', 'Checkout discount')`,
-          [userId],
+          `INSERT INTO reward_ledger(user_id, points, kind, reason) VALUES ($1, $2, 'redeem', 'Checkout discount')`,
+          [userId, -redeemPoints],
         );
-        discount = redeemValue(100);
+        discount = redeemDiscount;
       }
-      const no = await bookingNo();
-      const b = await client.query(
-        `INSERT INTO bookings(booking_no, customer_id, service_id, status, address_id, address_text,
-                              slot, instructions, estimate_paisa, payment_method, payment_status, commission_bps)
-         VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, booking_no`,
-        [
-          no,
-          userId,
-          f.serviceId,
-          f.addressId ?? null,
-          addressText,
-          f.slot,
-          f.instructions,
-          estimate,
-          f.paymentMethod,
-          f.paymentMethod === "cash" ? "unpaid" : "pending-verification",
-          service.commission_bps,
-        ],
-      );
+      // booking_no is unique; regenerate once on the off-chance of a race.
+      let no = await bookingNo();
+      let b;
+      try {
+        b = await client.query(
+          `INSERT INTO bookings(booking_no, customer_id, service_id, status, address_id, address_text,
+                                slot, instructions, estimate_paisa, discount_paisa,
+                                payment_method, payment_status, commission_bps)
+           VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, booking_no`,
+          [
+            no,
+            userId,
+            f.serviceId,
+            f.addressId ?? null,
+            addressText,
+            f.slot,
+            f.instructions,
+            estimate,
+            Math.min(discount, estimate),
+            f.paymentMethod,
+            f.paymentMethod === "cash" ? "unpaid" : "pending-verification",
+            service.commission_bps,
+          ],
+        );
+      } catch (e) {
+        if ((e as { code?: string }).code !== "23505") throw e;
+        no = await bookingNo();
+        b = await client.query(
+          `INSERT INTO bookings(booking_no, customer_id, service_id, status, address_id, address_text,
+                                slot, instructions, estimate_paisa, discount_paisa,
+                                payment_method, payment_status, commission_bps)
+           VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, booking_no`,
+          [
+            no,
+            userId,
+            f.serviceId,
+            f.addressId ?? null,
+            addressText,
+            f.slot,
+            f.instructions,
+            estimate,
+            Math.min(discount, estimate),
+            f.paymentMethod,
+            f.paymentMethod === "cash" ? "unpaid" : "pending-verification",
+            service.commission_bps,
+          ],
+        );
+      }
       const bookingId = (b.rows[0] as { id: string }).id;
       await client.query(
         `INSERT INTO booking_events(booking_id, status, by_role, by_user_id) VALUES ($1, 'pending', 'customer', $2)`,
@@ -305,7 +341,21 @@ router.post(
            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (booking_id) DO NOTHING`,
           [b.id, finalPaisa, commission, finalPaisa - commission, b.commission_bps],
         );
-        const pts = earnPoints(finalPaisa);
+        // Online payments verified by completion sign-off; cash stays
+        // worker-collected via /cash-collect (or the same completion when
+        // the worker records it). Either way the booking reads paid.
+        await client.query(
+          `UPDATE payments SET status = 'verified', verified_at = COALESCE(verified_at, now())
+           WHERE booking_id = $1 AND provider <> 'cash' AND status = 'pending'`,
+          [b.id],
+        );
+        const rules = await client.query<{ value: Record<string, number> }>(
+          `SELECT value FROM settings WHERE id = 'platform'`,
+        );
+        const per100 = rules.rows[0]?.value.rewardPerNpr100 ?? 1;
+        const mileEvery = rules.rows[0]?.value.milestoneBookings ?? 5;
+        const mileBonus = rules.rows[0]?.value.milestoneBonus ?? 100;
+        const pts = Math.floor(finalPaisa / 10000) * per100;
         if (pts > 0) {
           await client.query(
             `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
@@ -320,11 +370,11 @@ router.post(
           [b.customer_id],
         );
         const n = (done.rows[0] as { n: number }).n;
-        if (n > 0 && n % 5 === 0) {
+        if (mileEvery > 0 && n > 0 && n % mileEvery === 0) {
           await client.query(
             `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
-             VALUES ($1, 100, 'bonus', '5-booking milestone', $2) ON CONFLICT DO NOTHING`,
-            [b.customer_id, b.id],
+             VALUES ($1, $2, 'bonus', 'Milestone bonus', $3) ON CONFLICT DO NOTHING`,
+            [b.customer_id, mileBonus, b.id],
           );
         }
         await client.query(
@@ -335,12 +385,21 @@ router.post(
         );
       }
       if (to === "awaiting-worker") {
-        await client.query(
-          `INSERT INTO notifications(user_id, title, body)
-           SELECT u.id, 'New assignment', 'A booking needs a pro.'
-           FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-           WHERE r.name = 'ADMIN'`,
-        );
+        if (f.workerId) {
+          // Direct assignment: tell the pro, not the whole admin team.
+          await client.query(
+            `INSERT INTO notifications(user_id, title, body) VALUES
+             ($1, 'New assignment', 'A booking was assigned to you.')`,
+            [f.workerId],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO notifications(user_id, title, body)
+             SELECT u.id, 'New booking needs a pro', 'An unassigned booking is waiting.'
+             FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
+             WHERE r.name = 'ADMIN'`,
+          );
+        }
       }
       await client.query("COMMIT");
       return res.json({ ok: true, from, to });

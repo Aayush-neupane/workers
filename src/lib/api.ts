@@ -22,6 +22,13 @@ export class ApiError extends Error {
   }
 }
 
+let unauthorizedHandler: (() => void) | null = null;
+
+/** AuthProvider registers this so a 401 anywhere drops the stale session. */
+export function onUnauthorized(fn: (() => void) | null) {
+  unauthorizedHandler = fn;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -30,6 +37,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(0, "Cannot reach the server — is the backend running?");
   }
   if (!res.ok) {
+    if (res.status === 401) unauthorizedHandler?.();
     try {
       const body = (await res.json()) as { error?: string };
       if (body?.error) throw new ApiError(res.status, body.error);
@@ -157,6 +165,7 @@ interface BookingRow {
   slot: string;
   instructions: string;
   estimate_paisa: string | number;
+  discount_paisa?: string | number | null;
   final_paisa: string | number | null;
   payment_method: Booking["paymentMethod"];
   payment_status: Booking["paymentStatus"];
@@ -178,6 +187,7 @@ export function toBooking(r: BookingRow): Booking {
     slot: r.slot,
     instructions: r.instructions,
     estimatePaisa: Number(r.estimate_paisa),
+    discountPaisa: r.discount_paisa === null || r.discount_paisa === undefined ? 0 : Number(r.discount_paisa),
     finalPaisa: r.final_paisa === null || r.final_paisa === undefined ? undefined : Number(r.final_paisa),
     paymentMethod: r.payment_method,
     paymentStatus: r.payment_status,

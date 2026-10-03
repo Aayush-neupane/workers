@@ -50,7 +50,7 @@ interface StoreValue {
     to: BookingStatus,
     opts?: { note?: string; finalPaisa?: number; workerId?: string },
   ) => Promise<boolean>;
-  addAddress: (a: Omit<Address, "id">) => Promise<void>;
+  addAddress: (a: Omit<Address, "id">) => Promise<Address>;
   deleteAddress: (id: string) => Promise<void>;
   createTicket: (subject: string, message: string) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -160,8 +160,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       },
       addAddress: async (a) => {
-        await post("/api/addresses", a);
+        const d = await post<{ address: unknown }>("/api/addresses", a);
         await reload();
+        return toAddress(d.address as Parameters<typeof toAddress>[0]);
       },
       deleteAddress: async (id: string) => {
         await del(`/api/addresses/${id}`);
