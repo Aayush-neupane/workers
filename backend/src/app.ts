@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import { env } from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/error.js";
+import authRoutes from "./modules/auth.routes.js";
 
 export function createApp() {
   const app = express();
@@ -25,6 +26,8 @@ export function createApp() {
   app.use("/api", apiGuard);
 
   app.get("/health", (_req, res) => res.json({ ok: true, service: "workers-backend" }));
+  app.use("/api/auth", authRoutes);
+  app.use("/api/admin", authRoutes);
 
   app.use(notFound);
   app.use(errorHandler);
