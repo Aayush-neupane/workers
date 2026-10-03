@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Resolver } from "react-hook-form";
-import { ArrowLeft, ArrowRight, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowLeft, ArrowRight, CreditCard, Gift, ShieldCheck, Star, Wrench } from "lucide-react";
 import { Button, Card, Field, TextField } from "../components/ui";
 import { homeFor, useAuth } from "../lib/auth";
 import type { Role } from "../lib/types";
@@ -169,7 +169,7 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
 
       <Card className="elev-2 relative mx-auto grid max-w-4xl overflow-hidden md:min-h-[640px] md:grid-cols-2">
         {/* Left cell — login form home */}
-        <div className="p-7 md:p-10">
+        <div className="flex flex-col p-7 md:p-10">
           <h1 className="font-display text-3xl font-semibold">Sign in</h1>
           <p className="mt-1.5 text-sm text-on-surface-variant">
             Track bookings, rewards and receipts.
@@ -177,6 +177,31 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
           <div className="mt-6">
             <LoginForm onDone={done} />
           </div>
+          <p className="mt-4 text-center text-sm text-on-surface-variant">
+            Just looking?{" "}
+            <Link to="/services" className="font-bold text-primary">Browse services as guest</Link>
+          </p>
+          <div className="mt-6 grid grid-cols-3 gap-2 border-t border-outline pt-5">
+            {[
+              { icon: ShieldCheck, t: "Verified pros", b: "Background-checked" },
+              { icon: CreditCard, t: "Easy pay", b: "Cash · eSewa · Khalti" },
+              { icon: Gift, t: "Rewards", b: "Points on every job" },
+            ].map((f) => (
+              <div key={f.t} className="text-center">
+                <f.icon size={18} aria-hidden="true" className="mx-auto text-primary" />
+                <p className="mt-1.5 text-xs font-bold">{f.t}</p>
+                <p className="text-[11px] leading-snug text-on-surface-variant">{f.b}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-on-surface-variant">
+            <span className="flex" aria-hidden="true">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <Star key={i} size={13} className="fill-marigold-500 text-marigold-500" />
+              ))}
+            </span>
+            <strong className="text-on-surface">4.8/5</strong> from 11,000+ completed jobs in Damak
+          </p>
           <p className="mt-5 text-center text-sm text-on-surface-variant md:hidden">
             New here?{" "}
             <Link to="/signup" className="font-bold text-primary">Create an account</Link>
