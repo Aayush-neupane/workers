@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { MapPin, Phone, Wrench } from "lucide-react";
+import { homeFor, useAuth } from "../lib/auth";
 import { Button } from "./ui";
 
 const NAV = [
@@ -12,6 +13,8 @@ const NAV = [
 ];
 
 export function Navbar() {
+  const { role, name, signOut } = useAuth();
+  const navigate = useNavigate();
   return (
     <header className="sticky top-0 z-40 border-b border-outline bg-surface/95 backdrop-blur">
       <div className="wrap flex h-16 items-center justify-between gap-4">
@@ -33,12 +36,32 @@ export function Navbar() {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <Link to="/signin">
-            <Button variant="ghost">Sign in</Button>
-          </Link>
-          <Link to="/services" className="hidden sm:block">
-            <Button>Book a service</Button>
-          </Link>
+          {role ? (
+            <>
+              <Link to={homeFor(role)}>
+                <Button variant="ghost">Dashboard</Button>
+              </Link>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  signOut();
+                  navigate("/");
+                }}
+                aria-label={`Sign out${name ? ` ${name}` : ""}`}
+              >
+                Sign out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Link to="/signin">
+                <Button variant="ghost">Sign in</Button>
+              </Link>
+              <Link to="/services" className="hidden sm:block">
+                <Button>Book a service</Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>
