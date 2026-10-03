@@ -26,6 +26,7 @@ export default function Support() {
   const { user } = useAuth();
   const { tickets, createTicket } = useStore();
   const [sent, setSent] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const {
     register,
     handleSubmit,
@@ -93,12 +94,13 @@ export default function Support() {
         <form
           className="mt-3 space-y-4"
           onSubmit={handleSubmit(async (f) => {
+            setSubmitError("");
             try {
               await createTicket(f.subject, f.message);
               reset();
               setSent(true);
             } catch (e) {
-              alert(e instanceof Error ? e.message : "Could not submit ticket");
+              setSubmitError(e instanceof Error ? e.message : "Could not submit ticket");
             }
           })}
         >
@@ -109,6 +111,9 @@ export default function Support() {
             <TextArea {...register("message")} placeholder="Booking ID, what happened, what you need…" />
           </Field>
           <Button type="submit">Submit ticket</Button>
+          {submitError && (
+            <p role="alert" className="text-sm font-medium text-error">{submitError}</p>
+          )}
           {sent && <p role="status" className="text-sm text-success">Ticket opened — we&apos;ll reply here.</p>}
         </form>
         </Card>

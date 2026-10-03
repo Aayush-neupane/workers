@@ -52,6 +52,7 @@ export default function Book() {
   const navigate = useNavigate();
   const { addresses, providers, addBooking, rewardBalance } = useStore();
   const [step, setStep] = useState(0);
+  const [submitError, setSubmitError] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [service, setService] = useState<Service | null>(null);
   const [missing, setMissing] = useState(false);
@@ -131,6 +132,7 @@ export default function Book() {
   }
 
   const submit = handleSubmit(async (f) => {
+    setSubmitError("");
     try {
       const out = await addBooking({
         serviceId: service.id,
@@ -142,7 +144,7 @@ export default function Book() {
       });
       navigate(`/book/confirm/${out.bookingNo}`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Booking failed");
+      setSubmitError(e instanceof Error ? e.message : "Booking failed");
     }
   });
 
@@ -309,8 +311,12 @@ export default function Book() {
               </dl>
             )}
 
-            <div className="mt-7 flex justify-between gap-3 border-t border-outline pt-5">
-              <Button variant="outline" onClick={() => setStep((s) => Math.max(s - 1, 0))} disabled={step === 0}>
+            {submitError && (
+              <p role="alert" className="mt-4 rounded-md bg-error-container p-3 text-sm font-medium text-error">
+                {submitError}
+              </p>
+            )}
+            <div className="mt-7 flex justify-between gap-3 border-t border-outline pt-5">              <Button variant="outline" onClick={() => setStep((s) => Math.max(s - 1, 0))} disabled={step === 0}>
                 <ArrowLeft size={15} aria-hidden="true" /> Back
               </Button>
               {step < 3 ? (

@@ -22,6 +22,7 @@ export default function Profile() {
   const { user, updateProfile } = useAuth();
   const { addresses, addAddress, deleteAddress } = useStore();
   const [saved, setSaved] = useState("");
+  const [addrError, setAddrError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const profile = useForm<z.infer<typeof profileSchema>>({
@@ -77,11 +78,12 @@ export default function Profile() {
         <form
           className="mt-3 grid gap-4 sm:grid-cols-2"
           onSubmit={addr.handleSubmit(async (f) => {
+            setAddrError("");
             try {
               await addAddress(f);
               addr.reset({ label: "", line: "", city: "Damak", phone: "9852600000" });
             } catch (e) {
-              alert(e instanceof Error ? e.message : "Could not add address");
+              setAddrError(e instanceof Error ? e.message : "Could not add address");
             }
           })}
         >
@@ -104,6 +106,9 @@ export default function Profile() {
           <div className="flex items-end">
             <Button type="submit">Add address</Button>
           </div>
+          {addrError && (
+            <p role="alert" className="text-sm font-medium text-error sm:col-span-2">{addrError}</p>
+          )}
         </form>
       </Card>
       </div>

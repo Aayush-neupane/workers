@@ -16,6 +16,7 @@ export default function Track() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const load = useCallback(async () => {
     const b = await fetchBooking(id ?? "");
@@ -53,12 +54,13 @@ export default function Track() {
   }
 
   const doAdvance = async (to: BookingStatus, noteText?: string) => {
+    setActionError("");
     const ok = await advanceBooking(booking.id, to, { note: noteText });
     setConfirmCancel(false);
     setDisputeOpen(false);
     setNote("");
     if (ok) await load();
-    else alert("That action isn't allowed right now.");
+    else setActionError("That action isn't allowed right now — the booking may have moved on.");
   };
 
   return (
@@ -72,6 +74,11 @@ export default function Track() {
       </PageHero>
 
       <div className="wrap max-w-3xl py-8">
+      {actionError && (
+        <p role="alert" className="mb-4 rounded-md bg-error-container p-3 text-sm font-medium text-error">
+          {actionError}
+        </p>
+      )}
       <Card className="p-6">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div><dt className="text-on-surface-variant">Slot</dt><dd className="font-semibold">{formatSlot(booking.slot)}</dd></div>
