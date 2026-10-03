@@ -4,7 +4,7 @@ import { cn, formatNPR, initials } from "../lib/format";
 import { STATUS_LABELS } from "../lib/booking";
 import type { BookingStatus, VerificationState } from "../lib/types";
 
-type Variant = "primary" | "secondary" | "outline" | "danger" | "ghost";
+type Variant = "primary" | "dark" | "marigold" | "secondary" | "outline" | "danger" | "ghost";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -12,18 +12,23 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-primary text-white hover:brightness-110",
-  secondary: "bg-primary-container text-on-primary-container hover:brightness-95",
-  outline: "border border-outline bg-surface text-on-surface hover:bg-surface-container",
-  danger: "bg-error text-white hover:brightness-110",
-  ghost: "text-primary hover:bg-primary-container",
+  primary:
+    "bg-primary text-white shadow-[0_6px_18px_rgb(15_107_68/0.35)] hover:bg-pine-800 hover:shadow-[0_8px_22px_rgb(15_107_68/0.4)] active:scale-[0.98]",
+  dark: "bg-pine-950 text-white hover:bg-pine-900 active:scale-[0.98]",
+  marigold:
+    "bg-marigold-300 text-pine-950 shadow-[0_6px_18px_rgb(233_163_25/0.4)] hover:brightness-105 active:scale-[0.98]",
+  secondary: "bg-primary-container text-on-primary-container hover:brightness-95 active:scale-[0.98]",
+  outline:
+    "border border-outline bg-white/80 text-on-surface hover:border-primary hover:text-primary active:scale-[0.98]",
+  danger: "bg-error text-white hover:brightness-110 active:scale-[0.98]",
+  ghost: "text-primary hover:bg-primary-container active:scale-[0.98]",
 };
 
 export function Button({ variant = "primary", className, children, ...rest }: ButtonProps) {
   return (
     <button
       className={cn(
-        "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50",
         VARIANTS[variant],
         className,
       )}
@@ -36,7 +41,14 @@ export function Button({ variant = "primary", className, children, ...rest }: Bu
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
-    <div className={cn("elev-1 rounded-lg border border-outline bg-white", className)}>{children}</div>
+    <div
+      className={cn(
+        "elev-1 rounded-lg border border-outline/80 bg-white",
+        className,
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -53,10 +65,10 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-medium">{label}</span>
+      <span className="mb-1.5 block text-sm font-semibold">{label}</span>
       {children}
       {error ? (
-        <span role="alert" className="mt-1 block text-sm text-error">
+        <span role="alert" className="mt-1 block text-sm font-medium text-error">
           {error}
         </span>
       ) : hint ? (
@@ -67,7 +79,7 @@ export function Field({
 }
 
 const INPUT_CLS =
-  "w-full rounded-md border border-outline bg-white px-3.5 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary";
+  "w-full rounded-lg border border-outline bg-white px-3.5 py-2.5 text-sm text-on-surface shadow-[inset_0_1px_2px_rgb(23_33_27/0.05)] placeholder:text-on-surface-variant/60 focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none";
 
 export function TextField(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cn(INPUT_CLS, props.className)} />;
@@ -81,7 +93,7 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={cn(INPUT_CLS, props.className)} />;
 }
 
-type Tone = "neutral" | "success" | "warning" | "error" | "info";
+type Tone = "neutral" | "success" | "warning" | "error" | "info" | "marigold";
 
 const TONES: Record<Tone, string> = {
   neutral: "bg-surface-container text-on-surface",
@@ -89,13 +101,14 @@ const TONES: Record<Tone, string> = {
   warning: "bg-warning-container text-warning",
   error: "bg-error-container text-error",
   info: "bg-info-container text-info",
+  marigold: "bg-marigold-300 text-pine-950",
 };
 
 export function Badge({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold",
         TONES[tone],
       )}
     >
@@ -116,8 +129,25 @@ const STATUS_TONE: Record<BookingStatus, Tone> = {
   disputed: "error",
 };
 
+const STATUS_DOT: Record<BookingStatus, string> = {
+  pending: "bg-warning",
+  "awaiting-worker": "bg-warning",
+  confirmed: "bg-info",
+  "en-route": "bg-info",
+  "in-progress": "bg-info",
+  "awaiting-confirmation": "bg-warning",
+  completed: "bg-success",
+  cancelled: "bg-on-surface-variant",
+  disputed: "bg-error",
+};
+
 export function StatusBadge({ status }: { status: BookingStatus }) {
-  return <Badge tone={STATUS_TONE[status]}>{STATUS_LABELS[status]}</Badge>;
+  return (
+    <Badge tone={STATUS_TONE[status]}>
+      <span aria-hidden="true" className={cn("size-1.5 rounded-full", STATUS_DOT[status])} />
+      {STATUS_LABELS[status]}
+    </Badge>
+  );
 }
 
 const VERIFY_LABELS: Record<VerificationState, string> = {
@@ -145,36 +175,76 @@ export function VerifyBadge({ state }: { state: VerificationState }) {
 export function Rating({ value, count }: { value: number; count?: number }) {
   return (
     <span className="inline-flex items-center gap-1 text-sm" aria-label={`Rated ${value} out of 5`}>
-      <Star size={15} className="fill-secondary text-secondary" aria-hidden="true" />
+      <Star size={15} className="fill-marigold-500 text-marigold-500" aria-hidden="true" />
       <strong>{value.toFixed(1)}</strong>
-      {count !== undefined && <span className="text-on-surface-variant">({count})</span>}
+      {count !== undefined && <span className="text-on-surface-variant">({count.toLocaleString()})</span>}
     </span>
   );
 }
 
 export function Price({ paisa, prefix = "" }: { paisa: number; prefix?: string }) {
-  if (paisa <= 0) return <span className="font-semibold">Custom quote</span>;
+  if (paisa <= 0) return <span className="font-display text-lg font-semibold">Custom quote</span>;
   return (
-    <span className="font-semibold">
+    <span className="font-display text-lg font-semibold tracking-tight">
       {prefix}
       {formatNPR(paisa)}
     </span>
   );
 }
 
-export function Avatar({ name, hue, size = 44 }: { name: string; hue: number; size?: number }) {
+export function Avatar({
+  name,
+  hue,
+  size = 44,
+  ring = false,
+}: {
+  name: string;
+  hue: number;
+  size?: number;
+  ring?: boolean;
+}) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-bold text-white"
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-full font-bold text-white",
+        ring && "ring-2 ring-marigold-300 ring-offset-2 ring-offset-white",
+      )}
       style={{
         width: size,
         height: size,
-        fontSize: size * 0.36,
-        backgroundColor: `hsl(${hue} 45% 38%)`,
+        fontSize: size * 0.34,
+        background: `linear-gradient(135deg, hsl(${hue} 50% 42%), hsl(${(hue + 30) % 360} 45% 30%))`,
       }}
     >
       {initials(name)}
+    </span>
+  );
+}
+
+/** Tinted icon tile with per-category hue. */
+export function ArtTile({
+  hue,
+  size = 44,
+  children,
+}: {
+  hue: number;
+  size?: number;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid shrink-0 place-items-center rounded-md"
+      style={{
+        width: size,
+        height: size,
+        color: `hsl(${hue} 55% 28%)`,
+        background: `linear-gradient(135deg, hsl(${hue} 70% 90%), hsl(${hue} 65% 80%))`,
+        boxShadow: `inset 0 0 0 1px hsl(${hue} 45% 70%)`,
+      }}
+    >
+      {children}
     </span>
   );
 }
@@ -189,7 +259,11 @@ export function Tabs<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div role="tablist" aria-label="Sections" className="flex flex-wrap gap-1 border-b border-outline">
+    <div
+      role="tablist"
+      aria-label="Sections"
+      className="flex flex-wrap gap-1 overflow-x-auto border-b-2 border-outline/70"
+    >
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -197,9 +271,9 @@ export function Tabs<T extends string>({
           aria-selected={value === t.id}
           onClick={() => onChange(t.id)}
           className={cn(
-            "cursor-pointer px-4 py-2.5 text-sm font-medium transition",
+            "cursor-pointer px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition",
             value === t.id
-              ? "border-b-2 border-primary text-primary"
+              ? "border-b-[3px] border-primary text-primary"
               : "text-on-surface-variant hover:text-on-surface",
           )}
         >
@@ -221,7 +295,7 @@ export function Dialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"
+      className="fixed inset-0 z-50 grid place-items-center bg-pine-950/55 p-4 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
     >
@@ -233,7 +307,7 @@ export function Dialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">{title}</h2>
+          <h2 className="font-display text-xl font-semibold">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close dialog"
@@ -259,7 +333,7 @@ export function EmptyState({
 }) {
   return (
     <div className="rounded-lg border border-dashed border-outline bg-surface-container/50 px-6 py-12 text-center">
-      <h3 className="text-base font-bold">{title}</h3>
+      <h3 className="font-display text-lg font-semibold">{title}</h3>
       <p className="mx-auto mt-1 max-w-md text-sm text-on-surface-variant">{body}</p>
       {action && <div className="mt-4">{action}</div>}
     </div>
@@ -270,16 +344,69 @@ export function SectionHead({
   eyebrow,
   title,
   body,
+  align = "left",
+  dark = false,
 }: {
   eyebrow: string;
   title: string;
   body?: string;
+  align?: "left" | "center";
+  dark?: boolean;
 }) {
   return (
-    <div className="max-w-2xl">
-      <p className="text-xs font-bold tracking-widest text-primary uppercase">{eyebrow}</p>
-      <h2 className="mt-1 text-2xl font-bold text-balance md:text-3xl">{title}</h2>
-      {body && <p className="mt-2 text-on-surface-variant">{body}</p>}
+    <div className={cn("max-w-2xl", align === "center" && "mx-auto text-center")}>
+      <p
+        className={cn(
+          "flex items-center gap-2 text-xs font-extrabold tracking-[0.18em] uppercase",
+          align === "center" && "justify-center",
+          dark ? "text-marigold-300" : "text-primary",
+        )}
+      >
+        <span aria-hidden="true" className={cn("h-px w-7", dark ? "bg-marigold-300" : "bg-primary")} />
+        {eyebrow}
+      </p>
+      <h2
+        className={cn(
+          "font-display mt-2 text-3xl font-semibold text-balance md:text-4xl",
+          dark ? "text-white" : "text-on-surface",
+        )}
+      >
+        {title}
+      </h2>
+      {body && (
+        <p className={cn("mt-3 leading-relaxed", dark ? "text-white/75" : "text-on-surface-variant")}>
+          {body}
+        </p>
+      )}
     </div>
+  );
+}
+
+/** Consistent inner-page hero band. */
+export function PageHero({
+  eyebrow,
+  title,
+  body,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  body?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="ring-band dotgrid-light border-b border-pine-900">
+      <div className="wrap py-12 md:py-16">
+        <p className="flex items-center gap-2 text-xs font-extrabold tracking-[0.18em] text-marigold-300 uppercase">
+          <span aria-hidden="true" className="h-px w-7 bg-marigold-300" />
+          {eyebrow}
+        </p>
+        <h1 className="font-display mt-2 max-w-3xl text-4xl font-semibold text-balance text-white md:text-5xl">
+          {title}
+        </h1>
+        {body && <p className="mt-3 max-w-2xl leading-relaxed text-white/75">{body}</p>}
+        {children && <div className="mt-6">{children}</div>}
+      </div>
+    </section>
   );
 }
