@@ -8,6 +8,7 @@ import { errorHandler, notFound } from "./middleware/error.js";
 import authRoutes from "./modules/auth.routes.js";
 import publicRoutes from "./modules/public.routes.js";
 import bookingRoutes from "./modules/bookings.routes.js";
+import paymentRoutes from "./modules/payments.routes.js";
 import workerRoutes from "./modules/worker.routes.js";
 
 export function createApp() {
@@ -33,6 +34,7 @@ export function createApp() {
   app.use("/api/admin", authRoutes);
   app.use("/api", publicRoutes);
   app.use("/api", bookingRoutes);
+  app.use("/api", paymentRoutes);
   app.use("/api", workerRoutes);
 
   app.use(notFound);

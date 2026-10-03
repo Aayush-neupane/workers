@@ -30,5 +30,5 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export const isProd = env.NODE_ENV === "production";
-export const esewaEnabled = env.ESEWA_MERCHANT_CODE !== "" && env.ESEWA_SECRET_KEY !== "";
-export const khaltiEnabled = env.KHALTI_PUBLIC_KEY !== "" && env.KHALTI_SECRET_KEY !== "";
+export const esewaEnabled = () => env.ESEWA_MERCHANT_CODE !== "" && env.ESEWA_SECRET_KEY !== "";
+export const khaltiEnabled = () => env.KHALTI_PUBLIC_KEY !== "" && env.KHALTI_SECRET_KEY !== "";
