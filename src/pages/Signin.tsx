@@ -145,8 +145,14 @@ function BrandPanel({ mode }: { mode: "signin" | "signup" }) {
 export default function Signin({ mode }: { mode: "signin" | "signup" }) {
   const navigate = useNavigate();
   const done = (role: Role, next: string | null) => {
-    if (next && next.startsWith("/") && !next.startsWith("//")) navigate(next);
-    else navigate(homeFor(role));
+    // Honor the return path only if the role may actually see it.
+    const ok =
+      next &&
+      next.startsWith("/") &&
+      !next.startsWith("//") &&
+      (next.startsWith("/admin") ? role === "admin" : true) &&
+      (next.startsWith("/worker") && !next.startsWith("/workers/") ? role === "worker" || role === "admin" : true);
+    navigate(ok && next ? next : homeFor(role));
   };
   const signup = mode === "signup";
 

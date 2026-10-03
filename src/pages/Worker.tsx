@@ -30,7 +30,7 @@ interface Earnings {
 }
 
 export default function Worker() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const [me, setMe] = useState<Worker | null>(null);
   const [requests, setRequests] = useState<Booking[]>([]);
   const [jobs, setJobs] = useState<Booking[]>([]);
@@ -120,6 +120,18 @@ export default function Worker() {
     >
       {loading ? (
         <SkeletonRows rows={4} />
+      ) : role === "admin" && !me ? (
+        <Card className="p-8 text-center">
+          <p className="font-display text-xl font-semibold">You&apos;re signed in as an admin</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-on-surface-variant">
+            The worker board needs a worker account. Manage pros from the control center instead.
+          </p>
+          <div className="mt-4">
+            <Link to="/admin">
+              <Button>Open control center</Button>
+            </Link>
+          </div>
+        </Card>
       ) : failed && !me ? (
         <Card className="p-8 text-center">
           <p className="font-display text-xl font-semibold">Couldn&apos;t load the worker board</p>
