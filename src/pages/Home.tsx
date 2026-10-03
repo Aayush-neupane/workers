@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
+import gsap from "gsap";
 import {
   ArrowRight,
   BadgeCheck,
@@ -10,6 +12,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { Avatar, Badge, Button, Card, Price, Rating, SectionHead } from "../components/ui";
+import { Reveal } from "../components/Reveal";
 import { CATEGORY_ICONS } from "../components/categoryIcons";
 import { CATEGORIES, REVIEWS, SERVICES, WORKERS } from "../data/mock";
 import { isEligibleWorker } from "../lib/booking";
@@ -56,12 +59,24 @@ const FAQS = [
 ];
 
 export default function Home() {
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    gsap.from("[data-hero] > *", {
+      y: 26,
+      opacity: 0,
+      duration: 0.6,
+      stagger: 0.09,
+      ease: "power2.out",
+      clearProps: "all",
+    });
+  }, []);
+
   return (
     <div className="fade-up">
       {/* Hero */}
       <section className="border-b border-outline bg-surface-container/50">
         <div className="wrap grid items-center gap-10 py-14 md:grid-cols-2 md:py-20">
-          <div>
+          <div data-hero>
             <Badge tone="success">
               <ShieldCheck size={13} aria-hidden="true" /> 100% verified professionals
             </Badge>
@@ -155,7 +170,7 @@ export default function Home() {
             All services →
           </Link>
         </div>
-        <div id="cats" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <Reveal id="cats" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {CATEGORIES.map((c) => {
             const Icon = CATEGORY_ICONS[c.icon] ?? Wrench;
             const count = SERVICES.filter((s) => s.categoryId === c.id).length;
@@ -176,7 +191,7 @@ export default function Home() {
               </Link>
             );
           })}
-        </div>
+        </Reveal>
       </section>
 
       {/* Popular services */}
@@ -187,7 +202,7 @@ export default function Home() {
             title="Popular right now"
             body="Real booking counts from across the valley. Prices shown are estimates — the final amount is always confirmed with you first."
           />
-          <div id="popular" className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <Reveal id="popular" className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {popular.map((s) => (
               <Link key={s.id} to={`/services/${s.id}`}>
                 <Card className="h-full p-5 transition hover:-translate-y-0.5 hover:border-primary">
@@ -203,7 +218,7 @@ export default function Home() {
                 </Card>
               </Link>
             ))}
-          </div>
+          </Reveal>
         </div>
       </section>
 
@@ -228,7 +243,7 @@ export default function Home() {
       {/* Pros */}
       <section className="wrap py-4" aria-labelledby="pros">
         <SectionHead eyebrow="Professionals" title="Meet verified pros" body="Public profiles show real ratings and completed-job counts. Private documents stay private." />
-        <div id="pros" className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Reveal id="pros" className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {pros.map((w) => (
             <Link key={w.id} to={`/workers/${w.id}`}>
               <Card className="h-full p-5 text-center transition hover:-translate-y-0.5 hover:border-primary">
@@ -243,7 +258,7 @@ export default function Home() {
               </Card>
             </Link>
           ))}
-        </div>
+        </Reveal>
       </section>
 
       {/* Reviews + rewards */}

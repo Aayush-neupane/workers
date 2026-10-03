@@ -1,6 +1,7 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { MapPin, Phone, Wrench } from "lucide-react";
+import { MapPin, Menu, Phone, Wrench, X } from "lucide-react";
 import { homeFor, useAuth } from "../lib/auth";
 import { Button } from "./ui";
 
@@ -15,6 +16,7 @@ const NAV = [
 export function Navbar() {
   const { role, name, signOut } = useAuth();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
   return (
     <header className="sticky top-0 z-40 border-b border-outline bg-surface/95 backdrop-blur">
       <div className="wrap flex h-16 items-center justify-between gap-4">
@@ -36,8 +38,16 @@ export function Navbar() {
           ))}
         </nav>
         <div className="flex items-center gap-2">
+          <button
+            className="grid size-10 cursor-pointer place-items-center rounded-md hover:bg-surface-container md:hidden"
+            aria-expanded={open}
+            aria-label={open ? "Close menu" : "Open menu"}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+          </button>
           {role ? (
-            <>
+            <div className="hidden items-center gap-2 sm:flex">
               <Link to={homeFor(role)}>
                 <Button variant="ghost">Dashboard</Button>
               </Link>
@@ -51,19 +61,42 @@ export function Navbar() {
               >
                 Sign out
               </Button>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="hidden items-center gap-2 sm:flex">
               <Link to="/signin">
                 <Button variant="ghost">Sign in</Button>
               </Link>
-              <Link to="/services" className="hidden sm:block">
+              <Link to="/services">
                 <Button>Book a service</Button>
               </Link>
-            </>
+            </div>
           )}
         </div>
       </div>
+      {open && (
+        <nav aria-label="Mobile" className="border-t border-outline bg-surface px-4 py-2 md:hidden">
+          {NAV.map((n) => (
+            <Link
+              key={n.to}
+              to={n.to}
+              onClick={() => setOpen(false)}
+              className="block rounded-md px-3 py-2.5 text-sm font-medium hover:bg-surface-container"
+            >
+              {n.label}
+            </Link>
+          ))}
+          {role ? (
+            <Link to={homeFor(role)} onClick={() => setOpen(false)} className="block rounded-md px-3 py-2.5 text-sm font-bold text-primary">
+              Dashboard
+            </Link>
+          ) : (
+            <Link to="/signin" onClick={() => setOpen(false)} className="block rounded-md px-3 py-2.5 text-sm font-bold text-primary">
+              Sign in
+            </Link>
+          )}
+        </nav>
+      )}
     </header>
   );
 }
@@ -133,8 +166,14 @@ export function Footer() {
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-white"
+      >
+        Skip to content
+      </a>
       <Navbar />
-      <div className="flex-1">{children}</div>
+      <main id="main" className="flex-1">{children}</main>
       <Footer />
     </div>
   );
