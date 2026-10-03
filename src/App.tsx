@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Shell } from "./components/layout";
 import { AuthProvider } from "./lib/auth";
 import { StoreProvider } from "./lib/store";
+import Admin from "./pages/Admin";
 import Book from "./pages/Book";
 import Confirm from "./pages/Confirm";
 import Dashboard from "./pages/Dashboard";
@@ -34,6 +35,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/track/:id" element={<Track />} />
               <Route path="/worker" element={<Worker />} />
+              <Route path="/admin" element={<Admin />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/rewards" element={<Rewards />} />
               <Route path="*" element={<NotFound />} />
