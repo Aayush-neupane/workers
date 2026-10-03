@@ -1,8 +1,17 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Search } from "lucide-react";
-import { Badge, Button, Card, EmptyState, Price, Rating, SectionHead } from "../components/ui";
-import { CATEGORY_ICONS } from "../components/categoryIcons";
+import {
+  ArtTile,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  PageHero,
+  Price,
+  Rating,
+} from "../components/ui";
+import { CATEGORY_HUES, CATEGORY_ICONS } from "../components/categoryIcons";
 import { CATEGORIES, SERVICES } from "../data/mock";
 import { PRICING_LABELS } from "../lib/pricing";
 
@@ -42,162 +51,143 @@ export default function Services() {
   }, [q, category, area, minRating, maxPrice, sort]);
 
   return (
-    <div className="wrap fade-up py-10">
-      <SectionHead
+    <div className="fade-up">
+      <PageHero
         eyebrow="Directory"
         title="Browse services"
         body="Every price is an honest estimate. The final amount is always confirmed with you before work starts."
-      />
-
-      <form
-        role="search"
-        className="mt-6 flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const v = new FormData(e.currentTarget).get("q");
-          setParams((p) => {
-            if (typeof v === "string" && v.trim()) p.set("q", v.trim());
-            else p.delete("q");
-            return p;
-          });
-        }}
       >
-        <label htmlFor="dir-search" className="sr-only">Search services</label>
-        <input
-          id="dir-search"
-          name="q"
-          defaultValue={q}
-          type="search"
-          placeholder="Search plumber, AC, painting…"
-          className="w-full rounded-md border border-outline bg-white px-4 py-2.5 text-sm"
-        />
-        <Button type="submit" aria-label="Search services">
-          <Search size={16} aria-hidden="true" /> Search
-        </Button>
-      </form>
+        <form
+          role="search"
+          className="flex max-w-xl gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const v = new FormData(e.currentTarget).get("q");
+            setParams((p) => {
+              if (typeof v === "string" && v.trim()) p.set("q", v.trim());
+              else p.delete("q");
+              return p;
+            });
+          }}
+        >
+          <label htmlFor="dir-search" className="sr-only">Search services</label>
+          <div className="relative flex-1">
+            <Search
+              size={16}
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-on-surface-variant"
+            />
+            <input
+              id="dir-search"
+              name="q"
+              defaultValue={q}
+              type="search"
+              placeholder="Search plumber, AC, painting…"
+              className="w-full rounded-lg border border-white/25 bg-white py-3 pr-4 pl-11 text-[15px] text-on-surface placeholder:text-on-surface-variant/70 focus:border-marigold-300 focus:ring-2 focus:ring-marigold-300/40 focus:outline-none"
+            />
+          </div>
+          <Button type="submit" variant="marigold">
+            Search
+          </Button>
+        </form>
+      </PageHero>
 
-      <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Filter by category">
-        {[{ id: "all", name: "All" }, ...CATEGORIES].map((c) => (
-          <button
-            key={c.id}
-            onClick={() =>
-              setParams((p) => {
-                if (c.id === "all") p.delete("category");
-                else p.set("category", c.id);
-                return p;
-              })
-            }
-            aria-pressed={category === c.id || (c.id === "all" && category === "all")}
-            className={`cursor-pointer rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${
-              (category === c.id || (c.id === "all" && category === "all"))
-                ? "border-primary bg-primary text-white"
-                : "border-outline bg-white hover:border-primary"
-            }`}
-          >
-            {c.name}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-4 grid gap-3 rounded-lg border border-outline bg-white p-4 sm:grid-cols-4">
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Max price</span>
-          <select
-            value={maxPrice}
-            onChange={(e) => setMaxPrice(e.target.value)}
-            className="w-full rounded-md border border-outline bg-white px-3 py-2"
-          >
-            <option value="100000">Up to Rs 1,000</option>
-            <option value="300000">Up to Rs 3,000</option>
-            <option value="1000000">Up to Rs 10,000</option>
-            <option value="99999999">Any price</option>
-          </select>
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Area</span>
-          <select
-            value={area}
-            onChange={(e) => setArea(e.target.value)}
-            className="w-full rounded-md border border-outline bg-white px-3 py-2"
-          >
-            <option value="all">All areas</option>
-            {AREAS.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Rating</span>
-          <select
-            value={minRating}
-            onChange={(e) => setMinRating(e.target.value)}
-            className="w-full rounded-md border border-outline bg-white px-3 py-2"
-          >
-            <option value="0">Any rating</option>
-            <option value="4.5">4.5 & up</option>
-            <option value="4.8">4.8 & up</option>
-          </select>
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Sort</span>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as Sort)}
-            className="w-full rounded-md border border-outline bg-white px-3 py-2"
-          >
-            <option value="popular">Most booked</option>
-            <option value="rating">Highest rated</option>
-            <option value="price-asc">Price: low to high</option>
-            <option value="price-desc">Price: high to low</option>
-          </select>
-        </label>
-      </div>
-
-      <p className="mt-6 text-sm text-on-surface-variant" role="status">
-        {results.length} service{results.length === 1 ? "" : "s"} found
-      </p>
-
-      {results.length === 0 ? (
-        <div className="mt-4">
-          <EmptyState
-            title="No services match"
-            body="Try widening the price range, clearing the area filter, or searching a simpler word like “clean” or “AC”."
-          />
-        </div>
-      ) : (
-        <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {results.map((s) => {
-            const cat = CATEGORIES.find((c) => c.id === s.categoryId);
-            const Icon = CATEGORY_ICONS[s.categoryId] ?? Search;
+      <div className="wrap py-8">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by category">
+          {[{ id: "all", name: "All" }, ...CATEGORIES].map((c) => {
+            const active = category === c.id || (c.id === "all" && category === "all");
             return (
-              <Link key={s.id} to={`/services/${s.id}`}>
-                <Card className="h-full p-5 transition hover:-translate-y-0.5 hover:border-primary">
-                  <div className="flex items-center gap-3">
-                    <span className="grid size-11 shrink-0 place-items-center rounded-md bg-primary-container text-on-primary-container">
-                      <Icon size={20} aria-hidden="true" />
-                    </span>
-                    <div>
-                      <h3 className="font-bold">{s.name}</h3>
-                      <p className="text-xs text-on-surface-variant">{cat?.name}</p>
-                    </div>
-                  </div>
-                  <p className="mt-2 line-clamp-2 text-sm text-on-surface-variant">{s.description}</p>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-sm">
-                      <Badge tone="info">{PRICING_LABELS[s.pricingModel]}</Badge>{" "}
-                      <Price paisa={s.basePricePaisa} prefix={s.basePricePaisa > 0 ? "from " : ""} />
-                    </span>
-                    <Rating value={s.rating} />
-                  </div>
-                  <p className="mt-2 text-xs text-on-surface-variant">
-                    {s.jobsDone.toLocaleString()} jobs · {s.areas.join(", ")}
-                  </p>
-                </Card>
-              </Link>
+              <button
+                key={c.id}
+                onClick={() =>
+                  setParams((p) => {
+                    if (c.id === "all") p.delete("category");
+                    else p.set("category", c.id);
+                    return p;
+                  })
+                }
+                aria-pressed={active}
+                className={`cursor-pointer rounded-lg border px-3.5 py-1.5 text-sm font-bold transition active:scale-95 ${
+                  active
+                    ? "border-pine-950 bg-pine-950 text-white"
+                    : "border-outline bg-white hover:border-pine-800 hover:text-pine-950"
+                }`}
+              >
+                {c.name}
+              </button>
             );
           })}
         </div>
-      )}
+
+        <Card className="mt-4 grid gap-3 p-4 sm:grid-cols-4">
+          {[
+            { label: "Max price", value: maxPrice, set: setMaxPrice, opts: [["100000", "Up to Rs 1,000"], ["300000", "Up to Rs 3,000"], ["1000000", "Up to Rs 10,000"], ["99999999", "Any price"]] },
+            { label: "Area", value: area, set: setArea, opts: [["all", "All areas"], ...AREAS.map((a): [string, string] => [a, a])] },
+            { label: "Rating", value: minRating, set: setMinRating, opts: [["0", "Any rating"], ["4.5", "4.5 & up"], ["4.8", "4.8 & up"]] },
+            { label: "Sort", value: sort, set: (v: string) => setSort(v as Sort), opts: [["popular", "Most booked"], ["rating", "Highest rated"], ["price-asc", "Price: low to high"], ["price-desc", "Price: high to low"]] },
+          ].map((f) => (
+            <label key={f.label} className="block text-sm">
+              <span className="mb-1 block font-semibold">{f.label}</span>
+              <select
+                value={f.value}
+                onChange={(e) => f.set(e.target.value)}
+                className="w-full rounded-lg border border-outline bg-white px-3 py-2"
+              >
+                {f.opts.map(([v, l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </Card>
+
+        <p className="mt-6 text-sm font-semibold text-on-surface-variant" role="status">
+          {results.length} service{results.length === 1 ? "" : "s"} found{q && <> for “{q}”</>}
+        </p>
+
+        {results.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState
+              title="No services match"
+              body="Try widening the price range, clearing the area filter, or searching a simpler word like “clean” or “AC”."
+            />
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {results.map((s) => {
+              const cat = CATEGORIES.find((c) => c.id === s.categoryId);
+              const Icon = CATEGORY_ICONS[s.categoryId] ?? Search;
+              const hue = CATEGORY_HUES[s.categoryId] ?? 150;
+              return (
+                <Link key={s.id} to={`/services/${s.id}`}>
+                  <Card className="elev-lift h-full p-5">
+                    <div className="flex items-center gap-3">
+                      <ArtTile hue={hue} size={48}>
+                        <Icon size={22} aria-hidden="true" />
+                      </ArtTile>
+                      <div>
+                        <h3 className="font-display text-[17px] leading-snug font-semibold">{s.name}</h3>
+                        <p className="text-xs font-semibold tracking-wide text-on-surface-variant uppercase">{cat?.name}</p>
+                      </div>
+                    </div>
+                    <p className="mt-2.5 line-clamp-2 text-sm leading-relaxed text-on-surface-variant">{s.description}</p>
+                    <div className="mt-3 flex items-center justify-between border-t border-outline/70 pt-3">
+                      <span className="flex items-center gap-2 text-sm">
+                        <Badge tone="info">{PRICING_LABELS[s.pricingModel]}</Badge>
+                        <Price paisa={s.basePricePaisa} prefix={s.basePricePaisa > 0 ? "from " : ""} />
+                      </span>
+                      <Rating value={s.rating} />
+                    </div>
+                    <p className="mt-2 text-xs font-medium text-on-surface-variant">
+                      {s.jobsDone.toLocaleString()} jobs · {s.areas.join(", ")}
+                    </p>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
