@@ -10,6 +10,8 @@ import publicRoutes from "./modules/public.routes.js";
 import bookingRoutes from "./modules/bookings.routes.js";
 import paymentRoutes from "./modules/payments.routes.js";
 import workerRoutes from "./modules/worker.routes.js";
+import adminRoutes from "./modules/admin.routes.js";
+import accountRoutes from "./modules/account.routes.js";
 
 export function createApp() {
   const app = express();
@@ -36,6 +38,8 @@ export function createApp() {
   app.use("/api", bookingRoutes);
   app.use("/api", paymentRoutes);
   app.use("/api", workerRoutes);
+  app.use("/api", accountRoutes);
+  app.use("/api", adminRoutes);
 
   app.use(notFound);
   app.use(errorHandler);
