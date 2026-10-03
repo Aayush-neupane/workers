@@ -6,7 +6,8 @@ import { ah } from "../middleware/async.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
-router.use(requireAuth, requireRole("ADMIN"));
+// Scoped per-route (never router.use): see worker.routes.ts.
+const adminOnly = [requireAuth, requireRole("ADMIN")];
 
 async function audit(actorId: string, action: string, detail: string) {
   await query(`INSERT INTO audit_log(actor_id, actor_role, action, detail) VALUES ($1, 'ADMIN', $2, $3)`, [
@@ -19,6 +20,7 @@ async function audit(actorId: string, action: string, detail: string) {
 // ---------- Workers ----------
 router.get(
   "/admin/workers",
+  ...adminOnly,
   ah(async (req, res) => {
     const state = typeof req.query.state === "string" ? req.query.state : "";
     const q = typeof req.query.q === "string" ? req.query.q : "";
@@ -52,6 +54,7 @@ const verifySchema = z.object({
 router.post(
   "/admin/workers/:id/verify",
   validate(verifySchema),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof verifySchema>;
     const client = await pool.connect();
@@ -86,6 +89,7 @@ router.post(
 router.post(
   "/admin/workers/:id/activate",
   validate(z.object({ active: z.boolean() })),
+  ...adminOnly,
   ah(async (req, res) => {
     const { active } = req.body as { active: boolean };
     const r = await query(`UPDATE worker_profiles SET is_active = $1, updated_at = now() WHERE user_id = $2`, [
@@ -111,6 +115,7 @@ const categorySchema = z.object({
 router.post(
   "/admin/categories",
   validate(categorySchema),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof categorySchema>;
     try {
@@ -130,6 +135,7 @@ router.post(
 router.put(
   "/admin/categories/:id",
   validate(categorySchema.partial()),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as Partial<z.infer<typeof categorySchema>>;
     const sets: string[] = [];
@@ -175,6 +181,7 @@ const serviceSchema = z.object({
 router.post(
   "/admin/services",
   validate(serviceSchema),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof serviceSchema>;
     const r = await query(
@@ -191,6 +198,7 @@ router.post(
 router.put(
   "/admin/services/:id",
   validate(serviceSchema.partial()),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as Partial<z.infer<typeof serviceSchema>>;
     const sets: string[] = [];
@@ -239,6 +247,7 @@ router.get(
 router.put(
   "/admin/wards",
   validate(z.object({ wards: z.array(z.boolean()).length(10) })),
+  ...adminOnly,
   ah(async (req, res) => {
     const { wards } = req.body as { wards: boolean[] };
     for (let i = 0; i < 10; i++) {
@@ -255,6 +264,7 @@ router.put(
 // ---------- Bookings admin ----------
 router.get(
   "/admin/bookings",
+  ...adminOnly,
   ah(async (req, res) => {
     const status = typeof req.query.status === "string" ? req.query.status : "";
     const r = await query(
@@ -289,6 +299,7 @@ router.post(
     categoryId: z.string().uuid().nullable().default(null),
     rateBps: z.number().int().min(0).max(10000),
   })),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as { workerId: string | null; categoryId: string | null; rateBps: number };
     if (!f.workerId && !f.categoryId) return res.status(400).json({ error: "Scope required" });
@@ -323,6 +334,7 @@ router.post(
     kind: z.enum(["payout", "collection"]),
     note: z.string().max(300).default(""),
   })),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as { workerId: string; amountPaisa: number; kind: "payout" | "collection"; note: string };
     // Collections settle outstanding cash commissions.
@@ -382,6 +394,7 @@ router.post(
     amountPaisa: z.number().int().positive(),
     reason: z.string().max(300).default(""),
   })),
+  ...adminOnly,
   ah(async (req, res) => {
     const f = req.body as { paymentId: string; amountPaisa: number; reason: string };
     const client = await (await import("../db/pool.js")).pool.connect();
@@ -468,6 +481,7 @@ router.put(
     redeemPoints: z.number().int().min(1).optional(),
     redeemDiscountPaisa: z.number().int().min(0).optional(),
   })),
+  ...adminOnly,
   ah(async (req, res) => {
     const patch = req.body as Record<string, number>;
     await query(
@@ -493,6 +507,7 @@ router.get(
 // ---------- Support admin ----------
 router.get(
   "/admin/tickets",
+  ...adminOnly,
   ah(async (req, res) => {
     const status = typeof req.query.status === "string" ? req.query.status : "";
     const r = await query(
@@ -511,6 +526,7 @@ router.get(
 router.post(
   "/admin/tickets/:id/reply",
   validate(z.object({ body: z.string().trim().min(1).max(2000) })),
+  ...adminOnly,
   ah(async (req, res) => {
     const { body } = req.body as { body: string };
     const t = await query(`SELECT id FROM support_tickets WHERE id = $1`, [req.params.id]);
@@ -530,6 +546,7 @@ router.post(
 router.post(
   "/admin/tickets/:id/status",
   validate(z.object({ status: z.enum(["open", "in-progress", "resolved"]) })),
+  ...adminOnly,
   ah(async (req, res) => {
     const { status } = req.body as { status: string };
     const r = await query(`UPDATE support_tickets SET status = $1, updated_at = now() WHERE id = $2`, [
@@ -584,6 +601,7 @@ router.get(
 
 router.get(
   "/admin/audit",
+  ...adminOnly,
   ah(async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 100), 200);
     const r = await query(

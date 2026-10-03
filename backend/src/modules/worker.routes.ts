@@ -7,11 +7,14 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { calcCommission } from "../utils/money.js";
 
 const router = Router();
-router.use(requireAuth, requireRole("WORKER", "ADMIN"));
+// Scoped per-route (never router.use): a router-level role gate would reject
+// every /api/* request that passes through this router, even for other routers.
+const workerOnly = [requireAuth, requireRole("WORKER", "ADMIN")];
 
 // Open assignment requests in my service categories.
 router.get(
   "/worker/requests",
+  ...workerOnly,
   ah(async (req, res) => {
     const r = await query(
       `SELECT b.*, s.name AS service_name
@@ -28,6 +31,7 @@ router.get(
 // Jobs assigned to me.
 router.get(
   "/worker/jobs",
+  ...workerOnly,
   ah(async (req, res) => {
     const r = await query(
       `SELECT b.*, s.name AS service_name
@@ -42,6 +46,7 @@ router.get(
 // Earnings with commission split + settlements.
 router.get(
   "/worker/earnings",
+  ...workerOnly,
   ah(async (req, res) => {
     const r = await query(
       `SELECT b.id, b.booking_no, b.final_paisa, b.commission_bps, b.payment_method,
@@ -73,6 +78,7 @@ router.get(
 
 router.get(
   "/worker/availability",
+  ...workerOnly,
   ah(async (req, res) => {
     const r = await query(`SELECT dow, is_open FROM worker_availability WHERE user_id = $1`, [
       req.user!.id,
@@ -90,6 +96,7 @@ const availSchema = z.object({
 router.put(
   "/worker/availability",
   validate(availSchema),
+  ...workerOnly,
   ah(async (req, res) => {
     const { days } = req.body as z.infer<typeof availSchema>;
     for (let dow = 0; dow < 7; dow++) {

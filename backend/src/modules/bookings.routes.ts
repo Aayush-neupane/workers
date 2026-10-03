@@ -25,7 +25,7 @@ const createSchema = z.object({
   serviceId: z.string().uuid(),
   addressId: z.string().uuid().optional(),
   addressText: z.string().trim().max(300).optional(),
-  slot: z.string().datetime(),
+  slot: z.string().datetime({ offset: true }),
   instructions: z.string().trim().min(10).max(2000),
   paymentMethod: z.enum(["cash", "esewa", "khalti"]),
   useRewards: z.boolean().default(false),
