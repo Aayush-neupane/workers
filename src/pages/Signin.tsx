@@ -111,7 +111,9 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
               <p className="font-bold">Demo accounts (seeded):</p>
               <ul className="mt-1 space-y-1">
                 <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("customer@demo.local", "Customer123!")}>Customer</button> — customer@demo.local</li>
+                <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("gita@demo.local", "Customer123!")}>Customer+</button> — gita@demo.local</li>
                 <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("ram@workers.local", "Worker123!")}>Worker</button> — ram@workers.local</li>
+                <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("deepak@workers.local", "Worker123!")}>Worker+</button> — deepak@workers.local</li>
                 <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("admin@workers.local", "ChangeMe123!")}>Admin</button> — admin@workers.local</li>
               </ul>
             </div>

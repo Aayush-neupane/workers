@@ -241,5 +241,256 @@ if (tix.rowCount === 0) {
     ($1, 'Reward credit', '+8 points for BK-1042.')`, [customerId]);
 }
 
+/* ---------------- Wave 2: more users, workers, bookings ---------------- */
+
+async function ensureUser(email: string, name: string, phone: string, password: string, role: string): Promise<string> {
+  const existing = await query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [email]);
+  if (existing.rowCount > 0) return existing.rows[0].id;
+  const hash = await bcrypt.hash(password, 10);
+  const u = await query<{ id: string }>(
+    `INSERT INTO users(email, password_hash, name, phone) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [email, hash, name, phone],
+  );
+  await query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+    u.rows[0].id,
+    role === "WORKER" ? workerRole : customerRole,
+  ]);
+  return u.rows[0].id;
+}
+
+async function ensureWorker(
+  email: string, name: string, phone: string, bio: string, years: number, hue: number,
+  cats: readonly string[], state: "verified" | "under-review" | "suspended", active: boolean,
+) {
+  const uid = await ensureUser(email, name, phone, "Worker123!", "WORKER");
+  await query(
+    `INSERT INTO worker_profiles(user_id, bio, years_exp, areas, avatar_hue, verification_state, is_active)
+     VALUES ($1, $2, $3, '{Damak}', $4, $5, $6)
+     ON CONFLICT (user_id) DO NOTHING`,
+    [uid, bio, years, hue, state, active],
+  );
+  for (const slug of cats) {
+    const sid = await query<{ id: string }>(`SELECT id FROM services WHERE category_id = $1`, [catIds[slug]]);
+    for (const row of sid.rows) {
+      await query(`INSERT INTO worker_services(worker_user_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+        uid,
+        row.id,
+      ]);
+    }
+  }
+  // Default availability Mon-Sat.
+  for (let dow = 1; dow <= 6; dow++) {
+    await query(
+      `INSERT INTO worker_availability(user_id, dow, is_open) VALUES ($1, $2, true) ON CONFLICT DO NOTHING`,
+      [uid, dow],
+    );
+  }
+  workerIds[name] = uid;
+  return uid;
+}
+
+await ensureWorker("deepak@workers.local", "Deepak Chaudhary", "9852600021",
+  "Refrigeration and HVAC technician. Gas handling certified, 90-day warranty on every repair.", 8, 200,
+  ["appliance", "ac"], "verified", true);
+await ensureWorker("sunita@workers.local", "Sunita Tamang", "9852600022",
+  "Home cleaning lead with a trained 2-person crew. Pet-friendly products on request.", 4, 300,
+  ["cleaning"], "verified", true);
+await ensureWorker("hari@workers.local", "Hari Prasad", "9852600023",
+  "Pump mechanic and mason. Motors, tiling and waterproofing with level-checked finish.", 12, 30,
+  ["mechanical", "masonry"], "verified", true);
+await ensureWorker("nabin@workers.local", "Nabin KC", "9852600024",
+  "Network field tech. Home Wi-Fi surveys, mesh setups and small-office LAN.", 5, 250,
+  ["network", "electrical"], "verified", true);
+await ensureWorker("kamal@workers.local", "Kamal BK", "9852600025",
+  "Pest control trainee. Documents submitted, reference check in progress.", 2, 90,
+  ["pest", "maintenance"], "under-review", false);
+await ensureWorker("manoj@workers.local", "Manoj Limbu", "9852600026",
+  "Suspended pending complaint resolution. Historic jobs remain visible.", 4, 0,
+  ["mechanical"], "suspended", false);
+
+const gita = await ensureUser("gita@demo.local", "Gita Sharma", "9852600031", "Customer123!", "CUSTOMER");
+const prakash = await ensureUser("prakash@demo.local", "Prakash Limbu", "9852600032", "Customer123!", "CUSTOMER");
+const mina = await ensureUser("mina@demo.local", "Mina Rai", "9852600033", "Customer123!", "CUSTOMER");
+
+async function ensureAddress(uid: string, label: string, line: string, phone: string) {
+  await query(
+    `INSERT INTO addresses(user_id, label, line, city, phone)
+     SELECT $1, $2, $3, 'Damak', $4 WHERE NOT EXISTS
+     (SELECT 1 FROM addresses WHERE user_id = $1 AND label = $2)`,
+    [uid, label, line, phone],
+  );
+}
+
+await ensureAddress(gita, "Home", "Damak-3, Campus Chowk, House 7", "9852600031");
+await ensureAddress(prakash, "Home", "Damak-7, Jyoti Chowk", "9852600032");
+await ensureAddress(prakash, "Farm", "Damak-9, Beldangi Road", "9852600032");
+await ensureAddress(mina, "Home", "Damak-1, Station Road, House 3", "9852600033");
+
+async function addressId(uid: string, label: string): Promise<string> {
+  return (
+    await query<{ id: string }>(`SELECT id FROM addresses WHERE user_id = $1 AND label = $2`, [uid, label])
+  ).rows[0].id;
+}
+
+const WAVE2 = [
+  // no, customer, service, workerName|null, status, addrLabel, slot, instructions, estimate, final, method, pay, events
+  ["BK-2001", "Gita Sharma", "Split AC Deep Service", "Deepak Chaudhary", "completed", "Home", "2026-09-22T10:00:00+05:45", "Living room split AC, weak cooling.", 150000, 150000, "esewa", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2002", "Gita Sharma", "Full Home Deep Clean", "Sunita Tamang", "completed", "Home", "2026-09-25T09:00:00+05:45", "2BHK full clean before Dashain guests.", 350000, 380000, "cash", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2003", "Prakash Limbu", "Water Pump & Motor Repair", "Hari Prasad", "in-progress", "Farm", "2026-10-03T10:00:00+05:45", "Boring pump humming, no water.", 100000, null, "cash", "unpaid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""]]],
+  ["BK-2004", "Prakash Limbu", "Bathroom Tiling (per sq ft)", "Hari Prasad", "confirmed", "Home", "2026-10-06T09:00:00+05:45", "Small bathroom floor retiling.", 140000, null, "cash", "unpaid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""]]],
+  ["BK-2005", "Mina Rai", "Home Wi-Fi Setup & Optimization", "Nabin KC", "completed", "Home", "2026-09-27T15:00:00+05:45", "No signal in kitchen and store room.", 120000, 120000, "khalti", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2006", "Mina Rai", "General Pest Treatment (2BHK)", null, "awaiting-worker", "Home", "2026-10-07T10:00:00+05:45", "Cockroaches in kitchen at night.", 280000, null, "cash", "unpaid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""]]],
+  ["BK-2007", "Gita Sharma", "Room Painting (per room)", "Anita Karki", "completed", "Home", "2026-09-29T09:00:00+05:45", "Bedroom repaint, light green.", 750000, 750000, "esewa", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2008", "Prakash Limbu", "Tap & Mixer Repair", null, "cancelled", "Home", "2026-09-26T10:00:00+05:45", "Bathroom tap leaking.", 80000, null, "cash", "unpaid", [["pending", "customer", ""], ["cancelled", "customer", "Fixed by neighbour"]]],
+  ["BK-2009", "Mina Rai", "Refrigerator Repair", "Deepak Chaudhary", "disputed", "Home", "2026-10-01T11:00:00+05:45", "Fridge icing up in fresh-food section.", 90000, 130000, "cash", "unpaid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["in-progress", "worker", ""], ["disputed", "customer", "Extra part charged without approval"]]],
+  ["BK-2010", "Prakash Limbu", "Handyman Visit (half day)", "Manoj Limbu", "completed", "Farm", "2026-09-18T09:00:00+05:45", "Gate hinges, shed roofing sheets, tap washers.", 180000, 180000, "cash", "paid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""], ["completed", "customer", ""]]],
+  ["BK-2011", "Gita Sharma", "Switch, Socket & MCB Repair", "Bikash Thapa", "awaiting-confirmation", "Home", "2026-10-02T14:00:00+05:45", "Two dead sockets in bedrooms.", 60000, 75000, "cash", "unpaid", [["pending", "customer", ""], ["awaiting-worker", "admin", ""], ["confirmed", "worker", ""], ["en-route", "worker", ""], ["in-progress", "worker", ""], ["awaiting-confirmation", "worker", ""]]],
+] as const;
+
+const custByName: Record<string, string> = {
+  "Gita Sharma": gita,
+  "Prakash Limbu": prakash,
+  "Mina Rai": mina,
+};
+
+for (const b of WAVE2) {
+  const [no, cname, svcName, wName, status, addrLabel, slot, instr, est, fin, method, payStatus, events] = b;
+  const exists = await query(`SELECT id FROM bookings WHERE booking_no = $1`, [no]);
+  if (exists.rowCount > 0) continue;
+  const cid = custByName[cname as string];
+  const svc = svcIds[svcName as string];
+  const catBps = (
+    await query<{ commission_bps: number }>(
+      `SELECT c.commission_bps FROM services s JOIN categories c ON c.id = s.category_id WHERE s.id = $1`,
+      [svc],
+    )
+  ).rows[0].commission_bps;
+  const wid = wName ? (workerIds[wName as string] ?? null) : null;
+  const aid = await addressId(cid, addrLabel as string);
+  const addrLine = (
+    await query<{ line: string }>(`SELECT line FROM addresses WHERE id = $1`, [aid])
+  ).rows[0].line;
+  const ins = await query<{ id: string }>(
+    `INSERT INTO bookings(booking_no, customer_id, service_id, worker_id, status, address_id,
+                          address_text, slot, instructions, estimate_paisa, final_paisa,
+                          payment_method, payment_status, commission_bps, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now() - interval '3 days') RETURNING id`,
+    [no, cid, svc, wid, status, aid, `${addrLine}, Damak`, slot, instr, est, fin, method, payStatus, catBps],
+  );
+  const bid = ins.rows[0].id;
+  for (const [st, by, note] of events as readonly (readonly [string, string, string])[]) {
+    await query(
+      `INSERT INTO booking_events(booking_id, status, by_role, note, created_at) VALUES ($1,$2,$3,$4, now() - interval '3 days')`,
+      [bid, st, by, note],
+    );
+  }
+  await query(`INSERT INTO payments(booking_id, provider, amount_paisa, status) VALUES ($1,$2,$3,$4)`, [
+    bid,
+    method,
+    (fin ?? est) as number,
+    payStatus === "paid" ? "verified" : "pending",
+  ]);
+  if (status === "completed" && fin !== null) {
+    const f = fin as number;
+    const comm = Math.floor((f * catBps) / 10000);
+    await query(
+      `INSERT INTO commission_ledger(booking_id, total_paisa, commission_paisa, worker_paisa, rate_bps, is_settled)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (booking_id) DO NOTHING`,
+      [bid, f, comm, f - comm, catBps, method === "esewa" || method === "khalti"],
+    );
+    const pts = Math.floor(f / 10000);
+    if (pts > 0) {
+      await query(
+        `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+         VALUES ($1, $2, 'earn', $3 || ' completed', $4) ON CONFLICT DO NOTHING`,
+        [cid, pts, no, bid],
+      );
+    }
+  }
+}
+
+// Gita redeems once (has 15+38+75 = 128 points).
+{
+  const bal = await query<{ pts: number }>(
+    `SELECT COALESCE(SUM(points),0)::int AS pts FROM reward_ledger WHERE user_id = $1`, [gita],
+  );
+  if (bal.rows[0].pts >= 100) {
+    const has = await query(`SELECT id FROM reward_ledger WHERE user_id = $1 AND kind = 'redeem' LIMIT 1`, [gita]);
+    if (has.rowCount === 0) {
+      await query(`INSERT INTO reward_ledger(user_id, points, kind, reason) VALUES ($1, -100, 'redeem', 'Discount used')`, [gita]);
+    }
+  }
+}
+
+// Reviews for newly completed jobs.
+const WAVE_REVIEWS = [
+  ["BK-2001", "Deepak Chaudhary", "Gita Sharma", 5, "Gas pressure checked, cooling perfect now. Clean work."],
+  ["BK-2002", "Sunita Tamang", "Gita Sharma", 5, "Kitchen looks brand new. The crew was polite and thorough."],
+  ["BK-2005", "Nabin KC", "Mina Rai", 4, "Wi-Fi reaches every room now. Took a bit longer than quoted."],
+  ["BK-2007", "Anita Karki", "Gita Sharma", 5, "Flawless finish, zero paint splatter anywhere."],
+  ["BK-2010", "Manoj Limbu", "Prakash Limbu", 3, "Work okay, but arrived two hours late without notice."],
+] as const;
+
+for (const [no, wName, cname, rating, text] of WAVE_REVIEWS) {
+  const bk = await query<{ id: string }>(`SELECT id FROM bookings WHERE booking_no = $1`, [no]);
+  if (bk.rowCount === 0) continue;
+  await query(
+    `INSERT INTO reviews(booking_id, worker_user_id, customer_id, rating, text)
+     VALUES ($1, $2, $3, $4, $5) ON CONFLICT (booking_id) DO NOTHING`,
+    [bk.rows[0].id, workerIds[wName as string], custByName[cname as string], rating, text],
+  );
+}
+
+// Extra tickets + notifications.
+async function ensureTicket(email: string, subject: string, status: string, msgs: [string, string][]) {
+  const u = await query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [email]);
+  const uid = u.rows[0].id;
+  const ex = await query(`SELECT id FROM support_tickets WHERE user_id = $1 AND subject = $2`, [uid, subject]);
+  if (ex.rowCount > 0) return;
+  const t = await query<{ id: string }>(
+    `INSERT INTO support_tickets(user_id, subject, status) VALUES ($1, $2, $3) RETURNING id`,
+    [uid, subject, status],
+  );
+  for (const [from, body] of msgs) {
+    await query(`INSERT INTO ticket_messages(ticket_id, from_role, body) VALUES ($1, $2, $3)`, [t.rows[0].id, from, body]);
+  }
+}
+
+await ensureTicket("gita@demo.local", "AC cooling weak again after BK-2001", "open", [
+  ["customer", "The same AC is cooling less just a week after service."],
+]);
+await ensureTicket("prakash@demo.local", "Invoice copy for BK-2004", "resolved", [
+  ["customer", "Need a VAT invoice for the tiling job for my records."],
+  ["support", "Invoice emailed. Let us know if you need anything else."],
+]);
+await ensureTicket("mina@demo.local", "Reschedule pest visit BK-2006", "in-progress", [
+  ["customer", "Can we move the pest treatment to next week?"],
+  ["support", "Sure — tell us a day and we will reassign the slot."],
+]);
+
+for (const [email, title, body] of [
+  ["gita@demo.local", "Reward credit", "+75 points for BK-2007."],
+  ["prakash@demo.local", "Worker assigned", "Hari Prasad accepted BK-2003."],
+  ["mina@demo.local", "Payment received", "Khalti payment for BK-2005 confirmed."],
+] as const) {
+  const u = await query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [email]);
+  const ex = await query(`SELECT id FROM notifications WHERE user_id = $1 AND title = $2 LIMIT 1`, [u.rows[0].id, title]);
+  if (ex.rowCount === 0) {
+    await query(`INSERT INTO notifications(user_id, title, body) VALUES ($1, $2, $3)`, [u.rows[0].id, title, body]);
+  }
+}
+
+// BK-1042 cash commission was seeded settled — back it with a settlement row.
+{
+  const ram = workerIds["Ram Shrestha"];
+  const ex = await query(`SELECT id FROM settlements WHERE worker_user_id = $1 AND kind = 'collection' LIMIT 1`, [ram]);
+  if (ex.rowCount === 0) {
+    await query(
+      `INSERT INTO settlements(worker_user_id, amount_paisa, kind, note) VALUES ($1, 12000, 'collection', 'Cash commission for BK-1042')`,
+      [ram],
+    );
+  }
+}
+
 console.log("[db] seed-demo ok");
 await pool.end();
