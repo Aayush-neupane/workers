@@ -26,9 +26,9 @@ export function Navbar() {
             Every pro background-checked before their first job
           </p>
           <p className="hidden items-center gap-1.5 sm:flex">
-            <Phone size={12} aria-hidden="true" /> 01-5900000
+            <Phone size={12} aria-hidden="true" /> 023-580000
             <span aria-hidden="true" className="mx-1 text-white/30">·</span>
-            <MapPin size={12} aria-hidden="true" /> Kathmandu Valley
+            <MapPin size={12} aria-hidden="true" /> Damak, Jhapa
           </p>
         </div>
       </div>
@@ -135,15 +135,15 @@ export function Footer() {
             <span className="font-display text-2xl font-semibold text-white">Workers</span>
           </p>
           <p className="mt-4 max-w-xs text-sm leading-relaxed">
-            Nepal&apos;s verified home-services marketplace. Every professional is
+            Damak&apos;s verified home-services marketplace. Every professional is
             background-checked by our team before their first job — or they never
             get one.
           </p>
           <p className="mt-4 flex items-center gap-1.5 text-sm">
-            <MapPin size={15} className="text-marigold-300" aria-hidden="true" /> Jawalakhel, Lalitpur
+            <MapPin size={15} className="text-marigold-300" aria-hidden="true" /> Damak-5, Himal Chowk, Jhapa
           </p>
           <p className="mt-1 flex items-center gap-1.5 text-sm">
-            <Phone size={15} className="text-marigold-300" aria-hidden="true" /> 01-5900000 · 9 AM – 8 PM
+            <Phone size={15} className="text-marigold-300" aria-hidden="true" /> 023-580000 · 9 AM – 8 PM
           </p>
         </div>
         <nav aria-label="Services">

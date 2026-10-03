@@ -14,15 +14,14 @@ import {
 import { CATEGORY_HUES, CATEGORY_ICONS } from "../components/categoryIcons";
 import { CATEGORIES, SERVICES } from "../data/mock";
 import { PRICING_LABELS } from "../lib/pricing";
-
-const AREAS = ["Kathmandu", "Lalitpur", "Bhaktapur", "Kirtipur"];
+import type { PricingModel } from "../lib/types";
 
 type Sort = "popular" | "price-asc" | "price-desc" | "rating";
 
 export default function Services() {
   const [params, setParams] = useSearchParams();
   const [maxPrice, setMaxPrice] = useState("1000000");
-  const [area, setArea] = useState("all");
+  const [model, setModel] = useState("all");
   const [minRating, setMinRating] = useState("0");
   const [sort, setSort] = useState<Sort>("popular");
 
@@ -33,7 +32,7 @@ export default function Services() {
     const needle = q.trim().toLowerCase();
     const filtered = SERVICES.filter((s) => {
       if (category !== "all" && s.categoryId !== category) return false;
-      if (area !== "all" && !s.areas.includes(area)) return false;
+      if (model !== "all" && s.pricingModel !== (model as PricingModel)) return false;
       if (s.rating < Number(minRating)) return false;
       if (s.basePricePaisa > Number(maxPrice)) return false;
       if (needle) {
@@ -48,7 +47,7 @@ export default function Services() {
       if (sort === "rating") return b.rating - a.rating;
       return b.jobsDone - a.jobsDone;
     });
-  }, [q, category, area, minRating, maxPrice, sort]);
+  }, [q, category, model, minRating, maxPrice, sort]);
 
   return (
     <div className="fade-up">
@@ -122,7 +121,7 @@ export default function Services() {
         <Card className="mt-4 grid gap-3 p-4 sm:grid-cols-4">
           {[
             { label: "Max price", value: maxPrice, set: setMaxPrice, opts: [["100000", "Up to Rs 1,000"], ["300000", "Up to Rs 3,000"], ["1000000", "Up to Rs 10,000"], ["99999999", "Any price"]] },
-            { label: "Area", value: area, set: setArea, opts: [["all", "All areas"], ...AREAS.map((a): [string, string] => [a, a])] },
+            { label: "Pricing", value: model, set: setModel, opts: [["all", "All pricing"], ...Object.entries(PRICING_LABELS)] },
             { label: "Rating", value: minRating, set: setMinRating, opts: [["0", "Any rating"], ["4.5", "4.5 & up"], ["4.8", "4.8 & up"]] },
             { label: "Sort", value: sort, set: (v: string) => setSort(v as Sort), opts: [["popular", "Most booked"], ["rating", "Highest rated"], ["price-asc", "Price: low to high"], ["price-desc", "Price: high to low"]] },
           ].map((f) => (
@@ -178,9 +177,9 @@ export default function Services() {
                       </span>
                       <Rating value={s.rating} />
                     </div>
-                    <p className="mt-2 text-xs font-medium text-on-surface-variant">
-                      {s.jobsDone.toLocaleString()} jobs · {s.areas.join(", ")}
-                    </p>
+                  <p className="mt-2 text-xs font-medium text-on-surface-variant">
+                    {s.jobsDone.toLocaleString()} jobs · Damak
+                  </p>
                   </Card>
                 </Link>
               );

@@ -44,8 +44,8 @@ export default function Support() {
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Card className="p-5">
           <p className="font-bold">Call us</p>
-          <p className="mt-1 text-2xl font-bold text-primary">01-5900000</p>
-          <p className="text-sm text-on-surface-variant">Jawalakhel, Lalitpur · Sun–Sat</p>
+          <p className="font-display mt-1 text-3xl font-semibold text-primary">023-580000</p>
+          <p className="text-sm text-on-surface-variant">Damak-5, Himal Chowk · Sun–Sat</p>
         </Card>
         <Card className="p-5">
           <p className="font-bold">Emergencies</p>

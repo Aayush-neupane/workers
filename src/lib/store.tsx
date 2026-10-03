@@ -57,11 +57,11 @@ export function nextBookingId(existing: Booking[]): string {
 export function StoreProvider({ children }: { children: ReactNode }) {
   // Seed data lives in state so every demo role can act on it; persisted locally.
   const [bookings, setBookings] = useState<Booking[]>(() => load("wk-bookings-v2", BOOKINGS));
-  const [addresses, setAddresses] = useState<Address[]>(() => load("wk-addresses", ADDRESSES));
+  const [addresses, setAddresses] = useState<Address[]>(() => load("wk-addresses2", ADDRESSES));
   const [rewardTxs, setRewardTxs] = useState<RewardTx[]>(() => load("wk-rewards", REWARDS));
 
   useEffect(() => save("wk-bookings-v2", bookings), [bookings]);
-  useEffect(() => save("wk-addresses", addresses), [addresses]);
+  useEffect(() => save("wk-addresses2", addresses), [addresses]);
   useEffect(() => save("wk-rewards", rewardTxs), [rewardTxs]);
 
   const value = useMemo<StoreValue>(() => {

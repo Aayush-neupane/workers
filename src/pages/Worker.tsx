@@ -250,7 +250,7 @@ export default function Worker() {
               </button>
             ))}
           </div>
-          <p className="mt-3 text-sm text-on-surface-variant">Working hours 9 AM – 6 PM, Kathmandu time.</p>
+          <p className="mt-3 text-sm text-on-surface-variant">Working hours 9 AM – 6 PM, Damak time. Slots are offered on open days only.</p>
         </Card>
       )}
 

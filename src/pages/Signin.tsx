@@ -62,7 +62,7 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
               <TextField {...register("name")} placeholder="Aayush Neupane" autoComplete="name" />
             </Field>
             <Field label="Phone" error={errors.phone?.message}>
-              <TextField {...register("phone")} placeholder="9851000000" inputMode="tel" autoComplete="tel" />
+              <TextField {...register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
             </Field>
             <Field label="Explore as" hint="Customers register freely. Worker and admin logins are shown for demo — workers are created by admins only.">
               <Select {...register("role")}>

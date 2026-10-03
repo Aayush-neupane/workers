@@ -41,7 +41,7 @@ const STEPS = [
   },
   {
     title: "Choose your slot",
-    body: "Same-day and next-day windows across the valley. Add photos and notes so the pro arrives prepared.",
+    body: "Same-day and next-day windows across Damak. Add photos and notes so the pro arrives prepared.",
   },
   {
     title: "A verified pro arrives",
@@ -81,7 +81,7 @@ function HeroArt() {
         </div>
         <p className="font-display mt-2 text-2xl font-semibold">Full Home Deep Clean</p>
         <p className="mt-1 flex items-center gap-1.5 text-sm text-on-surface-variant">
-          <MapPin size={14} /> Bansbari, Kathmandu · Today 9:00 AM
+          <MapPin size={14} /> Damak-5, Himal Chowk · Today 9:00 AM
         </p>
         <div className="mt-4 flex items-center gap-3 rounded-md bg-surface-container/70 p-3">
           <Avatar name="Sita Maharjan" hue={280} size={46} ring />
@@ -149,7 +149,7 @@ export default function Home() {
             <p className="mt-5 max-w-lg text-lg leading-relaxed text-on-surface-variant">
               Plumbing, electrical, cleaning, AC and eight more trades — done by
               background-checked pros with upfront pricing and live job tracking
-              across Kathmandu Valley.
+              across Damak.
             </p>
             <form action="/services" method="get" className="mt-7 flex max-w-lg gap-2" role="search">
               <label htmlFor="hero-search" className="sr-only">
@@ -265,7 +265,7 @@ export default function Home() {
           <SectionHead
             eyebrow="Most booked"
             title="Popular right now"
-            body="Real booking counts from across the valley. Shown prices are estimates — the final amount is always confirmed with you first."
+            body="Real booking counts from across Damak. Shown prices are estimates — the final amount is always confirmed with you first."
           />
           <Reveal id="popular" className="mt-7 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {popular.map((s) => (
@@ -377,11 +377,11 @@ export default function Home() {
       <section className="wrap py-12" aria-label="Service areas">
         <Card className="flex flex-col items-center gap-4 p-7 text-center sm:flex-row sm:justify-between sm:text-left">
           <div>
-            <h2 className="font-display text-2xl font-semibold">Serving Kathmandu Valley</h2>
-            <p className="mt-1 text-sm text-on-surface-variant">Same-day slots in four cities · expanding ward by ward.</p>
+            <h2 className="font-display text-2xl font-semibold">Proudly Damak-only</h2>
+            <p className="mt-1 text-sm text-on-surface-variant">One city, done properly. Same-day slots in every municipal ward.</p>
           </div>
           <ul className="flex flex-wrap justify-center gap-2">
-            {["Kathmandu", "Lalitpur", "Bhaktapur", "Kirtipur"].map((c) => (
+            {["Himal Chowk", "Station Road", "Campus Chowk", "Jyoti Chowk", "All wards"].map((c) => (
               <li key={c}>
                 <Badge tone="neutral"><MapPin size={12} aria-hidden="true" /> {c}</Badge>
               </li>
