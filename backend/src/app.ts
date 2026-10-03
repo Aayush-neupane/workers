@@ -7,6 +7,8 @@ import { env } from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 import authRoutes from "./modules/auth.routes.js";
 import publicRoutes from "./modules/public.routes.js";
+import bookingRoutes from "./modules/bookings.routes.js";
+import workerRoutes from "./modules/worker.routes.js";
 
 export function createApp() {
   const app = express();
@@ -30,6 +32,8 @@ export function createApp() {
   app.use("/api/auth", authRoutes);
   app.use("/api/admin", authRoutes);
   app.use("/api", publicRoutes);
+  app.use("/api", bookingRoutes);
+  app.use("/api", workerRoutes);
 
   app.use(notFound);
   app.use(errorHandler);
