@@ -7,6 +7,7 @@ import {
   Search,
   ShieldCheck,
   Star,
+  Wrench,
 } from "lucide-react";
 import { Avatar, Badge, Button, Card, Price, Rating, SectionHead } from "../components/ui";
 import { CATEGORY_ICONS } from "../components/categoryIcons";
