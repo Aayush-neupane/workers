@@ -14,6 +14,7 @@
     "db:seed-demo": "tsx src/db/seed-demo.ts"
   },
   "dependencies": {
+    "@types/multer": "^2.3.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
@@ -22,6 +23,7 @@
     "express-rate-limit": "^7.2.0",
     "helmet": "^7.1.0",
     "jose": "^6.0.10",
+    "multer": "^2.4.0",
     "pg": "^8.12.0",
     "zod": "^3.23.8"
   },

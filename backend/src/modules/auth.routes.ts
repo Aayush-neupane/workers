@@ -202,6 +202,27 @@ const acceptSchema = z.object({
   password: z.string().min(8).max(128),
 });
 
+// Frontend checks link health before showing the form — same rules as accept.
+router.post(
+  "/worker/invite/check",
+  validate(z.object({ token: z.string().min(32) })),
+  ah(async (req, res) => {
+    const { token } = req.body as { token: string };
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const inv = await query<{ name: string; email: string; expires_at: string; accepted_at: string | null }>(
+      `SELECT name, email, expires_at, accepted_at FROM worker_invites WHERE token_hash = $1`,
+      [tokenHash],
+    );
+    if (inv.rowCount === 0) return res.status(404).json({ error: "Invalid invitation" });
+    const invite = inv.rows[0];
+    if (invite.accepted_at) return res.status(410).json({ error: "Invitation already used" });
+    if (new Date(invite.expires_at).getTime() < Date.now()) {
+      return res.status(410).json({ error: "Invitation expired" });
+    }
+    return res.json({ name: invite.name, email: invite.email, expiresAt: invite.expires_at });
+  }),
+);
+
 // Invited worker sets their password and activates the invite.
 router.post(
   "/worker/accept",
@@ -235,6 +256,13 @@ router.post(
       await client.query(
         `INSERT INTO verification_records(worker_user_id, state, notes) VALUES ($1, 'awaiting-documents', 'Invite accepted; documents requested.')`,
         [u.rows[0].id],
+      );
+      await client.query(
+        `INSERT INTO notifications(user_id, title, body)
+         SELECT u.id, 'Invite accepted', $1 || ' activated their worker account.'
+         FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
+         WHERE r.name = 'ADMIN'`,
+        [invite.email],
       );
       await client.query("COMMIT");
       await issueSession(res, u.rows[0].id);

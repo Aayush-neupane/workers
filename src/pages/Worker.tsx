@@ -11,7 +11,15 @@ import type { Booking, BookingStatus, Review, Worker } from "../lib/types";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-type Tab = "today" | "requests" | "upcoming" | "earnings" | "availability" | "reviews";
+type Tab = "today" | "requests" | "upcoming" | "documents" | "earnings" | "availability" | "reviews";
+
+interface DocRow {
+  id: string;
+  kind: string;
+  uploaded_at: string;
+}
+
+const DOC_KINDS = ["citizenship", "experience-letter", "certificate", "photo", "other"] as const;
 
 interface Earnings {
   jobs: {
@@ -37,6 +45,9 @@ export default function Worker() {
   const [earnings, setEarnings] = useState<Earnings | null>(null);
   const [avail, setAvail] = useState<boolean[]>([false, true, true, true, true, true, false]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [docs, setDocs] = useState<DocRow[]>([]);
+  const [docKind, setDocKind] = useState<string>("citizenship");
+  const [docFile, setDocFile] = useState<File | null>(null);
   const [tab, setTab] = useState<Tab>("today");
   const [finalRs, setFinalRs] = useState<Record<string, string>>({});
   const [failed, setFailed] = useState(false);
@@ -46,19 +57,21 @@ export default function Worker() {
   const load = useCallback(async () => {
     if (!user) return;
     try {
-      const [w, req, jb, earn, av, rev] = await Promise.all([
+      const [w, req, jb, earn, av, rev, dc] = await Promise.all([
         api<{ worker: unknown }>(`/api/workers/${user.id}`),
         api<{ requests: unknown[] }>("/api/worker/requests"),
         api<{ jobs: unknown[] }>("/api/worker/jobs"),
         api<Earnings>("/api/worker/earnings"),
         api<{ days: boolean[] }>("/api/worker/availability"),
         api<{ reviews: unknown[] }>(`/api/reviews?workerId=${user.id}&limit=20`),
+        api<{ documents: DocRow[] }>("/api/worker/documents/mine"),
       ]);
       setMe(toWorker(w.worker as Parameters<typeof toWorker>[0]));
       setRequests((req.requests as Parameters<typeof toBooking>[0][]).map(toBooking));
       setJobs((jb.jobs as Parameters<typeof toBooking>[0][]).map(toBooking));
       setEarnings(earn);
       setAvail(av.days);
+      setDocs(dc.documents);
       setReviews((rev.reviews as Parameters<typeof toReview>[0][]).map(toReview));
       setFailed(false);
     } catch {
@@ -83,6 +96,34 @@ export default function Worker() {
       await load();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Action failed");
+    }
+  };
+
+  const uploadDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError("");
+    if (!docFile) {
+      setActionError("Choose a file to upload.");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("document", docFile);
+    fd.append("kind", docKind);
+    try {
+      const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:4001";
+      const res = await fetch(`${base}/api/worker/documents`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Upload failed");
+      }
+      setDocFile(null);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Upload failed");
     }
   };
 
@@ -111,6 +152,7 @@ export default function Worker() {
         { id: "today", label: "Today", count: active.length },
         { id: "requests", label: "Requests", count: requests.length },
         { id: "upcoming", label: "Upcoming", count: upcoming.length },
+        { id: "documents", label: "Documents", count: docs.length },
         { id: "earnings", label: "Earnings" },
         { id: "availability", label: "Availability" },
         { id: "reviews", label: "Reviews", count: reviews.length },
@@ -154,6 +196,37 @@ export default function Worker() {
                 <div><p className="font-display text-xl font-semibold tabular-nums">{requests.length}</p><p className="text-[11px] font-extrabold tracking-wider text-on-surface-variant uppercase">requests</p></div>
                 <div><p className="font-display text-xl font-semibold tabular-nums">{formatNPR(earnings?.net ?? 0)}</p><p className="text-[11px] font-extrabold tracking-wider text-on-surface-variant uppercase">net</p></div>
               </div>
+            </Card>
+          )}
+
+          {me && me.verification !== "verified" && (
+            <Card
+              className={
+                me.verification === "rejected" || me.verification === "suspended"
+                  ? "mb-5 border-l-4 border-l-error p-5"
+                  : "mb-5 border-l-4 border-l-marigold-500 p-5"
+              }
+            >
+              <p className="font-bold">
+                {me.verification === "awaiting-documents" && "Action needed: submit your documents"}
+                {me.verification === "under-review" && "Documents under review"}
+                {me.verification === "draft" && "Account pending activation"}
+                {(me.verification === "rejected" || me.verification === "suspended") && "Account not eligible for jobs"}
+              </p>
+              <p className="mt-1 text-sm text-on-surface-variant">
+                {me.verification === "awaiting-documents" &&
+                  "Upload an ID and supporting document below. Your profile moves to review automatically."}
+                {me.verification === "under-review" &&
+                  "Our team is checking your documents. You will be notified the moment you are verified."}
+                {me.verification === "draft" && "Finish activating via your invitation link."}
+                {(me.verification === "rejected" || me.verification === "suspended") &&
+                  "Contact support to appeal — include any new evidence."}
+              </p>
+              {(me.verification === "awaiting-documents" || me.verification === "draft") && (
+                <div className="mt-3">
+                  <Button variant="outline" onClick={() => setTab("documents")}>Go to documents</Button>
+                </div>
+              )}
             </Card>
           )}
 
@@ -276,6 +349,56 @@ export default function Worker() {
                   <StatusBadge status={b.status} />
                 </Card>
               ))}
+            </div>
+          )}
+
+          {tab === "documents" && (
+            <div className="space-y-4">
+              <Card className="p-5 md:p-6">
+                <h2 className="font-display text-xl font-semibold">Submit a document</h2>
+                <p className="mt-1 text-sm text-on-surface-variant">
+                  JPG, PNG, WebP or PDF, up to 10 MB. Visible to admins only — never to customers.
+                </p>
+                <form onSubmit={(e) => void uploadDoc(e)} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                  <label className="block text-sm font-semibold">
+                    Document type
+                    <select
+                      value={docKind}
+                      onChange={(e) => setDocKind(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-outline bg-white px-3 py-2.5"
+                    >
+                      {DOC_KINDS.map((k) => (
+                        <option key={k} value={k}>{k}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-semibold">
+                    File
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,application/pdf"
+                      onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+                      className="mt-1 w-full rounded-lg border border-outline bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <Button type="submit">Upload</Button>
+                </form>
+              </Card>
+              <Card className="p-5">
+                <h2 className="font-display text-xl font-semibold">Submitted ({docs.length})</h2>
+                {docs.length === 0 ? (
+                  <p className="mt-2 text-sm text-on-surface-variant">Nothing submitted yet.</p>
+                ) : (
+                  <ul className="mt-3 space-y-2 text-sm">
+                    {docs.map((d) => (
+                      <li key={d.id} className="flex items-center justify-between gap-2 rounded-md border border-outline p-3">
+                        <span className="font-bold">{d.kind}</span>
+                        <span className="text-on-surface-variant">{new Date(d.uploaded_at).toLocaleString()}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
             </div>
           )}
 

@@ -241,6 +241,8 @@ export default function Admin() {
   const [commEdit, setCommEdit] = useState<Record<string, string>>({});
   const [newInvite, setNewInvite] = useState<{ inviteToken: string; expiresAt: string; email: string } | null>(null);
   const [copied, setCopied] = useState("");
+  const [docs, setDocs] = useState<Record<string, { id: string; kind: string; uploaded_at: string }[]>>({});
+  const [docsOpen, setDocsOpen] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -291,6 +293,38 @@ export default function Admin() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
+    }
+  };
+
+  const toggleDocs = async (workerId: string) => {
+    const open = !docsOpen[workerId];
+    setDocsOpen((p) => ({ ...p, [workerId]: open }));
+    if (open && docs[workerId] === undefined) {
+      try {
+        const d = await api<{ documents: { id: string; kind: string; uploaded_at: string }[] }>(
+          `/api/admin/workers/${workerId}/documents`,
+        );
+        setDocs((p) => ({ ...p, [workerId]: d.documents }));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not load documents");
+      }
+    }
+  };
+
+  const downloadDoc = async (docId: string, kind: string) => {
+    try {
+      const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:4001";
+      const res = await fetch(`${base}/api/admin/documents/${docId}/download`, { credentials: "include" });
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = kind;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download failed");
     }
   };
 
@@ -546,7 +580,13 @@ export default function Admin() {
                         </label>
                       ))}
                     </fieldset>
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => void toggleDocs(w.id)}
+                      >
+                        {docsOpen[w.id] ? "Hide documents" : `Documents (${(docs[w.id] ?? []).length || "…"})`}
+                      </Button>
                       <Button
                         disabled={!ready}
                         onClick={() => void run(() => post(`/api/admin/workers/${w.id}/verify`, { state: "verified", notes: "All checks passed" }))}
@@ -561,6 +601,24 @@ export default function Admin() {
                       </Button>
                     </div>
                     {!ready && <p className="mt-2 text-xs text-on-surface-variant">All four checks must pass — a worker is never “background-checked” by account creation alone.</p>}
+                    {docsOpen[w.id] && (
+                      <div className="mt-3 rounded-md bg-surface-container p-3">
+                        {(docs[w.id] ?? []).length === 0 ? (
+                          <p className="text-sm text-on-surface-variant">No documents submitted yet.</p>
+                        ) : (
+                          <ul className="space-y-1.5">
+                            {(docs[w.id] ?? []).map((d) => (
+                              <li key={d.id} className="flex items-center justify-between gap-2 text-sm">
+                                <span><strong>{d.kind}</strong> · {new Date(d.uploaded_at).toLocaleString()}</span>
+                                <Button variant="ghost" onClick={() => void downloadDoc(d.id, d.kind)}>
+                                  Download
+                                </Button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </Card>
                 );
               })}
