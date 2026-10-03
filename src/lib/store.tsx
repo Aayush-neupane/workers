@@ -53,6 +53,7 @@ interface StoreValue {
   addAddress: (a: Omit<Address, "id">) => Promise<Address>;
   deleteAddress: (id: string) => Promise<void>;
   createTicket: (subject: string, message: string) => Promise<void>;
+  replyTicket: (id: string, body: string) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
 }
 
@@ -170,6 +171,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       createTicket: async (subject: string, message: string) => {
         await post("/api/tickets", { subject, message });
+        await reload();
+      },
+      replyTicket: async (id: string, body: string) => {
+        await post(`/api/tickets/${id}/messages`, { body });
         await reload();
       },
       markNotificationRead: async (id: string) => {

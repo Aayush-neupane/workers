@@ -127,6 +127,7 @@ const createWorkerSchema = z.object({
   yearsExp: z.number().int().min(0).max(60).default(0),
   areas: z.array(z.string().max(60)).max(20).default(["Damak"]),
   avatarHue: z.number().int().min(0).max(360).default(150),
+  categoryIds: z.array(z.string().uuid()).max(20).default([]),
 });
 
 // Admin-only: create the worker account + profile, return a one-time invite token.
@@ -162,6 +163,15 @@ router.post(
          VALUES ($1, $2, $3, $4, $5, 'draft', false)`,
         [userId, body.bio, body.yearsExp, body.areas, body.avatarHue],
       );
+      // Capabilities: every active service in the chosen categories.
+      if (body.categoryIds.length > 0) {
+        await client.query(
+          `INSERT INTO worker_services(worker_user_id, service_id)
+           SELECT $1, s.id FROM services s WHERE s.category_id = ANY($2::uuid[]) AND s.is_active = true
+           ON CONFLICT DO NOTHING`,
+          [userId, body.categoryIds],
+        );
+      }
       await client.query(
         `INSERT INTO worker_invites(email, name, token_hash, expires_at, created_by)
          VALUES ($1, $2, $3, $4, $5)`,

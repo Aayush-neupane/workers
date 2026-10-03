@@ -276,6 +276,62 @@ router.put(
   }),
 );
 
+// ---------- Invitations ----------
+router.get(
+  "/admin/invites",
+  ah(async (_req, res) => {
+    const r = await query(
+      `SELECT i.id, i.email, i.name, i.expires_at, i.accepted_at, i.created_at,
+              u.id AS user_id
+       FROM worker_invites i LEFT JOIN users u ON u.email = i.email
+       ORDER BY i.created_at DESC LIMIT 100`,
+    );
+    return res.json({ invites: r.rows });
+  }),
+);
+
+router.delete(
+  "/admin/invites/:id",
+  ah(async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const inv = await client.query(`SELECT * FROM worker_invites WHERE id = $1`, [req.params.id]);
+      if (inv.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Not found" });
+      }
+      const invite = inv.rows[0] as { accepted_at: string | null; email: string };
+      if (invite.accepted_at) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Already accepted — suspend the worker instead" });
+      }
+      const jobs = await client.query(
+        `SELECT 1 FROM bookings b JOIN users u ON u.email = $1
+         WHERE b.worker_id = u.id OR b.customer_id = u.id LIMIT 1`,
+        [invite.email],
+      );
+      if ((jobs.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Worker has bookings — suspend instead" });
+      }
+      await client.query(`DELETE FROM users WHERE email = $1`, [invite.email]);
+      await client.query(`DELETE FROM worker_invites WHERE id = $1`, [req.params.id]);
+      await client.query(
+        `INSERT INTO audit_log(actor_id, actor_role, action, detail) VALUES ($1, 'ADMIN', 'invite-revoke', $2)`,
+        [req.user!.id, `Invite revoked for ${invite.email}`],
+      );
+      await client.query("COMMIT");
+      return res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
 // ---------- Bookings admin ----------
 router.get(
   "/admin/bookings",

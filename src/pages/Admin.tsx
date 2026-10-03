@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, Price, VerifyBadge } from "../components/ui";
+import { Badge, Button, Card, Field, Price, TextArea, TextField, VerifyBadge } from "../components/ui";
 import { Kpi, OpsShell, SkeletonRows } from "../components/ops";
-import { api, post, put } from "../lib/api";
+import { api, del, post, put } from "../lib/api";
 import { formatNPR, formatSlot } from "../lib/format";
 import type { BookingStatus, VerificationState } from "../lib/types";
 
@@ -60,6 +60,15 @@ interface Category {
   commission_bps: number;
 }
 
+interface Invite {
+  id: string;
+  email: string;
+  name: string;
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+}
+
 interface ServiceRow {
   id: string;
   name: string;
@@ -93,6 +102,123 @@ interface Overview {
 
 const CHECKS = ["Identity document verified", "References checked", "Background check clear", "Skill assessed"];
 
+function inviteLink(token: string): string {
+  return `${window.location.origin}/invite?token=${token}`;
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function AddWorkerForm({
+  categories,
+  onCreated,
+}: {
+  categories: Category[];
+  onCreated: (r: { inviteToken: string; expiresAt: string; email: string }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [bio, setBio] = useState("");
+  const [years, setYears] = useState("3");
+  const [cats, setCats] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (name.trim().length < 2) {
+      setError("Enter the worker's name.");
+      return;
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+      setError("Enter a valid email — the invite goes there.");
+      return;
+    }
+    if (cats.length === 0) {
+      setError("Pick at least one trade — it decides which jobs they can receive.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await post<{ inviteToken: string; expiresAt: string }>("/api/admin/workers", {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        bio: bio.trim(),
+        yearsExp: Number(years) || 0,
+        categoryIds: cats,
+      });
+      onCreated({ inviteToken: r.inviteToken, expiresAt: r.expiresAt, email: email.trim().toLowerCase() });
+      setName("");
+      setEmail("");
+      setPhone("");
+      setBio("");
+      setYears("3");
+      setCats([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create worker");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={(e) => void submit(e)} className="grid gap-4 sm:grid-cols-2">
+      <Field label="Full name">
+        <TextField value={name} onChange={(e) => setName(e.target.value)} placeholder="Hari Prasad" autoComplete="off" />
+      </Field>
+      <Field label="Email (invite goes here)">
+        <TextField value={email} onChange={(e) => setEmail(e.target.value)} placeholder="hari@example.com" inputMode="email" autoComplete="off" />
+      </Field>
+      <Field label="Phone">
+        <TextField value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="9852600000" inputMode="tel" />
+      </Field>
+      <Field label="Experience (years)">
+        <TextField value={years} onChange={(e) => setYears(e.target.value)} inputMode="numeric" />
+      </Field>
+      <div className="sm:col-span-2">
+        <Field label="Short bio">
+          <TextArea value={bio} onChange={(e) => setBio(e.target.value)} rows={2} placeholder="Trade background, strengths…" />
+        </Field>
+      </div>
+      <fieldset className="sm:col-span-2">
+        <legend className="mb-1.5 block text-sm font-semibold">Trades (job eligibility)</legend>
+        <div className="flex flex-wrap gap-1.5">
+          {categories.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              aria-pressed={cats.includes(c.id)}
+              onClick={() => setCats((p) => (p.includes(c.id) ? p.filter((x) => x !== c.id) : [...p, c.id]))}
+              className={`cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
+                cats.includes(c.id)
+                  ? "border-pine-950 bg-pine-950 text-white"
+                  : "border-outline bg-white hover:border-pine-800"
+              }`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      {error && (
+        <p role="alert" className="text-sm font-medium text-error sm:col-span-2">{error}</p>
+      )}
+      <div className="sm:col-span-2">
+        <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create worker & issue invite"}</Button>
+      </div>
+    </form>
+  );
+}
+
 export default function Admin() {
   const [tab, setTab] = useState<Tab>("overview");
   const [loading, setLoading] = useState(true);
@@ -106,16 +232,20 @@ export default function Admin() {
   const [rewardTxs, setRewardTxs] = useState<{ id: string; reason: string; points: number }[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
   const [wards, setWards] = useState<boolean[]>(Array(10).fill(true));
   const [checks, setChecks] = useState<Record<string, string[]>>({});
   const [assignSel, setAssignSel] = useState<Record<string, string>>({});
   const [replies, setReplies] = useState<Record<string, string>>({});
+  const [ticketFilter, setTicketFilter] = useState("all");
   const [commEdit, setCommEdit] = useState<Record<string, string>>({});
+  const [newInvite, setNewInvite] = useState<{ inviteToken: string; expiresAt: string; email: string } | null>(null);
+  const [copied, setCopied] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [ov, w, pb, cat, svc, led, rwd, tix, aud, wd] = await Promise.all([
+      const [ov, w, pb, cat, svc, led, rwd, tix, aud, wd, inv] = await Promise.all([
         api<Overview>("/api/admin/reports/overview"),
         api<{ workers: AdminWorker[] }>("/api/admin/workers"),
         api<{ bookings: AdminBooking[] }>("/api/admin/bookings?status=pending"),
@@ -126,6 +256,7 @@ export default function Admin() {
         api<{ tickets: Ticket[] }>("/api/admin/tickets"),
         api<{ audit: AuditRow[] }>("/api/admin/audit?limit=100"),
         api<{ wards: { ward: number; is_open: boolean }[] }>("/api/admin/wards"),
+        api<{ invites: Invite[] }>("/api/admin/invites"),
       ]);
       setOverview(ov);
       setWorkers(w.workers);
@@ -136,6 +267,7 @@ export default function Admin() {
       setRewardTxs(rwd.ledger);
       setTickets(tix.tickets);
       setAudit(aud.audit);
+      setInvites(inv.invites);
       const arr = Array(10).fill(true);
       for (const x of wd.wards) arr[x.ward - 1] = x.is_open;
       setWards(arr);
@@ -297,6 +429,92 @@ export default function Admin() {
 
           {tab === "verify" && (
             <div className="space-y-4">
+              <Card className="p-5 md:p-6">
+                <h3 className="font-display text-lg font-semibold">Add a worker</h3>
+                <p className="mt-1 text-sm text-on-surface-variant">
+                  Creates the account as <strong>draft</strong>, assigns the chosen trades, and issues a one-time
+                  invitation link. The worker activates with a password, then submits documents.
+                </p>
+                <div className="mt-4">
+                  <AddWorkerForm
+                    categories={categories}
+                    onCreated={(r) => {
+                      setNewInvite(r);
+                      setCopied("");
+                      void load();
+                    }}
+                  />
+                </div>
+                {newInvite && (
+                  <div className="mt-4 rounded-md border border-success bg-success-container/40 p-4" role="status">
+                    <p className="text-sm font-bold text-on-primary-container">
+                      Invite issued for {newInvite.email} — expires {new Date(newInvite.expiresAt).toLocaleString()}
+                    </p>
+                    <p className="mt-1 text-xs text-on-surface-variant">Share this one-time link out-of-band (SMS, call, in person):</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <code className="max-w-full overflow-x-auto rounded bg-white px-2.5 py-1.5 text-xs">
+                        {inviteLink(newInvite.inviteToken)}
+                      </code>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          void copyText(inviteLink(newInvite.inviteToken)).then((ok) =>
+                            setCopied(ok ? "Copied!" : "Copy failed — select the link manually."),
+                          );
+                        }}
+                      >
+                        Copy link
+                      </Button>
+                      {copied && <span className="text-xs font-bold text-success">{copied}</span>}
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              <Card className="p-5">
+                <h3 className="font-display text-lg font-semibold">Invitations ({invites.length})</h3>
+                {invites.length === 0 ? (
+                  <p className="mt-2 text-sm text-on-surface-variant">No invitations issued yet.</p>
+                ) : (
+                  <ul className="mt-3 space-y-2">
+                    {invites.map((inv) => {
+                      const expired = !inv.accepted_at && new Date(inv.expires_at).getTime() < Date.now();
+                      return (
+                        <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-outline p-3 text-sm">
+                          <span>
+                            <span className="font-bold">{inv.name}</span>
+                            <span className="text-on-surface-variant"> · {inv.email}</span>
+                          </span>
+                          <span className="flex items-center gap-2">
+                            {inv.accepted_at ? (
+                              <Badge tone="success">Accepted</Badge>
+                            ) : expired ? (
+                              <Badge tone="error">Expired</Badge>
+                            ) : (
+                              <Badge tone="warning">Pending</Badge>
+                            )}
+                            {!inv.accepted_at && !expired && (
+                              <Button
+                                variant="ghost"
+                                onClick={() => void run(async () => {
+                                  await del(`/api/admin/invites/${inv.id}`);
+                                })}
+                              >
+                                Revoke
+                              </Button>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </Card>
+            </div>
+          )}
+
+          {tab === "verify" && (
+            <div className="mt-4 space-y-4">
               {workers.filter((w) => ["draft", "awaiting-documents", "under-review", "rejected"].includes(w.verification_state)).map((w) => {
                 const done = checks[w.id] ?? [];
                 const ready = CHECKS.every((c) => done.includes(c));
@@ -535,10 +753,28 @@ export default function Admin() {
             </Card>
           )}
 
-          {tab === "support" && (
-            <Card className="p-5">
-              <h3 className="font-display text-lg font-semibold">Tickets ({tickets.length})</h3>
-              {tickets.map((t) => (
+      {tab === "support" && (
+        <Card className="p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-display text-lg font-semibold">
+              Tickets ({ticketFilter === "all" ? tickets.length : tickets.filter((t) => t.status === ticketFilter).length})
+            </h3>
+            <div className="flex gap-1.5" role="group" aria-label="Filter tickets">
+              {["all", "open", "in-progress", "resolved"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setTicketFilter(s)}
+                  aria-pressed={ticketFilter === s}
+                  className={`cursor-pointer rounded-md px-2.5 py-1 text-xs font-bold transition ${
+                    ticketFilter === s ? "bg-pine-950 text-white" : "bg-surface-container text-on-surface-variant"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          {tickets.filter((t) => ticketFilter === "all" || t.status === ticketFilter).map((t) => (
                 <div key={t.id} className="mt-3 border-t border-outline pt-3 first:border-0">
                   <p className="text-sm font-bold">{t.subject} <Badge tone={t.status === "resolved" ? "success" : "warning"}>{t.status}</Badge></p>
                   {(t.messages ?? []).map((m, i) => (

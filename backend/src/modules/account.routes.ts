@@ -154,7 +154,12 @@ router.post(
       `INSERT INTO ticket_messages(ticket_id, from_role, body) VALUES ($1, 'customer', $2)`,
       [req.params.id, f.body],
     );
-    await query(`UPDATE support_tickets SET updated_at = now() WHERE id = $1`, [req.params.id]);
+    // A customer follow-up reopens a resolved thread.
+    await query(
+      `UPDATE support_tickets SET status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END,
+                                  updated_at = now() WHERE id = $1`,
+      [req.params.id],
+    );
     return res.json({ ok: true });
   }),
 );
