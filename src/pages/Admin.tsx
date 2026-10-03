@@ -283,7 +283,7 @@ export default function Admin() {
                             [w.id]: done.includes(c) ? done.filter((x) => x !== c) : [...done, c],
                           }))
                         }
-                        className="size-4 accent-[#166b4d]"
+                        className="size-4 accent-[#0f6b44]"
                       />
                       {c}
                     </label>
