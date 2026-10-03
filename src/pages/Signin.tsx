@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { ShieldCheck, Wrench } from "lucide-react";
 import { Button, Card, Field, Select, TextField } from "../components/ui";
 import { homeFor, useAuth } from "../lib/auth";
 import type { Role } from "../lib/types";
@@ -32,38 +33,57 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
   });
 
   return (
-    <div className="wrap fade-up max-w-md py-12">
-      <h1 className="text-3xl font-bold">{mode === "signin" ? "Welcome back" : "Create account"}</h1>
-      <p className="mt-2 text-sm text-on-surface-variant">
-        Demo auth — pick a role to explore that experience. Real Supabase Auth connects in Phase 1.
-      </p>
-      <Card className="mt-6 p-6">
-        <form onSubmit={submit} className="space-y-4">
-          <Field label="Full name" error={errors.name?.message}>
-            <TextField {...register("name")} placeholder="Aayush Neupane" autoComplete="name" />
-          </Field>
-          <Field label="Phone" error={errors.phone?.message}>
-            <TextField {...register("phone")} placeholder="9851000000" inputMode="tel" autoComplete="tel" />
-          </Field>
-          <Field label="Explore as" hint="Customers register freely. Worker and admin logins are shown for demo — workers are created by admins only.">
-            <Select {...register("role")}>
-              <option value="customer">Customer</option>
-              <option value="worker">Worker (demo)</option>
-              <option value="admin">Admin (demo)</option>
-            </Select>
-          </Field>
-          <Button type="submit" className="w-full">
+    <div className="wrap fade-up py-12">
+      <Card className="elev-2 mx-auto grid max-w-3xl overflow-hidden md:grid-cols-[0.9fr_1.1fr]">
+        <div className="ring-band dotgrid-light hidden flex-col justify-between p-8 md:flex">
+          <p className="flex items-center gap-2 font-bold text-white">
+            <span className="grid size-9 place-items-center rounded-lg bg-marigold-300 text-pine-950">
+              <Wrench size={18} aria-hidden="true" />
+            </span>
+            <span className="font-display text-xl font-semibold">Workers</span>
+          </p>
+          <div>
+            <p className="font-display text-3xl leading-tight font-semibold text-white">
+              {mode === "signin" ? "Welcome back." : "Join 11,000+ happy homes."}
+            </p>
+            <p className="mt-3 flex items-start gap-2 text-sm leading-relaxed text-white/75">
+              <ShieldCheck size={16} className="mt-0.5 shrink-0 text-marigold-300" aria-hidden="true" />
+              Demo auth — pick a role to explore that experience. Real Supabase Auth connects in Phase 1.
+            </p>
+          </div>
+          <p className="text-xs text-white/50">Cash · eSewa · Khalti · All prices in NPR</p>
+        </div>
+        <div className="p-7 md:p-8">
+          <h1 className="font-display text-3xl font-semibold">
             {mode === "signin" ? "Sign in" : "Create account"}
-          </Button>
-        </form>
+          </h1>
+          <form onSubmit={submit} className="mt-5 space-y-4">
+            <Field label="Full name" error={errors.name?.message}>
+              <TextField {...register("name")} placeholder="Aayush Neupane" autoComplete="name" />
+            </Field>
+            <Field label="Phone" error={errors.phone?.message}>
+              <TextField {...register("phone")} placeholder="9851000000" inputMode="tel" autoComplete="tel" />
+            </Field>
+            <Field label="Explore as" hint="Customers register freely. Worker and admin logins are shown for demo — workers are created by admins only.">
+              <Select {...register("role")}>
+                <option value="customer">Customer</option>
+                <option value="worker">Worker (demo)</option>
+                <option value="admin">Admin (demo)</option>
+              </Select>
+            </Field>
+            <Button type="submit" className="w-full py-3">
+              {mode === "signin" ? "Sign in" : "Create account"}
+            </Button>
+          </form>
+          <p className="mt-4 text-center text-sm text-on-surface-variant">
+            {mode === "signin" ? (
+              <>New here? <Link to="/signup" className="font-bold text-primary">Create an account</Link></>
+            ) : (
+              <>Have an account? <Link to="/signin" className="font-bold text-primary">Sign in</Link></>
+            )}
+          </p>
+        </div>
       </Card>
-      <p className="mt-4 text-center text-sm text-on-surface-variant">
-        {mode === "signin" ? (
-          <>New here? <Link to="/signup" className="font-semibold text-primary">Create an account</Link></>
-        ) : (
-          <>Have an account? <Link to="/signin" className="font-semibold text-primary">Sign in</Link></>
-        )}
-      </p>
     </div>
   );
 }

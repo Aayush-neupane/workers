@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, Price, Rating, SectionHead, StatusBadge, Tabs, VerifyBadge } from "../components/ui";
+import { Badge, Button, Card, PageHero, Price, Rating, StatusBadge, Tabs, VerifyBadge } from "../components/ui";
 import { CATEGORIES, PLATFORM, REVIEWS, SERVICES, TICKETS, WORKERS } from "../data/mock";
 import { useStore } from "../lib/store";
 import { calcCommission, isEligibleWorker } from "../lib/booking";
@@ -151,8 +151,13 @@ export default function Admin() {
   };
 
   return (
-    <div className="wrap fade-up py-10">
-      <SectionHead eyebrow="Administration" title="Control center" body="Verification, assignments, money and audit — least-privilege actions, all logged." />
+    <div className="fade-up">
+      <PageHero
+        eyebrow="Administration"
+        title="Control center"
+        body="Verification, assignments, money and audit — least-privilege actions, all logged."
+      />
+      <div className="wrap py-8">
 
       <div className="mt-6">
         <Tabs<Tab>
@@ -525,6 +530,7 @@ export default function Admin() {
           </table>
         </Card>
       )}
+      </div>
     </div>
   );
 }

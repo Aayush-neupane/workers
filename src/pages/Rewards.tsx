@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Gift } from "lucide-react";
-import { Button, Card, SectionHead } from "../components/ui";
+import { Button, Card, PageHero } from "../components/ui";
 import { PLATFORM } from "../data/mock";
 import { useStore } from "../lib/store";
 import { formatDate } from "../lib/format";
@@ -10,18 +10,18 @@ export default function Rewards() {
   const progress = Math.min(rewardBalance, PLATFORM.redeemPoints);
 
   return (
-    <div className="wrap fade-up max-w-3xl py-10">
-      <SectionHead
+    <div className="fade-up">
+      <PageHero
         eyebrow="Loyalty"
         title="Rewards that respect you"
         body="No tiers, no dark patterns. Earn on eligible spend, redeem for real discounts."
       />
-
-      <Card className="mt-6 bg-primary p-6 text-white">
+      <div className="wrap max-w-3xl py-8">
+      <Card className="ring-band dotgrid-light border-0 p-6 text-white">
         <p className="flex items-center gap-2 text-sm opacity-90">
           <Gift size={16} aria-hidden="true" /> Your balance
         </p>
-        <p className="mt-1 text-4xl font-bold">{rewardBalance} points</p>
+        <p className="font-display mt-1 text-5xl font-semibold">{rewardBalance} <span className="text-2xl">points</span></p>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/25" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={PLATFORM.redeemPoints} aria-label="Progress to next reward">
           <div className="h-full rounded-full bg-white" style={{ width: `${(progress / PLATFORM.redeemPoints) * 100}%` }} />
         </div>
@@ -73,6 +73,7 @@ export default function Rewards() {
         <Link to="/services">
           <Button>Book a service to earn</Button>
         </Link>
+      </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button, Card, Field, SectionHead, Select, TextField } from "../components/ui";
+import { Button, Card, Field, PageHero, Select, TextField } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { useStore } from "../lib/store";
 
@@ -34,10 +34,10 @@ export default function Profile() {
   });
 
   return (
-    <div className="wrap fade-up max-w-3xl py-10">
-      <SectionHead eyebrow="Account" title="Profile & addresses" />
-
-      <Card className="mt-6 p-6">
+    <div className="fade-up">
+      <PageHero eyebrow="Account" title="Profile & addresses" body="Where pros show up, and how we reach you." />
+      <div className="wrap max-w-3xl py-8">
+      <Card className="p-6">
         <h2 className="font-bold">Contact details</h2>
         <form
           className="mt-3 grid gap-4 sm:grid-cols-2"
@@ -100,6 +100,7 @@ export default function Profile() {
           </div>
         </form>
       </Card>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, Bell } from "lucide-react";
-import { Badge, Button, Card, Price, SectionHead, StatusBadge } from "../components/ui";
+import { Badge, Button, Card, PageHero, Price, StatusBadge } from "../components/ui";
 import { NOTIFICATIONS, SERVICES } from "../data/mock";
 import { useAuth } from "../lib/auth";
 import { useStore } from "../lib/store";
@@ -18,23 +18,24 @@ export default function Dashboard() {
   const unread = NOTIFICATIONS.filter((n) => !n.read).length;
 
   return (
-    <div className="wrap fade-up py-10">
-      <SectionHead
+    <div className="fade-up">
+      <PageHero
         eyebrow="Customer dashboard"
         title={`Namaste${name ? `, ${name.split(" ")[0]}` : ""}`}
         body="Upcoming jobs, history, receipts and rewards — everything in one place."
       />
+      <div className="wrap py-8">
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           [`${active.length}`, "active bookings"],
           [`${done.length}`, "completed jobs"],
           [formatNPR(spend), "total spend"],
           [`${rewardBalance} pts`, "reward balance"],
         ].map(([v, l]) => (
-          <Card key={l} className="p-5">
-            <p className="text-2xl font-bold text-primary">{v}</p>
-            <p className="text-sm text-on-surface-variant">{l}</p>
+          <Card key={l} className="border-t-4 border-t-pine-800 p-5">
+            <p className="font-display text-[26px] font-semibold text-pine-950">{v}</p>
+            <p className="text-xs font-bold tracking-wide text-on-surface-variant uppercase">{l}</p>
           </Card>
         ))}
       </div>
@@ -111,14 +112,15 @@ export default function Dashboard() {
               ))}
             </ul>
           </Card>
-          <Card className="mt-4 bg-primary p-5 text-white">
-            <p className="font-bold">Need changes?</p>
-            <p className="mt-1 text-sm opacity-90">Reschedule or cancel per policy, or talk to support.</p>
+          <Card className="ring-band dotgrid-light mt-4 border-0 p-5 text-white">
+            <p className="font-display text-lg font-semibold">Need changes?</p>
+            <p className="mt-1 text-sm text-white/75">Reschedule or cancel per policy, or talk to support.</p>
             <Link to="/support" className="mt-3 inline-block">
-              <Button variant="secondary">Get support <ArrowRight size={15} aria-hidden="true" /></Button>
+              <Button variant="marigold">Get support <ArrowRight size={15} aria-hidden="true" /></Button>
             </Link>
           </Card>
         </aside>
+      </div>
       </div>
     </div>
   );

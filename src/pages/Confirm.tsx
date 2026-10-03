@@ -28,8 +28,8 @@ export default function Confirm() {
 
   return (
     <div className="wrap fade-up max-w-2xl py-12 text-center">
-      <CheckCircle2 size={56} className="mx-auto text-success" aria-hidden="true" />
-      <h1 className="mt-3 text-3xl font-bold">Booking confirmed</h1>
+      <CheckCircle2 size={60} className="mx-auto text-success" aria-hidden="true" />
+      <h1 className="font-display mt-3 text-4xl font-semibold">Booking confirmed</h1>
       <p className="mt-2 text-on-surface-variant">
         Booking <strong>{booking.id}</strong> · {service?.name} · {formatSlot(booking.slot)}
       </p>

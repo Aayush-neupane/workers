@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Badge, Button, Card, Field, SectionHead, TextArea, TextField } from "../components/ui";
+import { Badge, Button, Card, Field, PageHero, TextArea, TextField } from "../components/ui";
 import { TICKETS } from "../data/mock";
 import { formatSlot } from "../lib/format";
 
@@ -33,8 +33,13 @@ export default function Support() {
   });
 
   return (
-    <div className="wrap fade-up max-w-3xl py-10">
-      <SectionHead eyebrow="Support" title="Help & support" body="Real humans, 9 AM – 8 PM NPT, every day. Average first reply under 2 hours." />
+    <div className="fade-up">
+      <PageHero
+        eyebrow="Support"
+        title="Help & support"
+        body="Real humans, 9 AM – 8 PM NPT, every day. Average first reply under 2 hours."
+      />
+      <div className="wrap max-w-3xl py-8">
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Card className="p-5">
@@ -92,6 +97,7 @@ export default function Support() {
           <Button type="submit">Submit ticket</Button>
         </form>
       </Card>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Avatar, Badge, Button, Card, Price, Rating, SectionHead, StatusBadge, Tabs } from "../components/ui";
+import { Avatar, Badge, Button, Card, PageHero, Price, Rating, SectionHead, StatusBadge, Tabs } from "../components/ui";
 import { REVIEWS, SERVICES, WORKERS } from "../data/mock";
 import { useStore } from "../lib/store";
 import { calcCommission } from "../lib/booking";
@@ -62,12 +62,19 @@ export default function Worker() {
   const svcName = (id: string) => SERVICES.find((s) => s.id === id)?.name ?? id;
 
   return (
-    <div className="wrap fade-up py-10">
-      <Card className="flex flex-wrap items-center gap-4 p-6">
+    <div className="fade-up">
+      <PageHero
+        eyebrow="For workers"
+        title="Worker board"
+        body="Requests, today's jobs, earnings and schedule — everything a pro needs for the day."
+      >
+        <Badge tone="marigold">Demoing as {me.name}</Badge>
+      </PageHero>
+      <div className="wrap py-8">
+      <Card className="elev-2 flex flex-wrap items-center gap-4 p-6">
         <Avatar name={me.name} hue={me.avatarHue} size={64} />
         <div className="flex-1">
-          <p className="text-xs font-bold tracking-widest text-primary uppercase">Worker board · demo as</p>
-          <h1 className="text-2xl font-bold">{me.name}</h1>
+          <h1 className="font-display text-2xl font-semibold">{me.name}</h1>
           <p className="mt-0.5"><Rating value={me.rating} count={me.jobsDone} /></p>
         </div>
         <div className="flex gap-6 text-center">
@@ -259,6 +266,7 @@ export default function Worker() {
           ))}
         </ul>
       )}
+      </div>
     </div>
   );
 }

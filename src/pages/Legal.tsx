@@ -1,13 +1,15 @@
-import { Card, SectionHead } from "../components/ui";
+import { Card, PageHero } from "../components/ui";
 
 function Page({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
   return (
-    <div className="wrap fade-up max-w-3xl py-10">
-      <SectionHead eyebrow={eyebrow} title={title} />
-      <Card className="prose-sm mt-6 space-y-4 p-6 text-sm leading-relaxed md:p-8 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:pt-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1">
+    <div className="fade-up">
+      <PageHero eyebrow={eyebrow} title={title} />
+      <div className="wrap max-w-3xl py-8">
+      <Card className="prose-sm space-y-4 p-6 text-sm leading-relaxed md:p-8 [&_h2]:font-display [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:pt-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ul]:text-on-surface-variant [&_p]:text-on-surface-variant">
         {children}
       </Card>
       <p className="mt-4 text-xs text-on-surface-variant">Last updated 1 Oct 2026 · Draft for review — have local counsel confirm before launch.</p>
+      </div>
     </div>
   );
 }

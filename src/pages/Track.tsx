@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Button, Card, Dialog, EmptyState, Price, StatusBadge, TextArea } from "../components/ui";
+import { Button, Card, Dialog, EmptyState, PageHero, Price, StatusBadge, TextArea } from "../components/ui";
 import { SERVICES, WORKERS } from "../data/mock";
 import { useStore } from "../lib/store";
 import { STATUS_LABELS, canTransition } from "../lib/booking";
@@ -43,16 +43,17 @@ export default function Track() {
   };
 
   return (
-    <div className="wrap fade-up max-w-3xl py-10">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold tracking-widest text-primary uppercase">Booking {booking.id}</p>
-          <h1 className="text-3xl font-bold">{service?.name}</h1>
-        </div>
+    <div className="fade-up">
+      <PageHero
+        eyebrow={`Booking ${booking.id}`}
+        title={service?.name ?? "Booking"}
+        body={`${formatSlot(booking.slot)} · ${worker ? worker.name : "Assigning your pro…"}`}
+      >
         <StatusBadge status={booking.status} />
-      </div>
+      </PageHero>
 
-      <Card className="mt-6 p-6">
+      <div className="wrap max-w-3xl py-8">
+      <Card className="p-6">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div><dt className="text-on-surface-variant">Slot</dt><dd className="font-semibold">{formatSlot(booking.slot)}</dd></div>
           <div><dt className="text-on-surface-variant">Address</dt><dd className="font-semibold">{address ? `${address.line}, ${address.city}` : "—"}</dd></div>
@@ -84,12 +85,12 @@ export default function Track() {
         )}
       </Card>
 
-      <h2 className="mt-8 text-xl font-bold">Progress</h2>
+      <h2 className="font-display mt-8 text-2xl font-semibold">Progress</h2>
       <ol className="mt-4 space-y-0">
         {booking.history.map((h, i) => (
           <li key={`${h.status}-${i}`} className="relative flex gap-4 pb-6 last:pb-0">
             <span className="flex flex-col items-center" aria-hidden="true">
-              <span className={`grid size-8 place-items-center rounded-full text-xs font-bold ${i === booking.history.length - 1 ? "bg-primary text-white" : "bg-success-container text-on-primary-container"}`}>
+              <span className={`grid size-9 place-items-center rounded-full text-xs font-bold ${i === booking.history.length - 1 ? "bg-pine-950 text-marigold-300" : "bg-success-container text-on-primary-container"}`}>
                 {i + 1}
               </span>
               {i < booking.history.length - 1 && <span className="w-0.5 flex-1 bg-outline" />}
@@ -128,6 +129,7 @@ export default function Track() {
           </div>
         </Dialog>
       )}
+      </div>
     </div>
   );
 }
