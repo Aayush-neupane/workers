@@ -1,0 +1,30 @@
+import {
+  BrickWall,
+  Bug,
+  Cog,
+  Hammer,
+  Paintbrush,
+  Refrigerator,
+  Snowflake,
+  Sparkles,
+  Toolbox,
+  Wifi,
+  Wrench,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
+
+export const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  wrench: Wrench,
+  zap: Zap,
+  hammer: Hammer,
+  paintbrush: Paintbrush,
+  sparkles: Sparkles,
+  refrigerator: Refrigerator,
+  snowflake: Snowflake,
+  wifi: Wifi,
+  cog: Cog,
+  bug: Bug,
+  toolbox: Toolbox,
+  brick: BrickWall,
+};
