@@ -7,12 +7,14 @@ import Book from "./pages/Book";
 import Confirm from "./pages/Confirm";
 import Dashboard from "./pages/Dashboard";
 import Home from "./pages/Home";
+import { Cancellation, Privacy, Terms } from "./pages/Legal";
 import NotFound from "./pages/NotFound";
 import Profile from "./pages/Profile";
 import Rewards from "./pages/Rewards";
 import ServiceDetail from "./pages/ServiceDetail";
 import Services from "./pages/Services";
 import Signin from "./pages/Signin";
+import Support from "./pages/Support";
 import Track from "./pages/Track";
 import Worker from "./pages/Worker";
 import WorkerProfile from "./pages/WorkerProfile";
@@ -38,6 +40,10 @@ export default function App() {
               <Route path="/admin" element={<Admin />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/rewards" element={<Rewards />} />
+              <Route path="/support" element={<Support />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/cancellation" element={<Cancellation />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Shell>
