@@ -1,12 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, PageHero, Price, Rating, StatusBadge, Tabs, VerifyBadge } from "../components/ui";
-import { CATEGORIES, PLATFORM, REVIEWS, SERVICES, TICKETS, WORKERS } from "../data/mock";
-import { useStore } from "../lib/store";
-import { calcCommission, isEligibleWorker } from "../lib/booking";
-import { formatDate, formatNPR, formatSlot } from "../lib/format";
-import { loadAudit, logAudit } from "../lib/audit";
-import type { VerificationState } from "../lib/types";
+import { Badge, Button, Card, PageHero, Price, Tabs, VerifyBadge } from "../components/ui";
+import { api, post, put } from "../lib/api";
+import { formatNPR, formatSlot } from "../lib/format";
+import type { BookingStatus, VerificationState } from "../lib/types";
 
 type Tab =
   | "overview"
@@ -19,141 +16,143 @@ type Tab =
   | "support"
   | "audit";
 
-function loadMap<T>(key: string, fallback: Record<string, T>): Record<string, T> {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Record<string, T>) : fallback;
-  } catch {
-    return fallback;
-  }
+interface AdminWorker {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  bio: string;
+  years_exp: number;
+  areas: string[];
+  verification_state: VerificationState;
+  is_active: boolean;
+  jobs_done: number;
+  categories: string[];
 }
 
-function saveMap(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* noop */
-  }
+interface AdminBooking {
+  id: string;
+  booking_no: string;
+  service_id: string;
+  service_name: string;
+  worker_id: string | null;
+  worker_name: string | null;
+  customer_name: string;
+  status: BookingStatus;
+  slot: string;
+}
+
+interface LedgerRow {
+  booking_no: string;
+  total_paisa: string | number;
+  commission_paisa: string | number;
+  payment_method: string;
+  status: string;
+  service_name: string;
+  worker_id: string | null;
+  worker_name: string | null;
+  is_settled: boolean;
+  payment_id: string | null;
+  payment_state: string | null;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  commission_bps: number;
+}
+
+interface ServiceRow {
+  id: string;
+  name: string;
+  base_price_paisa: string | number;
+  is_active: boolean;
+}
+
+interface Ticket {
+  id: string;
+  subject: string;
+  status: string;
+  messages: { from: string; text: string; at: string }[] | null;
+}
+
+interface AuditRow {
+  at?: string;
+  created_at: string;
+  actor: string;
+  actor_name: string | null;
+  action: string;
+  detail: string;
 }
 
 const CHECKS = ["Identity document verified", "References checked", "Background check clear", "Skill assessed"];
 
 export default function Admin() {
-  const { bookings, addresses, advanceBooking, rewardTxs } = useStore();
   const [tab, setTab] = useState<Tab>("overview");
-  const [verify, setVerify] = useState<Record<string, VerificationState>>(() => loadMap("wk-verify", {}));
-  const [activeMap, setActiveMap] = useState<Record<string, boolean>>(() => loadMap("wk-active", {}));
-  const [commMap, setCommMap] = useState<Record<string, number>>(() => loadMap("wk-comm", {}));
-  const [settled, setSettled] = useState<Record<string, string>>(() => loadMap("wk-settled", {}));
-  const [refunded, setRefunded] = useState<Record<string, boolean>>(() => loadMap("wk-refund", {}));
+  const [loading, setLoading] = useState(true);
+  const [overview, setOverview] = useState<Record<string, number> & { byCategory: { name: string; jobs: number; revenue: string; commission: string }[] } | null>(null);
+  const [workers, setWorkers] = useState<AdminWorker[]>([]);
+  const [pendingBookings, setPendingBookings] = useState<AdminBooking[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [services, setServices] = useState<ServiceRow[]>([]);
+  const [ledger, setLedger] = useState<LedgerRow[]>([]);
+  const [rewardTxs, setRewardTxs] = useState<{ id: string; reason: string; points: number }[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [audit, setAudit] = useState<AuditRow[]>([]);
+  const [wards, setWards] = useState<boolean[]>(Array(10).fill(true));
   const [checks, setChecks] = useState<Record<string, string[]>>({});
   const [assignSel, setAssignSel] = useState<Record<string, string>>({});
   const [replies, setReplies] = useState<Record<string, string>>({});
-  const [wards, setWards] = useState<boolean[]>(() => {
+  const [commEdit, setCommEdit] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const raw = localStorage.getItem("wk-wards");
-      if (raw) return JSON.parse(raw) as boolean[];
+      const [ov, w, pb, cat, svc, led, rwd, tix, aud, wd] = await Promise.all([
+        api<Record<string, number> & { byCategory: { name: string; jobs: number; revenue: string; commission: string }[] }>("/api/admin/reports/overview"),
+        api<{ workers: AdminWorker[] }>("/api/admin/workers"),
+        api<{ bookings: AdminBooking[] }>("/api/admin/bookings?status=pending"),
+        api<{ categories: Category[] }>("/api/categories"),
+        api<{ services: ServiceRow[] }>("/api/admin/services-all"),
+        api<{ ledger: LedgerRow[] }>("/api/admin/ledger"),
+        api<{ ledger: { id: string; reason: string; points: number }[] }>("/api/admin/rewards/ledger"),
+        api<{ tickets: Ticket[] }>("/api/admin/tickets"),
+        api<{ audit: AuditRow[] }>("/api/admin/audit?limit=100"),
+        api<{ wards: { ward: number; is_open: boolean }[] }>("/api/admin/wards"),
+      ]);
+      setOverview(ov);
+      setWorkers(w.workers);
+      setPendingBookings(pb.bookings);
+      setCategories(cat.categories);
+      setServices(svc.services);
+      setLedger(led.ledger);
+      setRewardTxs(rwd.ledger);
+      setTickets(tix.tickets);
+      setAudit(aud.audit);
+      const arr = Array(10).fill(true);
+      for (const x of wd.wards) arr[x.ward - 1] = x.is_open;
+      setWards(arr);
     } catch {
-      /* default below */
+      /* admin shows empty sections on failure */
+    } finally {
+      setLoading(false);
     }
-    return Array(10).fill(true) as boolean[];
-  });
-  const [ticketExtra, setTicketExtra] = useState<Record<string, { from: string; text: string; at: string }[]>>({});
-  const [audit, setAudit] = useState(loadAudit);
+  }, []);
 
-  const workers = useMemo(
-    () =>
-      WORKERS.map((w) => ({
-        ...w,
-        verification: verify[w.id] ?? w.verification,
-        active: activeMap[w.id] ?? w.active,
-      })),
-    [verify, activeMap],
-  );
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const bpsFor = (categoryId: string) =>
-    commMap[categoryId] ?? CATEGORIES.find((c) => c.id === categoryId)?.commissionBps ?? PLATFORM.globalCommissionBps;
-
-  const completed = bookings.filter((b) => b.status === "completed");
-  const revenue = completed.reduce((n, b) => n + (b.finalPaisa ?? b.estimatePaisa), 0);
-  const commissionEarned = completed.reduce(
-    (n, b) => n + (b.commissionPaisa ?? calcCommission(b.finalPaisa ?? b.estimatePaisa, b.commissionBps)),
-    0,
-  );
-  const cashOwed = completed
-    .filter((b) => b.paymentMethod === "cash" && !settled[b.id] && !refunded[b.id])
-    .reduce((n, b) => n + (b.commissionPaisa ?? calcCommission(b.finalPaisa ?? b.estimatePaisa, b.commissionBps)), 0);
   const pendingVerify = workers.filter((w) =>
-    ["draft", "awaiting-documents", "under-review"].includes(w.verification),
+    ["draft", "awaiting-documents", "under-review"].includes(w.verification_state),
   ).length;
-  const disputes = bookings.filter((b) => b.status === "disputed").length;
-
-  const byCategory = useMemo(() => {
-    const m = new Map<string, { jobs: number; revenue: number; commission: number }>();
-    for (const b of completed) {
-      const s = SERVICES.find((x) => x.id === b.serviceId);
-      if (!s) continue;
-      const e = m.get(s.categoryId) ?? { jobs: 0, revenue: 0, commission: 0 };
-      const f = b.finalPaisa ?? b.estimatePaisa;
-      e.jobs += 1;
-      e.revenue += f;
-      e.commission += b.commissionPaisa ?? calcCommission(f, b.commissionBps);
-      m.set(s.categoryId, e);
-    }
-    return [...m.entries()];
-  }, [completed, bookings]);
-
-  const auditIt = (action: string, detail: string) => setAudit(logAudit(action, detail));
-
-  const toggleWard = (i: number) => {
-    setWards((prev) => {
-      const next = prev.map((v, j) => (j === i ? !v : v));
-      saveMap("wk-wards", next);
-      return next;
-    });
-  };
-
   const openWards = wards.filter(Boolean).length;
 
-  const setVerification = (id: string, v: VerificationState) => {
-    setVerify((p) => {
-      const n = { ...p, [id]: v };
-      saveMap("wk-verify", n);
-      return n;
-    });
-    if (v === "verified") {
-      setActiveMap((p) => {
-        const n = { ...p, [id]: true };
-        saveMap("wk-active", n);
-        return n;
-      });
-    }
-  };
-
-  const toggleActive = (id: string, v: boolean) => {
-    setActiveMap((p) => {
-      const n = { ...p, [id]: v };
-      saveMap("wk-active", n);
-      return n;
-    });
-    auditIt(v ? "worker-activated" : "worker-suspended", `${id} active=${v}`);
-  };
-
-  const assign = (bookingId: string) => {
-    const wid = assignSel[bookingId];
-    if (!wid) return;
-    if (advanceBooking(bookingId, "awaiting-worker", "admin", `Assigned to ${wid}`, { workerId: wid })) {
-      auditIt("assign", `${bookingId} → ${wid}`);
-    }
-  };
-
   const exportLedger = () => {
-    const rows = ["booking,service,total_paisa,commission_paisa,method,settlement"];
-    for (const b of completed) {
-      const f = b.finalPaisa ?? b.estimatePaisa;
-      const c = b.commissionPaisa ?? calcCommission(f, b.commissionBps);
-      const st = refunded[b.id] ? "refunded" : b.paymentMethod === "cash" ? (settled[b.id] ? `settled-${settled[b.id]}` : "owed") : "auto-settled";
-      rows.push(`${b.id},${b.serviceId},${f},${c},${b.paymentMethod},${st}`);
+    const rows = ["booking,total_paisa,commission_paisa,method,status"];
+    for (const b of ledger) {
+      rows.push(`${b.booking_no},${b.total_paisa},${b.commission_paisa},${b.payment_method},${b.status}`);
     }
     const url = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv" }));
     const a = document.createElement("a");
@@ -161,12 +160,6 @@ export default function Admin() {
     a.download = "commission-ledger.csv";
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const eligibleFor = (serviceId: string) => {
-    const s = SERVICES.find((x) => x.id === serviceId);
-    if (!s) return [];
-    return workers.filter((w) => isEligibleWorker(w) && w.categoryIds.includes(s.categoryId));
   };
 
   return (
@@ -178,13 +171,13 @@ export default function Admin() {
       />
       <div className="wrap py-8">
 
-      <div className="mt-6">
+      <div className="mt-2">
         <Tabs<Tab>
           value={tab}
           onChange={setTab}
           tabs={[
             { id: "overview", label: "Overview" },
-            { id: "assign", label: "Assignments" },
+            { id: "assign", label: `Assignments (${pendingBookings.length})` },
             { id: "verify", label: `Verification (${pendingVerify})` },
             { id: "people", label: "People" },
             { id: "services", label: "Services" },
@@ -196,103 +189,109 @@ export default function Admin() {
         />
       </div>
 
-      {tab === "overview" && (
+      {loading && (
+        <p role="status" className="mt-6 text-sm text-on-surface-variant">Loading admin data…</p>
+      )}
+
+      {tab === "overview" && overview && (
         <div className="mt-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              [`${bookings.length}`, "total bookings"],
-              [formatNPR(revenue), "completed revenue"],
-              [formatNPR(commissionEarned), "commission earned"],
-              [formatNPR(cashOwed), "cash commission owed"],
-              [`${disputes}`, "open disputes"],
+              [`${overview.totalBookings}`, "total bookings"],
+              [formatNPR(overview.revenue), "completed revenue"],
+              [formatNPR(overview.commission), "commission earned"],
+              [formatNPR(overview.cashOwed), "cash commission owed"],
+              [`${overview.disputes}`, "open disputes"],
               [`Damak · ${openWards}/10 wards`, "coverage zone"],
             ].map(([v, l]) => (
-              <Card key={l} className="p-4">
-                <p className="text-xl font-bold text-primary">{v}</p>
-                <p className="text-xs text-on-surface-variant">{l}</p>
+              <Card key={l} className="border-t-4 border-t-pine-800 p-4">
+                <p className="font-display text-[22px] font-semibold text-pine-950">{v}</p>
+                <p className="text-xs font-bold tracking-wide text-on-surface-variant uppercase">{l}</p>
               </Card>
             ))}
           </div>
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <Card className="p-5">
-              <h3 className="font-bold">Revenue by category</h3>
-              <table className="mt-2 w-full text-sm">
-                <thead><tr className="text-left text-xs uppercase text-on-surface-variant"><th className="py-1.5">Category</th><th className="text-right">Jobs</th><th className="text-right">Revenue</th><th className="text-right">Commission</th></tr></thead>
-                <tbody>
-                  {byCategory.map(([cid, e]) => (
-                    <tr key={cid} className="border-t border-outline">
-                      <td className="py-1.5 font-semibold">{CATEGORIES.find((c) => c.id === cid)?.name}</td>
-                      <td className="text-right">{e.jobs}</td>
-                      <td className="text-right">{formatNPR(e.revenue)}</td>
-                      <td className="text-right">{formatNPR(e.commission)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
-            <Card className="p-5">
-              <h3 className="font-bold">Recent bookings</h3>
-              <ul className="mt-2 space-y-2 text-sm">
-                {bookings.slice(0, 5).map((b) => (
-                  <li key={b.id} className="flex items-center justify-between gap-2 border-t border-outline pt-2 first:border-0 first:pt-0">
-                    <Link to={`/track/${b.id}`} className="font-semibold hover:text-primary">{b.id}</Link>
-                    <StatusBadge status={b.status} />
-                  </li>
+          <Card className="mt-4 p-5">
+            <h3 className="font-bold">Revenue by category</h3>
+            <table className="mt-2 w-full text-sm">
+              <thead><tr className="text-left text-xs uppercase text-on-surface-variant"><th className="py-1.5">Category</th><th className="text-right">Jobs</th><th className="text-right">Revenue</th><th className="text-right">Commission</th></tr></thead>
+              <tbody>
+                {overview.byCategory.map((e) => (
+                  <tr key={e.name} className="border-t border-outline">
+                    <td className="py-1.5 font-semibold">{e.name}</td>
+                    <td className="text-right">{e.jobs}</td>
+                    <td className="text-right">{formatNPR(Number(e.revenue))}</td>
+                    <td className="text-right">{formatNPR(Number(e.commission))}</td>
+                  </tr>
                 ))}
-              </ul>
-            </Card>
-          </div>
+              </tbody>
+            </table>
+          </Card>
         </div>
       )}
 
       {tab === "assign" && (
         <div className="mt-4 space-y-3">
-          {bookings.filter((b) => b.status === "pending").map((b) => (
+          {pendingBookings.length === 0 && (
+            <Card className="p-6 text-center text-sm text-on-surface-variant">Assignment queue is clear.</Card>
+          )}
+          {pendingBookings.map((b) => (
             <Card key={b.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div className="text-sm">
-                <Link to={`/track/${b.id}`} className="font-bold hover:text-primary">{b.id}</Link>
-                <p className="text-on-surface-variant">{SERVICES.find((s) => s.id === b.serviceId)?.name} · {formatSlot(b.slot)}</p>
-                <p className="mt-0.5 flex items-center gap-1.5">
-                  <Badge tone="success">Damak</Badge>
-                  <span className="text-on-surface-variant">{addresses.find((a) => a.id === b.addressId)?.line ?? "Address on file"}</span>
-                </p>
+                <Link to={`/track/${b.booking_no}`} className="font-bold hover:text-primary">{b.booking_no}</Link>
+                <p className="text-on-surface-variant">{b.service_name} · {formatSlot(b.slot)} · {b.customer_name}</p>
+                <p className="mt-0.5"><Badge tone="success">Damak</Badge></p>
               </div>
               <div className="flex gap-2">
                 <label className="sr-only" htmlFor={`assign-${b.id}`}>Assign worker</label>
                 <select
                   id={`assign-${b.id}`}
-                  value={assignSel[b.id] ?? ""}
-                  onChange={(e) => setAssignSel((p) => ({ ...p, [b.id]: e.target.value }))}
+                  value={assignSel[b.booking_no] ?? ""}
+                  onChange={(e) => setAssignSel((p) => ({ ...p, [b.booking_no]: e.target.value }))}
                   className="rounded-md border border-outline bg-white px-3 py-2 text-sm"
                 >
                   <option value="">Select verified pro…</option>
-                  {eligibleFor(b.serviceId).map((w) => (
-                    <option key={w.id} value={w.id}>{w.name} ({w.rating.toFixed(1)})</option>
-                  ))}
+                  {workers
+                    .filter((w) => w.verification_state === "verified" && w.is_active)
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>{w.name} · {w.categories.join(", ") || "general"}</option>
+                    ))}
                 </select>
-                <Button onClick={() => assign(b.id)} disabled={!assignSel[b.id]}>Assign</Button>
+                <Button
+                  disabled={!assignSel[b.booking_no]}
+                  onClick={async () => {
+                    try {
+                      await post(`/api/bookings/${b.booking_no}/transition`, {
+                        to: "awaiting-worker",
+                        workerId: assignSel[b.booking_no],
+                        note: "Assigned by admin",
+                      });
+                      await load();
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : "Assign failed");
+                    }
+                  }}
+                >
+                  Assign
+                </Button>
               </div>
             </Card>
           ))}
-          {bookings.every((b) => b.status !== "pending") && (
-            <Card className="p-6 text-center text-sm text-on-surface-variant">Assignment queue is clear.</Card>
-          )}
         </div>
       )}
 
       {tab === "verify" && (
         <div className="mt-4 space-y-4">
-          {workers.filter((w) => ["draft", "awaiting-documents", "under-review", "rejected"].includes(w.verification)).map((w) => {
+          {workers.filter((w) => ["draft", "awaiting-documents", "under-review", "rejected"].includes(w.verification_state)).map((w) => {
             const done = checks[w.id] ?? [];
             const ready = CHECKS.every((c) => done.includes(c));
             return (
               <Card key={w.id} className="p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="font-bold">{w.name} <span className="text-sm font-normal text-on-surface-variant">· {w.yearsExp}y exp · {w.areas.join(", ") || "no areas"}</span></p>
+                    <p className="font-bold">{w.name} <span className="text-sm font-normal text-on-surface-variant">· {w.email} · {w.years_exp}y exp · {(w.areas ?? []).join(", ")}</span></p>
                     <p className="mt-1 text-sm text-on-surface-variant">{w.bio}</p>
                   </div>
-                  <VerifyBadge state={w.verification} />
+                  <VerifyBadge state={w.verification_state} />
                 </div>
                 <fieldset className="mt-3 grid gap-1.5 sm:grid-cols-2">
                   <legend className="sr-only">Verification checks for {w.name}</legend>
@@ -314,10 +313,22 @@ export default function Admin() {
                   ))}
                 </fieldset>
                 <div className="mt-3 flex gap-2">
-                  <Button disabled={!ready} onClick={() => { setVerification(w.id, "verified"); auditIt("verify-approve", w.id); }}>
+                  <Button
+                    disabled={!ready}
+                    onClick={async () => {
+                      await post(`/api/admin/workers/${w.id}/verify`, { state: "verified", notes: "All checks passed" });
+                      await load();
+                    }}
+                  >
                     Approve & activate
                   </Button>
-                  <Button variant="danger" onClick={() => { setVerification(w.id, "rejected"); auditIt("verify-reject", w.id); }}>
+                  <Button
+                    variant="danger"
+                    onClick={async () => {
+                      await post(`/api/admin/workers/${w.id}/verify`, { state: "rejected", notes: "Rejected by admin" });
+                      await load();
+                    }}
+                  >
                     Reject
                   </Button>
                 </div>
@@ -325,26 +336,36 @@ export default function Admin() {
               </Card>
             );
           })}
+          {pendingVerify === 0 && (
+            <Card className="p-6 text-center text-sm text-on-surface-variant">Verification queue is clear.</Card>
+          )}
         </div>
       )}
 
       {tab === "people" && (
         <Card className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[680px] text-sm">
             <thead><tr className="bg-surface-container text-left text-xs uppercase"><th className="px-4 py-2.5">Worker</th><th className="px-4 py-2.5">Verification</th><th className="px-4 py-2.5">Jobs</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Action</th></tr></thead>
             <tbody>
               {workers.map((w) => (
                 <tr key={w.id} className="border-t border-outline">
-                  <td className="px-4 py-2.5 font-semibold"><Link to={`/workers/${w.id}`} className="hover:text-primary">{w.name}</Link></td>
-                  <td className="px-4 py-2.5"><VerifyBadge state={w.verification} /></td>
-                  <td className="px-4 py-2.5">{w.jobsDone}</td>
-                  <td className="px-4 py-2.5">{w.active ? <Badge tone="success">Active</Badge> : <Badge>Suspended</Badge>}</td>
                   <td className="px-4 py-2.5">
-                    {w.active ? (
-                      <Button variant="outline" onClick={() => toggleActive(w.id, false)}>Suspend</Button>
-                    ) : (
-                      <Button variant="outline" onClick={() => toggleActive(w.id, true)}>Activate</Button>
-                    )}
+                    <span className="font-semibold">{w.name}</span>
+                    <span className="block text-xs text-on-surface-variant">{w.email}</span>
+                  </td>
+                  <td className="px-4 py-2.5"><VerifyBadge state={w.verification_state} /></td>
+                  <td className="px-4 py-2.5">{w.jobs_done}</td>
+                  <td className="px-4 py-2.5">{w.is_active ? <Badge tone="success">Active</Badge> : <Badge>Suspended</Badge>}</td>
+                  <td className="px-4 py-2.5">
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        await post(`/api/admin/workers/${w.id}/activate`, { active: !w.is_active });
+                        await load();
+                      }}
+                    >
+                      {w.is_active ? "Suspend" : "Activate"}
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -359,7 +380,7 @@ export default function Admin() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="font-display text-xl font-semibold">Coverage zone: Damak (Jhapa)</h3>
-                <p className="mt-0.5 text-sm text-white/70">Single-city policy — every service inherits this zone. New cities need platform expansion approval.</p>
+                <p className="mt-0.5 text-sm text-white/70">Single-city policy — every service inherits this zone.</p>
               </div>
               <Badge tone="marigold">{openWards}/10 wards open</Badge>
             </div>
@@ -367,9 +388,10 @@ export default function Admin() {
               {wards.map((open, i) => (
                 <button
                   key={i}
-                  onClick={() => {
-                    toggleWard(i);
-                    auditIt("coverage-ward", `Damak-${i + 1} ${open ? "closed" : "opened"}`);
+                  onClick={async () => {
+                    const next = wards.map((v, j) => (j === i ? !v : v));
+                    setWards(next);
+                    await put("/api/admin/wards", { wards: next });
                   }}
                   aria-pressed={open}
                   className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
@@ -382,186 +404,176 @@ export default function Admin() {
             </div>
           </Card>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Card className="p-5">
-            <h3 className="font-bold">Commission rules (basis points · 1500 = 15%)</h3>
-            <div className="mt-3 space-y-2">
-              {CATEGORIES.map((c) => (
-                <label key={c.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span>{c.name}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={5000}
-                    value={bpsFor(c.id)}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      setCommMap((p) => {
-                        const n = { ...p, [c.id]: v };
-                        saveMap("wk-comm", n);
-                        return n;
-                      });
-                    }}
-                    onBlur={() => auditIt("commission-rule", `${c.id}=${bpsFor(c.id)}bps`)}
-                    className="w-24 rounded-md border border-outline px-2 py-1.5"
-                    aria-label={`${c.name} commission basis points`}
-                  />
-                </label>
-              ))}
-            </div>
-            <p className="mt-3 text-xs text-on-surface-variant">Applies to future bookings only — completed jobs keep their snapshots.</p>
-          </Card>
-          <Card className="p-5">
-            <h3 className="font-bold">Services ({SERVICES.length})</h3>
-            <ul className="mt-2 max-h-96 space-y-2 overflow-auto text-sm">
-              {SERVICES.map((s) => (
-                <li key={s.id} className="flex items-center justify-between gap-2 border-t border-outline pt-2 first:border-0 first:pt-0">
-                  <Link to={`/services/${s.id}`} className="font-semibold hover:text-primary">{s.name}</Link>
-                  <span className="text-on-surface-variant"><Price paisa={s.basePricePaisa} /> · <Rating value={s.rating} /> · Damak</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
+            <Card className="p-5">
+              <h3 className="font-bold">Commission rules (basis points · 1500 = 15%)</h3>
+              <div className="mt-3 space-y-2">
+                {categories.map((c) => (
+                  <label key={c.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span>{c.name}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={5000}
+                      value={commEdit[c.id] ?? String(c.commission_bps)}
+                      onChange={(e) => setCommEdit((p) => ({ ...p, [c.id]: e.target.value }))}
+                      onBlur={async () => {
+                        const v = Number(commEdit[c.id] ?? c.commission_bps);
+                        if (Number.isInteger(v) && v >= 0 && v <= 5000 && v !== c.commission_bps) {
+                          await put(`/api/admin/categories/${c.id}`, { commissionBps: v });
+                          await load();
+                        }
+                      }}
+                      className="w-24 rounded-md border border-outline px-2 py-1.5"
+                      aria-label={`${c.name} commission basis points`}
+                    />
+                  </label>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-on-surface-variant">Applies to future bookings only — completed jobs keep their snapshots.</p>
+            </Card>
+            <Card className="p-5">
+              <h3 className="font-bold">Services ({services.length})</h3>
+              <ul className="mt-2 max-h-96 space-y-2 overflow-auto text-sm">
+                {services.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-2 border-t border-outline pt-2 first:border-0 first:pt-0">
+                    <span className="font-semibold">{s.name} {!s.is_active && <Badge>Inactive</Badge>}</span>
+                    <Price paisa={Number(s.base_price_paisa)} />
+                  </li>
+                ))}
+              </ul>
+            </Card>
           </div>
         </div>
       )}
 
       {tab === "finance" && (
         <div className="mt-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Card className="p-4"><p className="text-xl font-bold">{formatNPR(revenue)}</p><p className="text-xs text-on-surface-variant">gross completed volume</p></Card>
-            <Card className="p-4"><p className="text-xl font-bold text-success">{formatNPR(commissionEarned)}</p><p className="text-xs text-on-surface-variant">commission earned</p></Card>
-            <Card className="p-4"><p className="text-xl font-bold text-error">{formatNPR(cashOwed)}</p><p className="text-xs text-on-surface-variant">cash commission outstanding</p></Card>
-          </div>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-0 flex justify-end">
             <Button variant="outline" onClick={exportLedger}>Export ledger CSV</Button>
           </div>
           <Card className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead><tr className="bg-surface-container text-left text-xs uppercase"><th className="px-4 py-2.5">Booking</th><th className="px-4 py-2.5 text-right">Total</th><th className="px-4 py-2.5 text-right">Commission</th><th className="px-4 py-2.5">Method</th><th className="px-4 py-2.5">Settlement</th><th className="px-4 py-2.5">Actions</th></tr></thead>
               <tbody>
-                {completed.map((b) => {
-                  const f = b.finalPaisa ?? b.estimatePaisa;
-                  const c = b.commissionPaisa ?? calcCommission(f, b.commissionBps);
-                  return (
-                    <tr key={b.id} className="border-t border-outline">
-                      <td className="px-4 py-2.5 font-semibold"><Link to={`/track/${b.id}`} className="hover:text-primary">{b.id}</Link></td>
-                      <td className="px-4 py-2.5 text-right">{formatNPR(f)}</td>
-                      <td className="px-4 py-2.5 text-right">{formatNPR(c)}</td>
-                      <td className="px-4 py-2.5">{b.paymentMethod}</td>
-                      <td className="px-4 py-2.5">
-                        {refunded[b.id] ? <Badge tone="error">Refunded</Badge>
-                          : b.paymentMethod === "cash"
-                            ? settled[b.id] ? <Badge tone="success">Settled {formatDate(settled[b.id])}</Badge> : <Badge tone="warning">Owed</Badge>
-                            : <Badge tone="success">Auto-settled</Badge>}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex gap-1.5">
-                          {b.paymentMethod === "cash" && !settled[b.id] && !refunded[b.id] && (
-                            <Button
-                              variant="outline"
-                              onClick={() => {
-                                setSettled((p) => { const n = { ...p, [b.id]: new Date().toISOString() }; saveMap("wk-settled", n); return n; });
-                                auditIt("settlement", `${b.id} cash commission ${formatNPR(c)} settled`);
-                              }}
-                            >
-                              Record settlement
-                            </Button>
-                          )}
-                          {!refunded[b.id] && (
-                            <Button
-                              variant="ghost"
-                              onClick={() => {
-                                setRefunded((p) => { const n = { ...p, [b.id]: true }; saveMap("wk-refund", n); return n; });
-                                auditIt("refund", `${b.id} ${formatNPR(f)} refunded, rewards reversed`);
-                              }}
-                            >
-                              Refund
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {ledger.map((b) => (
+                  <tr key={b.booking_no} className="border-t border-outline">
+                    <td className="px-4 py-2.5 font-semibold"><Link to={`/track/${b.booking_no}`} className="hover:text-primary">{b.booking_no}</Link></td>
+                    <td className="px-4 py-2.5 text-right">{formatNPR(Number(b.total_paisa))}</td>
+                    <td className="px-4 py-2.5 text-right">{formatNPR(Number(b.commission_paisa))}</td>
+                    <td className="px-4 py-2.5">{b.payment_method}</td>
+                    <td className="px-4 py-2.5">
+                      {b.payment_method === "cash"
+                        ? b.is_settled
+                          ? <Badge tone="success">Settled</Badge>
+                          : <Badge tone="warning">Owed</Badge>
+                        : <Badge tone="success">Auto-settled</Badge>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex gap-1.5">
+                        {b.payment_method === "cash" && !b.is_settled && b.worker_id && (
+                          <Button
+                            variant="outline"
+                            onClick={async () => {
+                              await post("/api/admin/settlements", {
+                                workerId: b.worker_id,
+                                amountPaisa: Number(b.commission_paisa),
+                                kind: "collection",
+                                note: `Cash commission for ${b.booking_no}`,
+                              });
+                              await load();
+                            }}
+                          >
+                            Record settlement
+                          </Button>
+                        )}
+                        {b.payment_state === "verified" && b.payment_id && (
+                          <Button
+                            variant="ghost"
+                            onClick={async () => {
+                              if (!window.confirm(`Refund ${formatNPR(Number(b.total_paisa))} for ${b.booking_no}?`)) return;
+                              await post("/api/admin/refunds", {
+                                paymentId: b.payment_id,
+                                amountPaisa: Number(b.total_paisa),
+                                reason: "Admin refund",
+                              });
+                              await load();
+                            }}
+                          >
+                            Refund
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </Card>
+          <p className="mt-3 text-xs text-on-surface-variant">
+            Cash settlements and refunds run through audited endpoints — use the booking page or worker records. Ledger math: commission = ⌊total × bps / 10000⌋ in integer paisa.
+          </p>
         </div>
       )}
 
       {tab === "rewards" && (
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Card className="p-5">
-            <h3 className="font-bold">Rules (configurable)</h3>
-            <ul className="mt-2 space-y-1.5 text-sm text-on-surface-variant">
-              <li>Earn {PLATFORM.rewardPerNpr100} point per Rs 100 eligible spend</li>
-              <li>+{PLATFORM.milestoneBonus} point bonus every {PLATFORM.milestoneBookings} completed bookings</li>
-              <li>Redeem {PLATFORM.redeemPoints} points for Rs 50 off at checkout</li>
-              <li>Refunds reverse the points they issued — balances can never go negative</li>
-            </ul>
-          </Card>
-          <Card className="p-5">
-            <h3 className="font-bold">Ledger ({rewardTxs.length})</h3>
-            <ul className="mt-2 max-h-64 space-y-1.5 overflow-auto text-sm">
-              {[...rewardTxs].reverse().map((t) => (
-                <li key={t.id} className="flex justify-between gap-2 border-t border-outline pt-1.5 first:border-0">
-                  <span>{t.reason}</span>
-                  <strong className={t.points < 0 ? "text-error" : "text-success"}>{t.points > 0 ? `+${t.points}` : t.points}</strong>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
+        <Card className="mt-4 p-5">
+          <h3 className="font-bold">Reward ledger ({rewardTxs.length})</h3>
+          <ul className="mt-2 max-h-96 space-y-1.5 overflow-auto text-sm">
+            {[...rewardTxs].reverse().map((t) => (
+              <li key={t.id} className="flex justify-between gap-2 border-t border-outline pt-1.5 first:border-0">
+                <span>{t.reason}</span>
+                <strong className={t.points < 0 ? "text-error" : "text-success"}>{t.points > 0 ? `+${t.points}` : t.points}</strong>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-on-surface-variant">Rules live in platform settings; refunds reverse the points they issued.</p>
+        </Card>
       )}
 
       {tab === "support" && (
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Card className="p-5">
-            <h3 className="font-bold">Tickets</h3>
-            {TICKETS.map((t) => (
-              <div key={t.id} className="mt-3 border-t border-outline pt-3 first:border-0">
-                <p className="text-sm font-bold">{t.id} · {t.subject} <Badge tone={t.status === "resolved" ? "success" : "warning"}>{t.status}</Badge></p>
-                {(ticketExtra[t.id] ?? []).concat(t.messages).map((m, i) => (
-                  <p key={i} className="mt-1 text-sm"><strong>{m.from}:</strong> {m.text}</p>
-                ))}
-                <div className="mt-2 flex gap-2">
-                  <label className="sr-only" htmlFor={`reply-${t.id}`}>Reply to {t.id}</label>
-                  <input
-                    id={`reply-${t.id}`}
-                    value={replies[t.id] ?? ""}
-                    onChange={(e) => setReplies((p) => ({ ...p, [t.id]: e.target.value }))}
-                    placeholder="Write a reply…"
-                    className="w-full rounded-md border border-outline px-3 py-1.5 text-sm"
-                  />
+        <Card className="mt-4 p-5">
+          <h3 className="font-bold">Tickets ({tickets.length})</h3>
+          {tickets.map((t) => (
+            <div key={t.id} className="mt-3 border-t border-outline pt-3 first:border-0">
+              <p className="text-sm font-bold">{t.subject} <Badge tone={t.status === "resolved" ? "success" : "warning"}>{t.status}</Badge></p>
+              {(t.messages ?? []).map((m, i) => (
+                <p key={i} className="mt-1 text-sm"><strong>{m.from}:</strong> {m.text}</p>
+              ))}
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={replies[t.id] ?? ""}
+                  onChange={(e) => setReplies((p) => ({ ...p, [t.id]: e.target.value }))}
+                  placeholder="Write a reply…"
+                  aria-label={`Reply to ${t.subject}`}
+                  className="w-full rounded-md border border-outline px-3 py-1.5 text-sm"
+                />
+                <Button
+                  variant="outline"
+                  disabled={!(replies[t.id] ?? "").trim()}
+                  onClick={async () => {
+                    await post(`/api/admin/tickets/${t.id}/reply`, { body: replies[t.id].trim() });
+                    setReplies((p) => ({ ...p, [t.id]: "" }));
+                    await load();
+                  }}
+                >
+                  Reply
+                </Button>
+                {t.status !== "resolved" && (
                   <Button
-                    variant="outline"
-                    disabled={!(replies[t.id] ?? "").trim()}
-                    onClick={() => {
-                      const text = replies[t.id].trim();
-                      setTicketExtra((p) => ({ ...p, [t.id]: [...(p[t.id] ?? []), { from: "Support", text, at: new Date().toISOString() }] }));
-                      setReplies((p) => ({ ...p, [t.id]: "" }));
-                      auditIt("support-reply", `${t.id}: ${text.slice(0, 60)}`);
+                    variant="ghost"
+                    onClick={async () => {
+                      await post(`/api/admin/tickets/${t.id}/status`, { status: "resolved" });
+                      await load();
                     }}
                   >
-                    Reply
+                    Resolve
                   </Button>
-                </div>
+                )}
               </div>
-            ))}
-          </Card>
-          <Card className="p-5">
-            <h3 className="font-bold">Reviews</h3>
-            <ul className="mt-2 space-y-2 text-sm">
-              {REVIEWS.map((r) => (
-                <li key={r.id} className="border-t border-outline pt-2 first:border-0">
-                  <Rating value={r.rating} /> <span className="text-on-surface-variant">· {r.bookingId}</span>
-                  <p>“{r.text}”</p>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-xs text-on-surface-variant">Reviews are tied to completed bookings — duplicates and unverified reviews are rejected at write time.</p>
-          </Card>
-        </div>
+            </div>
+          ))}
+          {tickets.length === 0 && <p className="mt-2 text-sm text-on-surface-variant">No tickets.</p>}
+        </Card>
       )}
 
       {tab === "audit" && (
@@ -569,11 +581,11 @@ export default function Admin() {
           <table className="w-full min-w-[640px] text-sm">
             <thead><tr className="bg-surface-container text-left text-xs uppercase"><th className="px-4 py-2.5">When</th><th className="px-4 py-2.5">Actor</th><th className="px-4 py-2.5">Action</th><th className="px-4 py-2.5">Detail</th></tr></thead>
             <tbody>
-              {audit.length === 0 && <tr><td colSpan={4} className="px-4 py-6 text-center text-on-surface-variant">No admin actions yet this session.</td></tr>}
+              {audit.length === 0 && <tr><td colSpan={4} className="px-4 py-6 text-center text-on-surface-variant">No admin actions recorded yet.</td></tr>}
               {audit.map((a, i) => (
                 <tr key={i} className="border-t border-outline">
-                  <td className="px-4 py-2.5 text-on-surface-variant">{formatSlot(a.at)}</td>
-                  <td className="px-4 py-2.5">{a.actor}</td>
+                  <td className="px-4 py-2.5 text-on-surface-variant">{formatSlot(a.created_at ?? a.at ?? "")}</td>
+                  <td className="px-4 py-2.5">{a.actor_name ?? a.actor}</td>
                   <td className="px-4 py-2.5 font-semibold">{a.action}</td>
                   <td className="px-4 py-2.5">{a.detail}</td>
                 </tr>

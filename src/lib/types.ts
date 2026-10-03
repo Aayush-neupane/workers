@@ -37,6 +37,7 @@ export type PaymentStatus =
 
 export interface ServiceCategory {
   id: string;
+  slug: string;
   name: string;
   tagline: string;
   icon: string;
@@ -46,6 +47,7 @@ export interface ServiceCategory {
 export interface Service {
   id: string;
   categoryId: string;
+  categorySlug?: string;
   name: string;
   description: string;
   pricingModel: PricingModel;
@@ -93,9 +95,12 @@ export interface StatusEvent {
 export interface Booking {
   id: string;
   serviceId: string;
+  serviceName?: string;
   workerId?: string;
+  workerName?: string;
   status: BookingStatus;
   addressId: string;
+  addressText?: string;
   slot: string;
   instructions: string;
   estimatePaisa: number;

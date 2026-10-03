@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Search } from "lucide-react";
 import {
@@ -12,9 +12,9 @@ import {
   Rating,
 } from "../components/ui";
 import { CATEGORY_HUES, CATEGORY_ICONS } from "../components/categoryIcons";
-import { CATEGORIES, SERVICES } from "../data/mock";
+import { api, toCategory, toService } from "../lib/api";
 import { PRICING_LABELS } from "../lib/pricing";
-import type { PricingModel } from "../lib/types";
+import type { PricingModel, Service, ServiceCategory } from "../lib/types";
 
 type Sort = "popular" | "price-asc" | "price-desc" | "rating";
 
@@ -28,25 +28,49 @@ export default function Services() {
   const q = params.get("q") ?? "";
   const category = params.get("category") ?? "all";
 
-  const results = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const filtered = SERVICES.filter((s) => {
-      if (category !== "all" && s.categoryId !== category) return false;
-      if (model !== "all" && s.pricingModel !== (model as PricingModel)) return false;
-      if (s.rating < Number(minRating)) return false;
-      if (s.basePricePaisa > Number(maxPrice)) return false;
-      if (needle) {
-        const hay = `${s.name} ${s.description}`.toLowerCase();
-        if (!hay.includes(needle)) return false;
-      }
-      return true;
-    });
-    return [...filtered].sort((a, b) => {
-      if (sort === "price-asc") return a.basePricePaisa - b.basePricePaisa;
-      if (sort === "price-desc") return b.basePricePaisa - a.basePricePaisa;
-      if (sort === "rating") return b.rating - a.rating;
-      return b.jobsDone - a.jobsDone;
-    });
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  const [results, setResults] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    api<{ categories: unknown[] }>("/api/categories")
+      .then((c) => {
+        if (live) setCategories((c.categories as Parameters<typeof toCategory>[0][]).map(toCategory));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    setFailed(false);
+    const qs = new URLSearchParams();
+    if (q.trim()) qs.set("q", q.trim());
+    if (category !== "all") qs.set("category", category);
+    if (maxPrice !== "99999999") qs.set("maxPrice", maxPrice);
+    if (minRating !== "0") qs.set("minRating", minRating);
+    qs.set("sort", sort);
+    api<{ services: unknown[] }>(`/api/services?${qs.toString()}`)
+      .then((s) => {
+        if (!live) return;
+        const all = (s.services as Parameters<typeof toService>[0][]).map(toService);
+        setResults(model === "all" ? all : all.filter((x) => x.pricingModel === (model as PricingModel)));
+        setLoading(false);
+      })
+      .catch(() => {
+        if (live) {
+          setFailed(true);
+          setLoading(false);
+        }
+      });
+    return () => {
+      live = false;
+    };
   }, [q, category, model, minRating, maxPrice, sort]);
 
   return (
@@ -93,15 +117,15 @@ export default function Services() {
 
       <div className="wrap py-8">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by category">
-          {[{ id: "all", name: "All" }, ...CATEGORIES].map((c) => {
-            const active = category === c.id || (c.id === "all" && category === "all");
+          {[{ slug: "all", name: "All" }, ...categories].map((c) => {
+            const active = category === c.slug || (c.slug === "all" && category === "all");
             return (
               <button
-                key={c.id}
+                key={c.slug}
                 onClick={() =>
                   setParams((p) => {
-                    if (c.id === "all") p.delete("category");
-                    else p.set("category", c.id);
+                    if (c.slug === "all") p.delete("category");
+                    else p.set("category", c.slug);
                     return p;
                   })
                 }
@@ -141,10 +165,27 @@ export default function Services() {
         </Card>
 
         <p className="mt-6 text-sm font-semibold text-on-surface-variant" role="status">
-          {results.length} service{results.length === 1 ? "" : "s"} found{q && <> for “{q}”</>}
+          {loading ? "Searching…" : <>{results.length} service{results.length === 1 ? "" : "s"} found{q && <> for “{q}”</>}</>}
         </p>
 
-        {results.length === 0 ? (
+        {failed ? (
+          <div className="mt-4">
+            <EmptyState
+              title="Cannot reach the server"
+              body="Check that the backend is running, then try again."
+            />
+          </div>
+        ) : loading ? (
+          <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="animate-pulse rounded-lg border border-outline bg-white p-5">
+                <div className="h-5 w-2/3 rounded bg-surface-container-high" />
+                <div className="mt-2 h-4 w-full rounded bg-surface-container" />
+                <div className="mt-3 h-4 w-1/3 rounded bg-surface-container" />
+              </div>
+            ))}
+          </div>
+        ) : results.length === 0 ? (
           <div className="mt-4">
             <EmptyState
               title="No services match"
@@ -154,9 +195,9 @@ export default function Services() {
         ) : (
           <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {results.map((s) => {
-              const cat = CATEGORIES.find((c) => c.id === s.categoryId);
-              const Icon = CATEGORY_ICONS[s.categoryId] ?? Search;
-              const hue = CATEGORY_HUES[s.categoryId] ?? 150;
+              const cat = categories.find((c) => c.id === s.categoryId);
+              const Icon = CATEGORY_ICONS[s.categorySlug ?? ""] ?? Search;
+              const hue = CATEGORY_HUES[s.categorySlug ?? ""] ?? 150;
               return (
                 <Link key={s.id} to={`/services/${s.id}`}>
                   <Card className="elev-lift h-full p-5">

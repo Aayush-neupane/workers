@@ -37,7 +37,11 @@ router.get(
     const r = await query(
       `SELECT u.id, u.name, u.email, u.phone, u.is_active AS user_active,
               wp.bio, wp.years_exp, wp.areas, wp.avatar_hue, wp.verification_state, wp.is_active,
-              (SELECT COUNT(*)::int FROM bookings WHERE worker_id = u.id AND status = 'completed') AS jobs_done
+              (SELECT COUNT(*)::int FROM bookings WHERE worker_id = u.id AND status = 'completed') AS jobs_done,
+              COALESCE((SELECT array_agg(DISTINCT c.slug) FROM worker_services ws
+                        JOIN services s ON s.id = ws.service_id
+                        JOIN categories c ON c.id = s.category_id
+                        WHERE ws.worker_user_id = u.id), '{}') AS categories
        FROM users u JOIN worker_profiles wp ON wp.user_id = u.id
        WHERE ${conds.join(" AND ")} ORDER BY u.created_at DESC LIMIT 100`,
       params,
@@ -237,6 +241,17 @@ router.put(
 
 // ---------- Coverage ----------
 router.get(
+  "/admin/services-all",
+  ah(async (_req, res) => {
+    const r = await query(
+      `SELECT s.*, c.name AS category_name FROM services s
+       LEFT JOIN categories c ON c.id = s.category_id ORDER BY s.name LIMIT 200`,
+    );
+    return res.json({ services: r.rows });
+  }),
+);
+
+router.get(
   "/admin/wards",
   ah(async (_req, res) => {
     const r = await query(`SELECT ward, is_open FROM coverage_wards ORDER BY ward`);
@@ -318,9 +333,13 @@ router.get(
   "/admin/ledger",
   ah(async (_req, res) => {
     const r = await query(
-      `SELECT cl.*, b.booking_no, b.payment_method, b.status, s.name AS service_name
+      `SELECT cl.*, b.booking_no, b.payment_method, b.status, b.worker_id, s.name AS service_name,
+              u.name AS worker_name, p.id AS payment_id, p.status AS payment_state
        FROM commission_ledger cl JOIN bookings b ON b.id = cl.booking_id
-       LEFT JOIN services s ON s.id = b.service_id ORDER BY cl.created_at DESC LIMIT 200`,
+       LEFT JOIN services s ON s.id = b.service_id
+       LEFT JOIN users u ON u.id = b.worker_id
+       LEFT JOIN payments p ON p.booking_id = b.id AND p.status = 'verified'
+       ORDER BY cl.created_at DESC LIMIT 200`,
     );
     return res.json({ ledger: r.rows });
   }),

@@ -19,13 +19,14 @@ const addressSchema = z.object({
 });
 
 export default function Profile() {
-  const { name, signIn } = useAuth();
-  const { addresses, addAddress } = useStore();
+  const { user, updateProfile } = useAuth();
+  const { addresses, addAddress, deleteAddress } = useStore();
   const [saved, setSaved] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const profile = useForm<z.infer<typeof profileSchema>>({
     resolver: zodResolver(profileSchema),
-    defaultValues: { name, phone: "9852600000" },
+    values: { name: user?.name ?? "", phone: "" },
   });
 
   const addr = useForm<z.infer<typeof addressSchema>>({
@@ -39,45 +40,53 @@ export default function Profile() {
       <div className="wrap max-w-3xl py-8">
       <Card className="p-6">
         <h2 className="font-bold">Contact details</h2>
+        <p className="mt-1 text-sm text-on-surface-variant">{user?.email}</p>
         <form
           className="mt-3 grid gap-4 sm:grid-cols-2"
-          onSubmit={profile.handleSubmit((f) => {
-            signIn("customer", f.name);
-            setSaved("Profile saved.");
+          onSubmit={profile.handleSubmit(async (f) => {
+            setBusy(true);
+            const ok = await updateProfile(f.name, f.phone);
+            setBusy(false);
+            setSaved(ok ? "Profile saved." : "Save failed — try again.");
           })}
         >
           <Field label="Full name" error={profile.formState.errors.name?.message}>
             <TextField {...profile.register("name")} />
           </Field>
           <Field label="Phone" error={profile.formState.errors.phone?.message}>
-            <TextField {...profile.register("phone")} inputMode="tel" />
+            <TextField {...profile.register("phone")} inputMode="tel" placeholder="9852600000" />
           </Field>
           <div className="sm:col-span-2">
-            <Button type="submit">Save changes</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save changes"}</Button>
             {saved && <p role="status" className="mt-2 text-sm text-success">{saved}</p>}
           </div>
         </form>
       </Card>
 
       <Card className="mt-6 p-6">
-        <h2 className="font-bold">Saved addresses ({addresses.length})</h2>
+        <h2 className="font-bold">Saved addresses ({addresses.length}/5)</h2>
         <ul className="mt-3 space-y-2">
           {addresses.map((a) => (
-            <li key={a.id} className="rounded-md border border-outline p-3 text-sm">
-              <strong>{a.label}</strong> — {a.line}, {a.city} · {a.phone}
+            <li key={a.id} className="flex items-center justify-between gap-3 rounded-md border border-outline p-3 text-sm">
+              <span><strong>{a.label}</strong> — {a.line}, {a.city} · {a.phone}</span>
+              <Button variant="ghost" onClick={() => void deleteAddress(a.id)}>Remove</Button>
             </li>
           ))}
         </ul>
         <h3 className="mt-5 font-bold">Add address</h3>
         <form
           className="mt-3 grid gap-4 sm:grid-cols-2"
-          onSubmit={addr.handleSubmit((f) => {
-            addAddress({ id: `a-${Date.now()}`, ...f });
-            addr.reset({ label: "", line: "", city: "Damak", phone: "9852600000" });
+          onSubmit={addr.handleSubmit(async (f) => {
+            try {
+              await addAddress(f);
+              addr.reset({ label: "", line: "", city: "Damak", phone: "9852600000" });
+            } catch (e) {
+              alert(e instanceof Error ? e.message : "Could not add address");
+            }
           })}
         >
           <Field label="Label" error={addr.formState.errors.label?.message}>
-            <TextField {...addr.register("label")} placeholder="Home, Office…" />
+            <TextField {...addr.register("label")} placeholder="Home, Shop…" />
           </Field>
           <Field label="Phone" error={addr.formState.errors.phone?.message}>
             <TextField {...addr.register("phone")} inputMode="tel" />

@@ -1,26 +1,49 @@
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Clock, MapPin, ShieldCheck, XCircle } from "lucide-react";
 import {
-  ArtTile,
   Avatar,
   Badge,
   Button,
   Card,
   EmptyState,
   PageHero,
-  Price,
   Rating,
 } from "../components/ui";
-import { CATEGORY_HUES } from "../components/categoryIcons";
-import { CATEGORIES, REVIEWS, SERVICES, WORKERS, BOOKINGS } from "../data/mock";
-import { isEligibleWorker } from "../lib/booking";
+import { api, toReview, toService, toWorker } from "../lib/api";
+import type { Review, Service, Worker } from "../lib/types";
 import { PRICING_EXPLAINERS, PRICING_LABELS } from "../lib/pricing";
 
 export default function ServiceDetail() {
   const { id } = useParams();
-  const service = SERVICES.find((s) => s.id === id);
+  const [service, setService] = useState<Service | null>(null);
+  const [categoryName, setCategoryName] = useState("");
+  const [pros, setPros] = useState<Worker[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [missing, setMissing] = useState(false);
 
-  if (!service) {
+  useEffect(() => {
+    let live = true;
+    setService(null);
+    setMissing(false);
+    api<{ service: unknown; pros: unknown[]; reviews: unknown[] }>(`/api/services/${id}`)
+      .then((d) => {
+        if (!live) return;
+        const s = d.service as Parameters<typeof toService>[0];
+        setService(toService(s));
+        setCategoryName((s.category_name as string | undefined) ?? "");
+        setPros((d.pros as Parameters<typeof toWorker>[0][]).map(toWorker));
+        setReviews((d.reviews as Parameters<typeof toReview>[0][]).map(toReview));
+      })
+      .catch(() => {
+        if (live) setMissing(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [id]);
+
+  if (missing) {
     return (
       <div className="wrap py-12">
         <EmptyState
@@ -32,21 +55,22 @@ export default function ServiceDetail() {
     );
   }
 
-  const category = CATEGORIES.find((c) => c.id === service.categoryId);
-  const hue = CATEGORY_HUES[service.categoryId] ?? 150;
-  const pros = WORKERS.filter(
-    (w) => isEligibleWorker(w) && w.categoryIds.includes(service.categoryId),
-  );
-  const bookingIds = new Set(BOOKINGS.filter((b) => b.serviceId === service.id).map((b) => b.id));
-  const reviews = REVIEWS.filter((r) => bookingIds.has(r.bookingId));
-  const related = SERVICES.filter(
-    (s) => s.categoryId === service.categoryId && s.id !== service.id,
-  ).slice(0, 3);
+  if (!service) {
+    return (
+      <div className="wrap py-12" role="status">
+        <div className="animate-pulse space-y-3">
+          <div className="h-8 w-1/2 rounded bg-surface-container-high" />
+          <div className="h-4 w-full rounded bg-surface-container" />
+          <div className="h-4 w-2/3 rounded bg-surface-container" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fade-up">
       <PageHero
-        eyebrow={category?.name ?? "Service"}
+        eyebrow={categoryName || "Service"}
         title={service.name}
         body={service.description}
       >
@@ -156,25 +180,6 @@ export default function ServiceDetail() {
             </Card>
           </aside>
         </div>
-
-        {related.length > 0 && (
-          <div className="mt-12">
-            <h2 className="font-display text-2xl font-semibold">Related services</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              {related.map((s) => (
-                <Link key={s.id} to={`/services/${s.id}`}>
-                  <Card className="elev-lift h-full p-5">
-                    <ArtTile hue={hue} size={40}>
-                      <span className="font-display text-lg font-semibold">{s.name[0]}</span>
-                    </ArtTile>
-                    <h3 className="mt-2.5 font-bold">{s.name}</h3>
-                    <p className="mt-1"><Price paisa={s.basePricePaisa} prefix="from " /> · <Rating value={s.rating} /></p>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

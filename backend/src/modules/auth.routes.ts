@@ -91,6 +91,34 @@ router.get("/me", requireAuth, (req, res) => {
   return res.json({ user: req.user, env: env.NODE_ENV });
 });
 
+router.patch(
+  "/me",
+  requireAuth,
+  validate(
+    z.object({
+      name: z.string().trim().min(2).max(80).optional(),
+      phone: z.string().trim().min(10).max(20).optional(),
+    }),
+  ),
+  ah(async (req, res) => {
+    const f = req.body as { name?: string; phone?: string };
+    if (!f.name && !f.phone) return res.status(400).json({ error: "Nothing to update" });
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (f.name) {
+      params.push(f.name);
+      sets.push(`name = $${params.length}`);
+    }
+    if (f.phone) {
+      params.push(f.phone);
+      sets.push(`phone = $${params.length}`);
+    }
+    params.push(req.user!.id);
+    await query(`UPDATE users SET ${sets.join(", ")}, updated_at = now() WHERE id = $${params.length}`, params);
+    return res.json({ ok: true });
+  }),
+);
+
 const createWorkerSchema = z.object({
   name: z.string().trim().min(2).max(80),
   email: z.string().trim().toLowerCase().email(),

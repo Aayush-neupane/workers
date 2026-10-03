@@ -4,6 +4,7 @@ import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth } from "../middleware/auth.js";
+import { bookingKey } from "../utils/lookup.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -61,15 +62,17 @@ router.delete(
 router.post(
   "/reviews",
   validate(z.object({
-    bookingId: z.string().uuid(),
+    bookingId: z.string().min(3).max(40),
     rating: z.number().int().min(1).max(5),
     text: z.string().trim().max(2000).default(""),
   })),
   ah(async (req, res) => {
     const f = req.body as { bookingId: string; rating: number; text: string };
+    const key = bookingKey(f.bookingId);
+    if (!key) return res.status(400).json({ error: "Invalid request" });
     const b = await query<{ id: string; customer_id: string; worker_id: string | null; status: string }>(
-      `SELECT id, customer_id, worker_id, status FROM bookings WHERE id = $1`,
-      [f.bookingId],
+      `SELECT id, customer_id, worker_id, status FROM bookings WHERE ${key.column} = $1`,
+      [key.value],
     );
     if (b.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const booking = b.rows[0];
@@ -153,6 +156,21 @@ router.post(
     );
     await query(`UPDATE support_tickets SET updated_at = now() WHERE id = $1`, [req.params.id]);
     return res.json({ ok: true });
+  }),
+);
+
+// ---------- Rewards (own ledger + balance) ----------
+router.get(
+  "/rewards/mine",
+  ah(async (req, res) => {
+    const r = await query(
+      `SELECT id, points, kind, reason, created_at AS at FROM reward_ledger
+       WHERE user_id = $1 ORDER BY created_at`,
+      [req.user!.id],
+    );
+    const txs = r.rows as { points: number }[];
+    const balance = txs.reduce((n, t) => n + t.points, 0);
+    return res.json({ txs: r.rows, balance });
   }),
 );
 

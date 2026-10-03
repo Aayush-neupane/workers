@@ -1,112 +1,182 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { ADDRESSES, BOOKINGS, REWARDS } from "../data/mock";
-import { calcCommission, canTransition } from "./booking";
+import {
+  ApiError,
+  api,
+  del,
+  post,
+  toAddress,
+  toBooking,
+  toHistory,
+  toNotification,
+  toReward,
+  toTicket,
+} from "./api";
+import { useAuth } from "./auth";
 import type {
   Address,
+  AppNotification,
   Booking,
   BookingStatus,
   RewardTx,
-  Role,
+  Ticket,
 } from "./types";
 
+export interface NewBooking {
+  serviceId: string;
+  addressId?: string;
+  addressText?: string;
+  slot: string;
+  instructions: string;
+  paymentMethod: Booking["paymentMethod"];
+  useRewards: boolean;
+}
+
 interface StoreValue {
+  ready: boolean;
+  error: string;
   bookings: Booking[];
   addresses: Address[];
   rewardTxs: RewardTx[];
   rewardBalance: number;
-  addBooking: (b: Booking) => void;
+  tickets: Ticket[];
+  notifications: AppNotification[];
+  providers: { cash: boolean; esewa: boolean; khalti: boolean };
+  reload: () => Promise<void>;
+  fetchBooking: (no: string) => Promise<Booking | null>;
+  addBooking: (b: NewBooking) => Promise<{ bookingNo: string; discountPaisa: number }>;
   advanceBooking: (
-    id: string,
+    no: string,
     to: BookingStatus,
-    by: Role,
-    note?: string,
-    opts?: { workerId?: string; finalPaisa?: number },
-  ) => boolean;
-  addAddress: (a: Address) => void;
-  spendPoints: (points: number, reason: string) => boolean;
+    opts?: { note?: string; finalPaisa?: number; workerId?: string },
+  ) => Promise<boolean>;
+  addAddress: (a: Omit<Address, "id">) => Promise<void>;
+  deleteAddress: (id: string) => Promise<void>;
+  createTicket: (subject: string, message: string) => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
 }
 
 const StoreCtx = createContext<StoreValue | null>(null);
 
-function load<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* storage full or unavailable — demo continues in memory */
-  }
-}
-
-export function nextBookingId(existing: Booking[]): string {
-  for (let i = 0; i < 50; i++) {
-    const id = `BK-${Math.floor(1000 + Math.random() * 9000)}`;
-    if (!existing.some((b) => b.id === id) && !BOOKINGS.some((b) => b.id === id)) return id;
-  }
-  return `BK-${Date.now().toString().slice(-6)}`;
-}
-
 export function StoreProvider({ children }: { children: ReactNode }) {
-  // Seed data lives in state so every demo role can act on it; persisted locally.
-  const [bookings, setBookings] = useState<Booking[]>(() => load("wk-bookings-v2", BOOKINGS));
-  const [addresses, setAddresses] = useState<Address[]>(() => load("wk-addresses2", ADDRESSES));
-  const [rewardTxs, setRewardTxs] = useState<RewardTx[]>(() => load("wk-rewards", REWARDS));
+  const { user, ready: authReady } = useAuth();
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [rewardTxs, setRewardTxs] = useState<RewardTx[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [providers, setProviders] = useState({ cash: true, esewa: false, khalti: false });
 
-  useEffect(() => save("wk-bookings-v2", bookings), [bookings]);
-  useEffect(() => save("wk-addresses2", addresses), [addresses]);
-  useEffect(() => save("wk-rewards", rewardTxs), [rewardTxs]);
+  const reload = useCallback(async () => {
+    if (!user) {
+      setBookings([]);
+      setAddresses([]);
+      setRewardTxs([]);
+      setTickets([]);
+      setNotifications([]);
+      setReady(true);
+      return;
+    }
+    setError("");
+    try {
+      const [b, a, r, t, n, p] = await Promise.all([
+        api<{ bookings: unknown[] }>("/api/bookings/mine"),
+        api<{ addresses: unknown[] }>("/api/addresses"),
+        api<{ txs: unknown[] }>("/api/rewards/mine"),
+        api<{ tickets: unknown[] }>("/api/tickets"),
+        api<{ notifications: unknown[] }>("/api/notifications"),
+        api<{ cash: boolean; esewa: boolean; khalti: boolean }>("/api/payments/providers"),
+      ]);
+      setBookings((b.bookings as Parameters<typeof toBooking>[0][]).map(toBooking));
+      setAddresses((a.addresses as Parameters<typeof toAddress>[0][]).map(toAddress));
+      setRewardTxs((r.txs as Parameters<typeof toReward>[0][]).map(toReward));
+      setTickets((t.tickets as Parameters<typeof toTicket>[0][]).map(toTicket));
+      setNotifications((n.notifications as Parameters<typeof toNotification>[0][]).map(toNotification));
+      setProviders(p);
+      setReady(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+      setReady(true);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (authReady) void reload();
+  }, [authReady, reload]);
 
   const value = useMemo<StoreValue>(() => {
-    const rewardBalance = rewardTxs.reduce((n, t) => n + t.points, 0);
+    const rewardBalance = rewardTxs.reduce((sum, t) => sum + t.points, 0);
     return {
+      ready,
+      error,
       bookings,
       addresses,
       rewardTxs,
       rewardBalance,
-      addBooking: (b) => setBookings((prev) => [b, ...prev]),
-      advanceBooking: (id, to, by, note, opts) => {
-        let ok = false;
-        setBookings((prev) =>
-          prev.map((b) => {
-            if (b.id !== id || !canTransition(b.status, to)) return b;
-            ok = true;
-            const finalPaisa = opts?.finalPaisa ?? b.finalPaisa ?? b.estimatePaisa;
-            return {
-              ...b,
-              status: to,
-              ...(opts?.workerId ? { workerId: opts.workerId } : null),
-              ...(to === "completed"
-                ? {
-                    finalPaisa,
-                    commissionPaisa: calcCommission(finalPaisa, b.commissionBps),
-                    paymentStatus: "paid",
-                  }
-                : null),
-              history: [...b.history, { status: to, at: new Date().toISOString(), by, ...(note ? { note } : {}) }],
-            };
-          }),
-        );
-        return ok;
+      tickets,
+      notifications,
+      providers,
+      reload,
+      fetchBooking: async (no: string) => {
+        try {
+          const d = await api<{ booking: unknown; history: unknown[] }>(
+            `/api/bookings/${encodeURIComponent(no)}`,
+          );
+          const b = toBooking(d.booking as Parameters<typeof toBooking>[0]);
+          b.history = toHistory(d.history as Parameters<typeof toHistory>[0]);
+          return b;
+        } catch {
+          return null;
+        }
       },
-      addAddress: (a) => setAddresses((prev) => [...prev, a]),
-      spendPoints: (points, reason) => {
-        if (points <= 0 || points > rewardBalance) return false;
-        setRewardTxs((prev) => [
-          ...prev,
-          { id: `rw-${Date.now()}`, kind: "redeem", points: -points, reason, at: new Date().toISOString() },
-        ]);
-        return true;
+      addBooking: async (nb: NewBooking) => {
+        const d = await post<{ bookingNo: string; id: string; discountPaisa: number }>("/api/bookings", {
+          serviceId: nb.serviceId,
+          addressId: nb.addressId || undefined,
+          addressText: nb.addressText || undefined,
+          slot: nb.slot,
+          instructions: nb.instructions,
+          paymentMethod: nb.paymentMethod,
+          useRewards: nb.useRewards,
+        });
+        await reload();
+        return { bookingNo: d.bookingNo, discountPaisa: d.discountPaisa };
+      },
+      advanceBooking: async (no, to, opts) => {
+        try {
+          await post(`/api/bookings/${encodeURIComponent(no)}/transition`, {
+            to,
+            note: opts?.note ?? "",
+            finalPaisa: opts?.finalPaisa,
+            workerId: opts?.workerId,
+          });
+          await reload();
+          return true;
+        } catch (e) {
+          if (e instanceof ApiError) return false;
+          throw e;
+        }
+      },
+      addAddress: async (a) => {
+        await post("/api/addresses", a);
+        await reload();
+      },
+      deleteAddress: async (id: string) => {
+        await del(`/api/addresses/${id}`);
+        await reload();
+      },
+      createTicket: async (subject: string, message: string) => {
+        await post("/api/tickets", { subject, message });
+        await reload();
+      },
+      markNotificationRead: async (id: string) => {
+        await post(`/api/notifications/${id}/read`, {});
+        await reload();
       },
     };
-  }, [bookings, addresses, rewardTxs]);
+  }, [ready, error, bookings, addresses, rewardTxs, tickets, notifications, providers, reload]);
 
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }

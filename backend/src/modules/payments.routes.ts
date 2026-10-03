@@ -4,6 +4,7 @@ import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth } from "../middleware/auth.js";
+import { bookingKey } from "../utils/lookup.js";
 import {
   esewaInitiate,
   esewaStatusCheck,
@@ -80,6 +81,8 @@ router.post(
   validate(cashSchema),
   ah(async (req, res) => {
     const { amountPaisa } = req.body as z.infer<typeof cashSchema>;
+    const key = bookingKey(req.params.id);
+    if (!key) return res.status(400).json({ error: "Invalid request" });
     const r = await query<{
       id: string;
       customer_id: string;
@@ -88,7 +91,7 @@ router.post(
       estimate_paisa: string;
       final_paisa: string | null;
       payment_method: string;
-    }>(`SELECT * FROM bookings WHERE id = $1`, [req.params.id]);
+    }>(`SELECT * FROM bookings WHERE ${key.column} = $1`, [key.value]);
     if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const b = r.rows[0];
     const roles = req.user!.roles;

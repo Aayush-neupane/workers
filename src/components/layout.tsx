@@ -14,7 +14,8 @@ const NAV = [
 ];
 
 export function Navbar() {
-  const { role, name, signOut } = useAuth();
+  const { role, user, signOut } = useAuth();
+  const name = user?.name ?? "";
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   return (

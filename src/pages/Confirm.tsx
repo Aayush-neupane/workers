@@ -1,17 +1,41 @@
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { Button, Card, EmptyState, Price, StatusBadge } from "../components/ui";
-import { SERVICES } from "../data/mock";
+import { api, toService } from "../lib/api";
 import { useStore } from "../lib/store";
 import { earnPoints } from "../lib/booking";
 import { formatSlot } from "../lib/format";
+import type { Booking, Service } from "../lib/types";
 
 export default function Confirm() {
   const { id } = useParams();
-  const { bookings, addresses } = useStore();
-  const booking = bookings.find((b) => b.id === id);
+  const { fetchBooking } = useStore();
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [service, setService] = useState<Service | null>(null);
+  const [missing, setMissing] = useState(false);
 
-  if (!booking) {
+  useEffect(() => {
+    let live = true;
+    fetchBooking(id ?? "").then((b) => {
+      if (!live) return;
+      if (!b) {
+        setMissing(true);
+        return;
+      }
+      setBooking(b);
+      api<{ service: unknown }>(`/api/services/${b.serviceId}`)
+        .then((d) => {
+          if (live) setService(toService(d.service as Parameters<typeof toService>[0]));
+        })
+        .catch(() => undefined);
+    });
+    return () => {
+      live = false;
+    };
+  }, [id, fetchBooking]);
+
+  if (missing) {
     return (
       <div className="wrap py-12">
         <EmptyState
@@ -23,8 +47,16 @@ export default function Confirm() {
     );
   }
 
-  const service = SERVICES.find((s) => s.id === booking.serviceId);
-  const address = addresses.find((a) => a.id === booking.addressId);
+  if (!booking) {
+    return (
+      <div className="wrap py-12" role="status">
+        <div className="animate-pulse space-y-3">
+          <div className="mx-auto h-14 w-14 rounded-full bg-surface-container" />
+          <div className="mx-auto h-8 w-64 rounded bg-surface-container-high" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="wrap fade-up max-w-2xl py-12 text-center">
@@ -47,7 +79,7 @@ export default function Confirm() {
           <li>Confirm completion, rate the job and earn ~{earnPoints(booking.estimatePaisa)} loyalty points.</li>
         </ol>
         <dl className="mt-4 space-y-2 border-t border-outline pt-4 text-sm">
-          <div className="flex justify-between"><dt className="text-on-surface-variant">Address</dt><dd className="font-semibold">{address ? `${address.line}, ${address.city}` : "—"}</dd></div>
+          <div className="flex justify-between"><dt className="text-on-surface-variant">Address</dt><dd className="font-semibold">{booking.addressText || "—"}</dd></div>
           <div className="flex justify-between"><dt className="text-on-surface-variant">Payment</dt><dd className="font-semibold">{booking.paymentMethod === "cash" ? "Cash" : booking.paymentMethod === "esewa" ? "eSewa (verified)" : "Khalti (verified)"}</dd></div>
           <div className="flex justify-between"><dt className="text-on-surface-variant">Status</dt><dd><StatusBadge status={booking.status} /></dd></div>
           <div className="flex justify-between text-base"><dt className="font-bold">Estimated total</dt><dd className="font-bold"><Price paisa={booking.estimatePaisa} /></dd></div>

@@ -1,15 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, ArrowRight, Camera, ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea } from "../components/ui";
-import { CATEGORIES, SERVICES } from "../data/mock";
-import { nextBookingId, useStore } from "../lib/store";
+import { api, toService } from "../lib/api";
+import { useStore } from "../lib/store";
 import { earnPoints, redeemValue } from "../lib/booking";
 import { formatNPR, formatSlot } from "../lib/format";
-import type { PaymentMethod } from "../lib/types";
+import type { PaymentMethod, Service } from "../lib/types";
 
 const schema = z.object({
   addressId: z.string().min(1, "Choose a service address"),
@@ -50,12 +50,26 @@ const STEP_NAMES = ["Address", "Slot", "Details & pay", "Review"];
 export default function Book() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { addresses, bookings, addBooking, rewardBalance, spendPoints } = useStore();
+  const { addresses, providers, addBooking, rewardBalance } = useStore();
   const [step, setStep] = useState(0);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [service, setService] = useState<Service | null>(null);
+  const [missing, setMissing] = useState(false);
   const slots = useMemo(buildSlots, []);
 
-  const service = SERVICES.find((s) => s.id === id);
+  useEffect(() => {
+    let live = true;
+    api<{ service: unknown }>(`/api/services/${id}`)
+      .then((d) => {
+        if (live) setService(toService(d.service as Parameters<typeof toService>[0]));
+      })
+      .catch(() => {
+        if (live) setMissing(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [id]);
 
   const {
     register,
@@ -74,7 +88,7 @@ export default function Book() {
     },
   });
 
-  if (!service) {
+  if (missing) {
     return (
       <div className="wrap py-12">
         <EmptyState
@@ -86,7 +100,17 @@ export default function Book() {
     );
   }
 
-  const category = CATEGORIES.find((c) => c.id === service.categoryId);
+  if (!service) {
+    return (
+      <div className="wrap py-12" role="status">
+        <div className="animate-pulse space-y-3">
+          <div className="h-8 w-1/2 rounded bg-surface-container-high" />
+          <div className="h-4 w-full rounded bg-surface-container" />
+        </div>
+      </div>
+    );
+  }
+
   const paymentMethod = watch("paymentMethod");
   const useRewards = watch("useRewards");
   const canRedeem = rewardBalance >= 100;
@@ -106,24 +130,20 @@ export default function Book() {
     if (ok) setStep((s) => Math.min(s + 1, 3));
   }
 
-  const submit = handleSubmit((f) => {
-    if (f.useRewards && canRedeem) spendPoints(100, "Discount on new booking");
-    const bookingId = nextBookingId(bookings);
-    addBooking({
-      id: bookingId,
-      serviceId: service.id,
-      status: "pending",
-      addressId: f.addressId,
-      slot: f.slot,
-      instructions: f.instructions,
-      estimatePaisa: estimate,
-      paymentMethod: f.paymentMethod,
-      paymentStatus: f.paymentMethod === "cash" ? "unpaid" : "paid",
-      commissionBps: category?.commissionBps ?? 1500,
-      history: [{ status: "pending", at: new Date().toISOString(), by: "customer" }],
-      createdAt: new Date().toISOString(),
-    });
-    navigate(`/book/confirm/${bookingId}`);
+  const submit = handleSubmit(async (f) => {
+    try {
+      const out = await addBooking({
+        serviceId: service.id,
+        addressId: f.addressId || undefined,
+        slot: f.slot,
+        instructions: f.instructions,
+        paymentMethod: f.paymentMethod,
+        useRewards: f.useRewards && canRedeem,
+      });
+      navigate(`/book/confirm/${out.bookingNo}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Booking failed");
+    }
   });
 
   const address = addresses.find((a) => a.id === watch("addressId"));
@@ -132,7 +152,7 @@ export default function Book() {
   return (
     <div className="fade-up">
       <PageHero
-        eyebrow={category?.name ?? "Booking"}
+        eyebrow="Booking"
         title={`Book: ${service.name}`}
         body="Four quick steps. The price you see is an estimate — the final amount is confirmed with you before the job closes."
       />
@@ -228,20 +248,29 @@ export default function Book() {
                 <fieldset>
                   <legend className="mb-2 text-sm font-semibold">Payment method</legend>
                   <div className="grid gap-2 sm:grid-cols-3">
-                    {(Object.keys(GATEWAY_LABEL) as PaymentMethod[]).map((m) => (
-                      <label
-                        key={m}
-                        className={`cursor-pointer rounded-lg border p-3.5 text-sm transition active:scale-[0.98] ${
-                          paymentMethod === m ? "border-pine-950 bg-primary-container" : "border-outline hover:border-pine-800"
-                        }`}
-                      >
-                        <input type="radio" value={m} {...register("paymentMethod")} className="sr-only" />
-                        <span className="block font-bold">{GATEWAY_LABEL[m]}</span>
-                        <span className="text-xs text-on-surface-variant">
-                          {m === "cash" ? "Pay the pro directly" : "Sandbox-verified online"}
-                        </span>
-                      </label>
-                    ))}
+                    {(Object.keys(GATEWAY_LABEL) as PaymentMethod[]).map((m) => {
+                      const available = m === "cash" || providers[m as "esewa" | "khalti"];
+                      return (
+                        <label
+                          key={m}
+                          className={`rounded-lg border p-3.5 text-sm transition active:scale-[0.98] ${
+                            available ? "cursor-pointer" : "cursor-not-allowed opacity-50"
+                          } ${
+                            paymentMethod === m ? "border-pine-950 bg-primary-container" : "border-outline hover:border-pine-800"
+                          }`}
+                        >
+                          <input type="radio" value={m} {...register("paymentMethod")} className="sr-only" disabled={!available} />
+                          <span className="block font-bold">{GATEWAY_LABEL[m]}</span>
+                          <span className="text-xs text-on-surface-variant">
+                            {m === "cash"
+                              ? "Pay the pro directly"
+                              : available
+                                ? "Online — verified server-side"
+                                : "Not configured yet"}
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </fieldset>
                 <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-outline p-3.5 text-sm transition hover:border-primary">

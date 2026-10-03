@@ -1,15 +1,44 @@
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Briefcase, MapPin, ShieldCheck } from "lucide-react";
 import { Avatar, Badge, Button, Card, EmptyState, Price, Rating, VerifyBadge } from "../components/ui";
-import { CATEGORIES, REVIEWS, SERVICES, WORKERS } from "../data/mock";
-import { isEligibleWorker } from "../lib/booking";
+import { api, toCategory, toReview, toService, toWorker } from "../lib/api";
+import type { Review, Service, ServiceCategory, Worker } from "../lib/types";
 import { formatDate } from "../lib/format";
 
 export default function WorkerProfile() {
   const { id } = useParams();
-  const worker = WORKERS.find((w) => w.id === id);
+  const [worker, setWorker] = useState<Worker | null>(null);
+  const [cats, setCats] = useState<ServiceCategory[]>([]);
+  const [offered, setOffered] = useState<Service[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [eligible, setEligible] = useState(false);
+  const [missing, setMissing] = useState(false);
 
-  if (!worker) {
+  useEffect(() => {
+    let live = true;
+    setWorker(null);
+    setMissing(false);
+    api<{ worker: unknown; categories: unknown[]; offered: unknown[]; reviews: unknown[]; eligible: boolean }>(
+      `/api/workers/${id}`,
+    )
+      .then((d) => {
+        if (!live) return;
+        setWorker(toWorker(d.worker as Parameters<typeof toWorker>[0]));
+        setCats((d.categories as Parameters<typeof toCategory>[0][]).map(toCategory));
+        setOffered((d.offered as Parameters<typeof toService>[0][]).map(toService));
+        setReviews((d.reviews as Parameters<typeof toReview>[0][]).map(toReview));
+        setEligible(d.eligible);
+      })
+      .catch(() => {
+        if (live) setMissing(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [id]);
+
+  if (missing) {
     return (
       <div className="wrap py-12">
         <EmptyState
@@ -21,10 +50,16 @@ export default function WorkerProfile() {
     );
   }
 
-  const eligible = isEligibleWorker(worker);
-  const offered = SERVICES.filter((s) => worker.categoryIds.includes(s.categoryId)).slice(0, 6);
-  const reviews = REVIEWS.filter((r) => r.workerId === worker.id);
-  const cats = CATEGORIES.filter((c) => worker.categoryIds.includes(c.id));
+  if (!worker) {
+    return (
+      <div className="wrap py-12" role="status">
+        <div className="animate-pulse space-y-3">
+          <div className="h-8 w-1/3 rounded bg-surface-container-high" />
+          <div className="h-4 w-full rounded bg-surface-container" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="wrap fade-up py-10">

@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge, Button, Card, Field, PageHero, TextArea, TextField } from "../components/ui";
-import { TICKETS } from "../data/mock";
+import { useAuth } from "../lib/auth";
+import { useStore } from "../lib/store";
 import { formatSlot } from "../lib/format";
 
 const schema = z.object({
@@ -21,7 +23,9 @@ const FAQS = [
 ];
 
 export default function Support() {
-  const [mine, setMine] = useState<{ subject: string; message: string; at: string }[]>([]);
+  const { user } = useAuth();
+  const { tickets, createTicket } = useStore();
+  const [sent, setSent] = useState(false);
   const {
     register,
     handleSubmit,
@@ -40,20 +44,19 @@ export default function Support() {
         body="Real humans, 9 AM – 8 PM NPT, every day. Average first reply under 2 hours."
       />
       <div className="wrap max-w-3xl py-8">
-
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Card className="p-5">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card className="border-t-4 border-t-pine-800 p-5">
           <p className="font-bold">Call us</p>
           <p className="font-display mt-1 text-3xl font-semibold text-primary">023-580000</p>
           <p className="text-sm text-on-surface-variant">Damak-5, Himal Chowk · Sun–Sat</p>
         </Card>
-        <Card className="p-5">
+        <Card className="border-t-4 border-t-marigold-500 p-5">
           <p className="font-bold">Emergencies</p>
           <p className="mt-1 text-sm text-on-surface-variant">Gas smell, sparking panels, burst pipes — call immediately. Do not wait for chat replies.</p>
         </Card>
       </div>
 
-      <h2 className="mt-8 text-xl font-bold">Frequently asked</h2>
+      <h2 className="font-display mt-8 text-2xl font-semibold">Frequently asked</h2>
       <div className="mt-3 space-y-2">
         {FAQS.map((f) => (
           <details key={f.q} className="rounded-md border border-outline bg-white px-4 py-3">
@@ -63,29 +66,40 @@ export default function Support() {
         ))}
       </div>
 
-      <h2 className="mt-8 text-xl font-bold">Your tickets</h2>
-      <div className="mt-3 space-y-3">
-        {TICKETS.map((t) => (
-          <Card key={t.id} className="p-4">
-            <p className="text-sm font-bold">{t.id} · {t.subject} <Badge tone={t.status === "resolved" ? "success" : "warning"}>{t.status}</Badge></p>
-            <p className="mt-1 text-xs text-on-surface-variant">Updated {formatSlot(t.updatedAt)}</p>
-          </Card>
-        ))}
-        {mine.map((t, i) => (
-          <Card key={i} className="p-4">
-            <p className="text-sm font-bold">T-{300 + i} · {t.subject} <Badge tone="info">open</Badge></p>
-            <p className="mt-1 text-sm text-on-surface-variant">{t.message}</p>
-          </Card>
-        ))}
-      </div>
+      <h2 className="font-display mt-8 text-2xl font-semibold">Your tickets</h2>
+      {!user ? (
+        <Card className="mt-3 p-5 text-sm">
+          <Link to="/signin" className="font-bold text-primary">Sign in</Link> to view and open tickets.
+        </Card>
+      ) : tickets.length === 0 ? (
+        <p className="mt-3 text-sm text-on-surface-variant">No tickets yet — open one below and we&apos;ll pick it up.</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {tickets.map((t) => (
+            <Card key={t.id} className="p-4">
+              <p className="text-sm font-bold">{t.subject} <Badge tone={t.status === "resolved" ? "success" : "warning"}>{t.status}</Badge></p>
+              {t.messages.slice(-2).map((m, i) => (
+                <p key={i} className="mt-1 text-sm text-on-surface-variant"><strong>{m.from}:</strong> {m.text}</p>
+              ))}
+              <p className="mt-1 text-xs text-on-surface-variant">Updated {formatSlot(t.updatedAt)}</p>
+            </Card>
+          ))}
+        </div>
+      )}
 
-      <Card className="mt-4 p-5">
-        <h3 className="font-bold">Open a ticket</h3>
+      {user && (
+        <Card className="mt-4 p-5">
+          <h3 className="font-bold">Open a ticket</h3>
         <form
           className="mt-3 space-y-4"
-          onSubmit={handleSubmit((f) => {
-            setMine((p) => [...p, { ...f, at: new Date().toISOString() }]);
-            reset();
+          onSubmit={handleSubmit(async (f) => {
+            try {
+              await createTicket(f.subject, f.message);
+              reset();
+              setSent(true);
+            } catch (e) {
+              alert(e instanceof Error ? e.message : "Could not submit ticket");
+            }
           })}
         >
           <Field label="Subject" error={errors.subject?.message}>
@@ -95,8 +109,10 @@ export default function Support() {
             <TextArea {...register("message")} placeholder="Booking ID, what happened, what you need…" />
           </Field>
           <Button type="submit">Submit ticket</Button>
+          {sent && <p role="status" className="text-sm text-success">Ticket opened — we&apos;ll reply here.</p>}
         </form>
-      </Card>
+        </Card>
+      )}
       </div>
     </div>
   );

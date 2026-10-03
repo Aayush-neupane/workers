@@ -113,6 +113,24 @@ router.get(
 );
 
 router.get(
+  "/workers",
+  ah(async (req, res) => {
+    const eligible = req.query.eligible !== "0";
+    const r = await query(
+      `SELECT u.id, u.name, wp.bio, wp.years_exp, wp.areas, wp.avatar_hue,
+              wp.verification_state, wp.is_active, wp.created_at AS joined_at,
+              COALESCE((SELECT AVG(r.rating) FROM bookings cb JOIN reviews r ON r.booking_id = cb.id
+                        WHERE cb.worker_id = u.id AND cb.status = 'completed'), 0)::float AS rating,
+              (SELECT COUNT(*)::int FROM bookings WHERE worker_id = u.id AND status = 'completed') AS jobs_done
+       FROM users u JOIN worker_profiles wp ON wp.user_id = u.id
+       WHERE u.is_active = true ${eligible ? "AND wp.verification_state = 'verified' AND wp.is_active = true" : ""}
+       ORDER BY jobs_done DESC LIMIT 50`,
+    );
+    return res.json({ workers: r.rows });
+  }),
+);
+
+router.get(
   "/workers/:id",
   ah(async (req, res) => {
     const parsed = uuid.safeParse(req.params.id);
@@ -137,7 +155,7 @@ router.get(
       [parsed.data],
     );
     const offered = await query(
-      `SELECT s.id, s.name, s.pricing_model, s.base_price_paisa,
+      `SELECT s.id, s.category_id, s.name, s.pricing_model, s.base_price_paisa,
               COALESCE((SELECT AVG(r.rating) FROM bookings cb JOIN reviews r ON r.booking_id = cb.id
                         WHERE cb.service_id = s.id AND cb.status = 'completed'), 0)::float AS rating
        FROM services s JOIN worker_services ws ON ws.service_id = s.id
@@ -157,6 +175,24 @@ router.get(
       reviews: reviews.rows,
       eligible: worker.verification_state === "verified" && worker.is_active === true,
     });
+  }),
+);
+
+router.get(
+  "/reviews",
+  ah(async (req, res) => {
+    const limit = Math.min(Number(req.query.limit ?? 20), 50);
+    const workerId = typeof req.query.workerId === "string" ? req.query.workerId : "";
+    const r = await query(
+      `SELECT r.id, r.rating, r.text, r.created_at, b.booking_no,
+              u.name AS worker_name
+       FROM reviews r JOIN bookings b ON b.id = r.booking_id
+       LEFT JOIN users u ON u.id = r.worker_user_id
+       ${workerId ? "WHERE r.worker_user_id = $2" : ""}
+       ORDER BY r.created_at DESC LIMIT $1`,
+      workerId ? [limit, workerId] : [limit],
+    );
+    return res.json({ reviews: r.rows });
   }),
 );
 

@@ -1,24 +1,35 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button, Card, Dialog, EmptyState, PageHero, Price, StatusBadge, TextArea } from "../components/ui";
-import { SERVICES, WORKERS } from "../data/mock";
 import { useStore } from "../lib/store";
 import { STATUS_LABELS, canTransition } from "../lib/booking";
 import { formatSlot } from "../lib/format";
-import type { BookingStatus } from "../lib/types";
+import type { Booking, BookingStatus } from "../lib/types";
 
 const CANCELLABLE: BookingStatus[] = ["pending", "awaiting-worker", "confirmed"];
 
 export default function Track() {
   const { id } = useParams();
-  const { bookings, addresses, advanceBooking } = useStore();
+  const { fetchBooking, advanceBooking } = useStore();
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [missing, setMissing] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [note, setNote] = useState("");
 
-  const booking = bookings.find((b) => b.id === id);
+  const load = useCallback(async () => {
+    const b = await fetchBooking(id ?? "");
+    if (b) setBooking(b);
+    else setMissing(true);
+  }, [id, fetchBooking]);
 
-  if (!booking) {
+  useEffect(() => {
+    setBooking(null);
+    setMissing(false);
+    void load();
+  }, [load]);
+
+  if (missing) {
     return (
       <div className="wrap py-12">
         <EmptyState
@@ -30,24 +41,32 @@ export default function Track() {
     );
   }
 
-  const service = SERVICES.find((s) => s.id === booking.serviceId);
-  const worker = WORKERS.find((w) => w.id === booking.workerId);
-  const address = addresses.find((a) => a.id === booking.addressId);
-  const actionable = true;
+  if (!booking) {
+    return (
+      <div className="wrap py-12" role="status">
+        <div className="animate-pulse space-y-3">
+          <div className="h-8 w-1/2 rounded bg-surface-container-high" />
+          <div className="h-24 rounded-lg bg-surface-container" />
+        </div>
+      </div>
+    );
+  }
 
-  const doAdvance = (to: BookingStatus, noteText?: string) => {
-    advanceBooking(booking.id, to, "customer", noteText);
+  const doAdvance = async (to: BookingStatus, noteText?: string) => {
+    const ok = await advanceBooking(booking.id, to, { note: noteText });
     setConfirmCancel(false);
     setDisputeOpen(false);
     setNote("");
+    if (ok) await load();
+    else alert("That action isn't allowed right now.");
   };
 
   return (
     <div className="fade-up">
       <PageHero
         eyebrow={`Booking ${booking.id}`}
-        title={service?.name ?? "Booking"}
-        body={`${formatSlot(booking.slot)} · ${worker ? worker.name : "Assigning your pro…"}`}
+        title={booking.serviceName ?? "Booking"}
+        body={`${formatSlot(booking.slot)} · ${booking.workerName ?? "Assigning your pro…"}`}
       >
         <StatusBadge status={booking.status} />
       </PageHero>
@@ -56,8 +75,8 @@ export default function Track() {
       <Card className="p-6">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div><dt className="text-on-surface-variant">Slot</dt><dd className="font-semibold">{formatSlot(booking.slot)}</dd></div>
-          <div><dt className="text-on-surface-variant">Address</dt><dd className="font-semibold">{address ? `${address.line}, ${address.city}` : "—"}</dd></div>
-          <div><dt className="text-on-surface-variant">Professional</dt><dd className="font-semibold">{worker ? worker.name : "Assigning…"}</dd></div>
+          <div><dt className="text-on-surface-variant">Address</dt><dd className="font-semibold">{booking.addressText || "—"}</dd></div>
+          <div><dt className="text-on-surface-variant">Professional</dt><dd className="font-semibold">{booking.workerName ?? "Assigning…"}</dd></div>
           <div><dt className="text-on-surface-variant">Payment</dt><dd className="font-semibold">{booking.paymentMethod} · {booking.paymentStatus}</dd></div>
           <div><dt className="text-on-surface-variant">Estimate</dt><dd><Price paisa={booking.estimatePaisa} /></dd></div>
           <div><dt className="text-on-surface-variant">Final</dt><dd>{booking.finalPaisa !== undefined ? <Price paisa={booking.finalPaisa} /> : "Confirmed after the job"}</dd></div>
@@ -66,23 +85,20 @@ export default function Track() {
           <strong>Your instructions:</strong> {booking.instructions}
         </p>
 
-        {actionable ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {CANCELLABLE.includes(booking.status) && canTransition(booking.status, "cancelled") && (
-              <Button variant="outline" onClick={() => setConfirmCancel(true)}>Cancel booking</Button>
-            )}
-            {booking.status === "awaiting-confirmation" && (
-              <Button onClick={() => doAdvance("completed")}>Confirm completion</Button>
-            )}
-            {(booking.status === "in-progress" || booking.status === "awaiting-confirmation") && (
-              <Button variant="danger" onClick={() => setDisputeOpen(true)}>Raise dispute</Button>
-            )}
-          </div>
-        ) : (
-          <p className="mt-4 text-xs text-on-surface-variant">
-            Cancellation is free before worker dispatch; after dispatch, policy charges may apply.
-          </p>
-        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {CANCELLABLE.includes(booking.status) && canTransition(booking.status, "cancelled") && (
+            <Button variant="outline" onClick={() => setConfirmCancel(true)}>Cancel booking</Button>
+          )}
+          {booking.status === "awaiting-confirmation" && (
+            <Button onClick={() => void doAdvance("completed")}>Confirm completion</Button>
+          )}
+          {(booking.status === "in-progress" || booking.status === "awaiting-confirmation") && (
+            <Button variant="danger" onClick={() => setDisputeOpen(true)}>Raise dispute</Button>
+          )}
+        </div>
+        <p className="mt-3 text-xs text-on-surface-variant">
+          Cancellation is free before worker dispatch; after dispatch, policy charges may apply.
+        </p>
       </Card>
 
       <h2 className="font-display mt-8 text-2xl font-semibold">Progress</h2>
@@ -111,7 +127,7 @@ export default function Track() {
           </p>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setConfirmCancel(false)}>Keep booking</Button>
-            <Button variant="danger" onClick={() => doAdvance("cancelled", "Cancelled by customer")}>Cancel booking</Button>
+            <Button variant="danger" onClick={() => void doAdvance("cancelled", "Cancelled by customer")}>Cancel booking</Button>
           </div>
         </Dialog>
       )}
@@ -123,7 +139,7 @@ export default function Track() {
           </label>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setDisputeOpen(false)}>Back</Button>
-            <Button variant="danger" onClick={() => doAdvance("disputed", note || "Disputed by customer")} disabled={note.trim().length < 5}>
+            <Button variant="danger" onClick={() => void doAdvance("disputed", note || "Disputed by customer")} disabled={note.trim().length < 5}>
               Submit dispute
             </Button>
           </div>

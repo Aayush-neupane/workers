@@ -50,7 +50,7 @@ router.get(
   ah(async (req, res) => {
     const r = await query(
       `SELECT b.id, b.booking_no, b.final_paisa, b.commission_bps, b.payment_method,
-              cl.commission_paisa, cl.worker_paisa, cl.is_settled
+              cl.commission_paisa, cl.worker_paisa, cl.is_settled, cl.rate_bps
        FROM bookings b LEFT JOIN commission_ledger cl ON cl.booking_id = b.id
        WHERE b.worker_id = $1 AND b.status = 'completed' ORDER BY b.updated_at DESC`,
       [req.user!.id],

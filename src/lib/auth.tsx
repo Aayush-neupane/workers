@@ -1,55 +1,119 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { api, post } from "./api";
 import type { Role } from "./types";
 
-interface AuthValue {
-  role: Role | null;
+export interface SessionUser {
+  id: string;
+  email: string;
   name: string;
-  signIn: (role: Role, name: string) => void;
-  signOut: () => void;
+  roles: string[];
+}
+
+interface AuthValue {
+  user: SessionUser | null;
+  role: Role | null;
+  ready: boolean;
+  authError: string;
+  signIn: (email: string, password: string) => Promise<Role | null>;
+  signUp: (name: string, phone: string, email: string, password: string) => Promise<Role | null>;
+  signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
+  updateProfile: (name: string, phone: string) => Promise<boolean>;
 }
 
 const AuthCtx = createContext<AuthValue | null>(null);
 
+function toRole(roles: string[]): Role | null {
+  if (roles.includes("ADMIN")) return "admin";
+  if (roles.includes("WORKER")) return "worker";
+  if (roles.includes("CUSTOMER")) return "customer";
+  return null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role | null>(() => {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [ready, setReady] = useState(false);
+  const [authError, setAuthError] = useState("");
+
+  const refresh = useCallback(async () => {
     try {
-      return (localStorage.getItem("wk-role") as Role | null) ?? null;
+      const me = await api<{ user: SessionUser }>("/api/auth/me");
+      setUser(me.user);
     } catch {
+      setUser(null);
+    } finally {
+      setReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    setAuthError("");
+    try {
+      await post("/api/auth/login", { email, password });
+      const me = await api<{ user: SessionUser }>("/api/auth/me");
+      setUser(me.user);
+      setReady(true);
+      return toRole(me.user.roles);
+    } catch (e) {
+      setAuthError(e instanceof Error ? e.message : "Sign in failed");
       return null;
     }
-  });
-  const [name, setName] = useState(() => {
-    try {
-      return localStorage.getItem("wk-name") ?? "";
-    } catch {
-      return "";
-    }
-  });
+  }, []);
 
-  const signIn = useCallback((r: Role, n: string) => {
-    setRole(r);
-    setName(n);
+  const signUp = useCallback(async (name: string, phone: string, email: string, password: string) => {
+    setAuthError("");
     try {
-      localStorage.setItem("wk-role", r);
-      localStorage.setItem("wk-name", n);
-    } catch {
-      /* demo continues in memory */
+      await post("/api/auth/register", { name, phone, email, password });
+      const me = await api<{ user: SessionUser }>("/api/auth/me");
+      setUser(me.user);
+      setReady(true);
+      return toRole(me.user.roles);
+    } catch (e) {
+      setAuthError(e instanceof Error ? e.message : "Sign up failed");
+      return null;
     }
   }, []);
 
-  const signOut = useCallback(() => {
-    setRole(null);
-    setName("");
+  const signOut = useCallback(async () => {
     try {
-      localStorage.removeItem("wk-role");
-      localStorage.removeItem("wk-name");
+      await post("/api/auth/logout", {});
     } catch {
-      /* noop */
+      /* session already gone */
     }
+    setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ role, name, signIn, signOut }), [role, name, signIn, signOut]);
+  const value = useMemo<AuthValue>(
+    () => ({
+      user,
+      role: user ? toRole(user.roles) : null,
+      ready,
+      authError,
+      signIn,
+      signUp,
+      signOut,
+      refresh,
+      updateProfile: async (name: string, phone: string) => {
+        try {
+          await api("/api/auth/me", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, phone }),
+          });
+          await refresh();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    }),
+    [user, ready, authError, signIn, signUp, signOut, refresh],
+  );
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 

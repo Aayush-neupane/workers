@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import gsap from "gsap";
 import {
@@ -25,14 +25,39 @@ import {
 } from "../components/ui";
 import { Reveal } from "../components/Reveal";
 import { CATEGORY_HUES, CATEGORY_ICONS } from "../components/categoryIcons";
-import { CATEGORIES, REVIEWS, SERVICES, WORKERS } from "../data/mock";
-import { isEligibleWorker } from "../lib/booking";
+import { api, toCategory, toReview, toService, toWorker } from "../lib/api";
+import type { Review, Service, ServiceCategory, Worker } from "../lib/types";
 
-const totalJobs = SERVICES.reduce((n, s) => n + s.jobsDone, 0);
-const verifiedPros = WORKERS.filter(isEligibleWorker).length;
-const avgRating = SERVICES.reduce((n, s) => n + s.rating, 0) / SERVICES.length;
-const popular = [...SERVICES].sort((a, b) => b.jobsDone - a.jobsDone).slice(0, 6);
-const pros = WORKERS.filter(isEligibleWorker).slice(0, 4);
+function useCatalog() {
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const [c, s, w, r] = await Promise.all([
+          api<{ categories: unknown[] }>("/api/categories"),
+          api<{ services: unknown[] }>("/api/services?sort=popular"),
+          api<{ workers: unknown[] }>("/api/workers?eligible=1"),
+          api<{ reviews: unknown[] }>("/api/reviews?limit=2"),
+        ]);
+        if (!live) return;
+        setCategories((c.categories as Parameters<typeof toCategory>[0][]).map(toCategory));
+        setServices((s.services as Parameters<typeof toService>[0][]).map(toService));
+        setWorkers((w.workers as Parameters<typeof toWorker>[0][]).map(toWorker));
+        setReviews((r.reviews as Parameters<typeof toReview>[0][]).map(toReview));
+      } catch {
+        /* sections render empty on failure */
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+  return { categories, services, workers, reviews };
+}
 
 const STEPS = [
   {
@@ -113,6 +138,15 @@ function HeroArt() {
 }
 
 export default function Home() {
+  const { categories, services, workers, reviews } = useCatalog();
+  const totalJobs = services.reduce((n, s) => n + s.jobsDone, 0);
+  const verifiedPros = workers.length;
+  const avgRating = services.length
+    ? services.reduce((n, s) => n + s.rating, 0) / services.length
+    : 0;
+  const popular = [...services].sort((a, b) => b.jobsDone - a.jobsDone).slice(0, 6);
+  const pros = workers.slice(0, 4);
+
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     gsap.from("[data-hero] > *", {
@@ -196,7 +230,7 @@ export default function Home() {
         <div className="ticker-track text-sm font-bold tracking-[0.14em] uppercase">
           {[0, 1].map((copy) => (
             <span key={copy} className="inline-flex gap-10">
-              {SERVICES.slice(0, 10).map((s) => (
+              {services.slice(0, 10).map((s) => (
                 <span key={`${copy}-${s.id}`} className="inline-flex items-center gap-10">
                   {s.name} <span className="text-marigold-300">✦</span>
                 </span>
@@ -235,10 +269,10 @@ export default function Home() {
           </Link>
         </div>
         <Reveal id="cats" className="mt-7 grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
-          {CATEGORIES.map((c) => {
+          {categories.map((c) => {
             const Icon = CATEGORY_ICONS[c.icon] ?? Wrench;
             const hue = CATEGORY_HUES[c.id] ?? 150;
-            const count = SERVICES.filter((s) => s.categoryId === c.id).length;
+            const count = services.filter((s) => s.categoryId === c.id).length;
             return (
               <Link
                 key={c.id}
@@ -342,7 +376,7 @@ export default function Home() {
         <Card className="p-7 lg:col-span-3">
           <SectionHead eyebrow="Reviews" title="Customers rate real jobs" />
           <ul className="mt-5 space-y-5">
-            {REVIEWS.map((r) => (
+            {reviews.map((r) => (
               <li key={r.id} className="border-t border-outline pt-5 first:border-0 first:pt-0">
                 <span aria-hidden="true" className="font-display text-4xl leading-none text-marigold-500">“</span>
                 <p className="font-display -mt-3 text-lg leading-snug font-medium">{r.text}</p>

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { pool, query } from "../db/pool.js";
+import { bookingKey } from "../utils/lookup.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
@@ -158,6 +159,8 @@ router.get(
   "/bookings/:id",
   requireAuth,
   ah(async (req, res) => {
+    const key = bookingKey(req.params.id);
+    if (!key) return res.status(400).json({ error: "Invalid request" });
     const r = await query(
       `SELECT b.*, s.name AS service_name, s.description AS service_description,
               u.name AS worker_name, c.name AS category_name
@@ -165,8 +168,8 @@ router.get(
        LEFT JOIN services s ON s.id = b.service_id
        LEFT JOIN users u ON u.id = b.worker_id
        LEFT JOIN categories c ON c.id = s.category_id
-       WHERE b.id = $1`,
-      [req.params.id],
+       WHERE b.${key.column} = $1`,
+      [key.value],
     );
     if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const b = r.rows[0] as Record<string, unknown>;
@@ -210,6 +213,8 @@ router.post(
     const uid = req.user!.id;
     const isAdmin = roles.includes("ADMIN");
 
+    const key = bookingKey(req.params.id);
+    if (!key) return res.status(400).json({ error: "Invalid request" });
     const r = await query<{
       id: string;
       status: string;
@@ -219,7 +224,7 @@ router.post(
       estimate_paisa: string;
       payment_method: string;
       commission_bps: number;
-    }>(`SELECT * FROM bookings WHERE id = $1`, [req.params.id]);
+    }>(`SELECT * FROM bookings WHERE ${key.column} = $1`, [key.value]);
     if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const b = r.rows[0];
     const from = b.status as BookingStatus;
