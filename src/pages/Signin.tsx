@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
-import type { Resolver } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ShieldCheck, Wrench } from "lucide-react";
+import type { Resolver } from "react-hook-form";
+import { ArrowLeft, ArrowRight, ShieldCheck, Wrench } from "lucide-react";
 import { Button, Card, Field, TextField } from "../components/ui";
 import { homeFor, useAuth } from "../lib/auth";
+import type { Role } from "../lib/types";
 
 const signinSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email"),
@@ -20,113 +21,203 @@ const signupSchema = z.object({
   password: z.string().min(8, "Minimum 8 characters"),
 });
 
-export default function Signin({ mode }: { mode: "signin" | "signup" }) {
-  const { signIn, signUp, authError } = useAuth();
-  const navigate = useNavigate();
+function LoginForm({ onDone }: { onDone: (role: Role) => void }) {
+  const { signIn, authError } = useAuth();
   const [busy, setBusy] = useState(false);
+  const form = useForm<z.infer<typeof signinSchema>>({
+    resolver: zodResolver(signinSchema) as unknown as Resolver<z.infer<typeof signinSchema>>,
+    defaultValues: { email: "", password: "" },
+  });
 
+  return (
+    <form
+      onSubmit={form.handleSubmit(async (f) => {
+        setBusy(true);
+        const role = await signIn(f.email, f.password);
+        setBusy(false);
+        if (role) onDone(role);
+      })}
+      className="space-y-4"
+    >
+      <Field label="Email" error={form.formState.errors.email?.message}>
+        <TextField {...form.register("email")} placeholder="you@example.com" autoComplete="email" />
+      </Field>
+      <Field label="Password" error={form.formState.errors.password?.message}>
+        <TextField {...form.register("password")} type="password" autoComplete="current-password" />
+      </Field>
+      {authError && (
+        <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">
+          {authError}
+        </p>
+      )}
+      <Button type="submit" className="w-full py-3" disabled={busy}>
+        {busy ? "Please wait…" : "Sign in"}
+      </Button>
+    </form>
+  );
+}
+
+function SignupForm({ onDone }: { onDone: (role: Role) => void }) {
+  const { signUp, authError } = useAuth();
+  const [busy, setBusy] = useState(false);
   const form = useForm<z.infer<typeof signupSchema>>({
-    resolver: zodResolver(mode === "signin" ? signinSchema : signupSchema) as unknown as Resolver<
-      z.infer<typeof signupSchema>
-    >,
+    resolver: zodResolver(signupSchema) as unknown as Resolver<z.infer<typeof signupSchema>>,
     defaultValues: { name: "", phone: "", email: "", password: "" },
   });
 
-  const submit = form.handleSubmit(async (f) => {
-    setBusy(true);
-    let role = null;
-    if (mode === "signin" && "email" in f) {
-      role = await signIn(f.email, f.password);
-    } else if ("name" in f && "phone" in f) {
-      role = await signUp(f.name, f.phone, f.email, f.password);
-    }
-    setBusy(false);
-    if (role) navigate(homeFor(role));
-  });
+  return (
+    <form
+      onSubmit={form.handleSubmit(async (f) => {
+        setBusy(true);
+        const role = await signUp(f.name, f.phone, f.email, f.password);
+        setBusy(false);
+        if (role) onDone(role);
+      })}
+      className="space-y-4"
+    >
+      <Field label="Full name" error={form.formState.errors.name?.message}>
+        <TextField {...form.register("name")} placeholder="Your name" autoComplete="name" />
+      </Field>
+      <Field label="Phone" error={form.formState.errors.phone?.message}>
+        <TextField {...form.register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
+      </Field>
+      <Field label="Email" error={form.formState.errors.email?.message}>
+        <TextField {...form.register("email")} placeholder="you@example.com" autoComplete="email" />
+      </Field>
+      <Field label="Password" error={form.formState.errors.password?.message}>
+        <TextField {...form.register("password")} type="password" autoComplete="new-password" />
+      </Field>
+      <p className="text-xs leading-relaxed text-on-surface-variant">
+        By creating an account you agree to the{" "}
+        <Link to="/terms" className="font-semibold text-primary">Terms of service</Link> and{" "}
+        <Link to="/privacy" className="font-semibold text-primary">Privacy policy</Link>.
+      </p>
+      {authError && (
+        <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">
+          {authError}
+        </p>
+      )}
+      <Button type="submit" className="w-full py-3" disabled={busy}>
+        {busy ? "Please wait…" : "Create account"}
+      </Button>
+    </form>
+  );
+}
 
-  const fill = (email: string, password: string) => {
-    form.setValue("email", email);
-    form.setValue("password", password);
-  };
+function BrandPanel({ mode }: { mode: "signin" | "signup" }) {
+  return (
+    <div className="ring-band dotgrid-light flex h-full flex-col justify-between p-8 md:p-10">
+      <p className="flex items-center gap-2 font-bold text-white">
+        <span className="grid size-9 place-items-center rounded-lg bg-marigold-300 text-pine-950">
+          <Wrench size={18} aria-hidden="true" />
+        </span>
+        <span className="font-display text-xl font-semibold">Workers</span>
+      </p>
+      <div key={mode} className="fade-up">
+        <p className="font-display text-3xl leading-tight font-semibold text-white md:text-4xl">
+          {mode === "signin" ? "New to Damak's trusted pros?" : "One of us already?"}
+        </p>
+        <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/75">
+          {mode === "signin"
+            ? "Create a free account to book verified electricians, plumbers, cleaners and more — and earn rewards on every job."
+            : "Sign back in to track bookings, manage addresses and spend your loyalty points."}
+        </p>
+        <Link
+          to={mode === "signin" ? "/signup" : "/signin"}
+          className="mt-6 inline-flex items-center gap-2 rounded-lg border border-white/30 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-white/10"
+        >
+          {mode === "signin" ? (
+            <>Create account <ArrowRight size={15} aria-hidden="true" /></>
+          ) : (
+            <><ArrowLeft size={15} aria-hidden="true" /> Sign in</>
+          )}
+        </Link>
+      </div>
+      <p className="flex items-center gap-1.5 text-xs text-white/50">
+        <ShieldCheck size={13} className="text-marigold-300" aria-hidden="true" />
+        Every pro background-checked · Cash, eSewa & Khalti
+      </p>
+    </div>
+  );
+}
+
+export default function Signin({ mode }: { mode: "signin" | "signup" }) {
+  const navigate = useNavigate();
+  const done = (role: Role) => navigate(homeFor(role));
+  const signup = mode === "signup";
 
   return (
-    <div className="wrap fade-up py-12">
-      <Card className="elev-2 mx-auto grid max-w-3xl overflow-hidden md:grid-cols-[0.9fr_1.1fr]">
-        <div className="ring-band dotgrid-light hidden flex-col justify-between p-8 md:flex">
-          <p className="flex items-center gap-2 font-bold text-white">
-            <span className="grid size-9 place-items-center rounded-lg bg-marigold-300 text-pine-950">
-              <Wrench size={18} aria-hidden="true" />
-            </span>
-            <span className="font-display text-xl font-semibold">Workers</span>
+    <div className="wrap fade-up py-10 md:py-14">
+      {/* Mobile brand strip */}
+      <div className="ring-band mb-4 rounded-lg p-5 md:hidden">
+        <p className="flex items-center gap-2 font-bold text-white">
+          <span className="grid size-8 place-items-center rounded-md bg-marigold-300 text-pine-950">
+            <Wrench size={16} aria-hidden="true" />
+          </span>
+          <span className="font-display text-lg font-semibold">Workers</span>
+        </p>
+        <p className="mt-2 text-sm text-white/75">
+          {signup ? "Create your free account." : "Welcome back."}{" "}
+          <Link
+            to={signup ? "/signin" : "/signup"}
+            className="font-bold text-marigold-300"
+          >
+            {signup ? "Sign in instead" : "Create an account"}
+          </Link>
+        </p>
+      </div>
+
+      <Card className="elev-2 relative mx-auto grid max-w-4xl overflow-hidden md:min-h-[640px] md:grid-cols-2">
+        {/* Left cell — login form home */}
+        <div className="p-7 md:p-10">
+          <h1 className="font-display text-3xl font-semibold">Sign in</h1>
+          <p className="mt-1.5 text-sm text-on-surface-variant">
+            Track bookings, rewards and receipts.
           </p>
-          <div>
-            <p className="font-display text-3xl leading-tight font-semibold text-white">
-              {mode === "signin" ? "Welcome back." : "Join Damak's happy homes."}
-            </p>
-            <p className="mt-3 flex items-start gap-2 text-sm leading-relaxed text-white/75">
-              <ShieldCheck size={16} className="mt-0.5 shrink-0 text-marigold-300" aria-hidden="true" />
-              Customers register freely. Worker accounts are created by admins and activated by invitation.
-            </p>
+          <div className="mt-6">
+            <LoginForm onDone={done} />
           </div>
-          <p className="text-xs text-white/50">Cash · eSewa · Khalti · All prices in NPR</p>
-        </div>
-        <div className="p-7 md:p-8">
-          <h1 className="font-display text-3xl font-semibold">
-            {mode === "signin" ? "Sign in" : "Create account"}
-          </h1>
-          <form onSubmit={submit} className="mt-5 space-y-4">
-            {mode === "signup" && (
-              <>
-                <Field label="Full name" error={form.formState.errors.name?.message as string | undefined}>
-                  <TextField {...form.register("name" as never)} placeholder="Your name" autoComplete="name" />
-                </Field>
-                <Field label="Phone" error={form.formState.errors.phone?.message as string | undefined}>
-                  <TextField {...form.register("phone" as never)} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
-                </Field>
-              </>
-            )}
-            <Field label="Email" error={form.formState.errors.email?.message}>
-              <TextField {...form.register("email")} placeholder="you@example.com" autoComplete="email" />
-            </Field>
-            <Field label="Password" error={form.formState.errors.password?.message}>
-              <TextField {...form.register("password")} type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} />
-            </Field>
-            {mode === "signup" && (
-              <p className="text-xs leading-relaxed text-on-surface-variant">
-                By creating an account you agree to the <Link to="/terms" className="font-semibold text-primary">Terms of service</Link> and{" "}
-                <Link to="/privacy" className="font-semibold text-primary">Privacy policy</Link>.
-              </p>
-            )}
-            {authError && (
-              <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">
-                {authError}
-              </p>
-            )}
-            <Button type="submit" className="w-full py-3" disabled={busy}>
-              {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
-            </Button>
-          </form>
-          {mode === "signin" && (
-            <div className="mt-4 rounded-md bg-surface-container p-3 text-xs leading-relaxed">
-              <p className="font-bold">Demo accounts (seeded):</p>
-              <ul className="mt-1 space-y-1">
-                <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("customer@demo.local", "Customer123!")}>Customer</button> — customer@demo.local</li>
-                <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("gita@demo.local", "Customer123!")}>Customer+</button> — gita@demo.local</li>
-                <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("ram@workers.local", "Worker123!")}>Worker</button> — ram@workers.local</li>
-                <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("deepak@workers.local", "Worker123!")}>Worker+</button> — deepak@workers.local</li>
-                <li><button className="cursor-pointer font-semibold text-primary" onClick={() => fill("admin@workers.local", "ChangeMe123!")}>Admin</button> — admin@workers.local</li>
-              </ul>
-            </div>
-          )}
-          <p className="mt-4 text-center text-sm text-on-surface-variant">
-            {mode === "signin" ? (
-              <>New here? <Link to="/signup" className="font-bold text-primary">Create an account</Link></>
-            ) : (
-              <>Have an account? <Link to="/signin" className="font-bold text-primary">Sign in</Link></>
-            )}
+          <p className="mt-5 text-center text-sm text-on-surface-variant md:hidden">
+            New here?{" "}
+            <Link to="/signup" className="font-bold text-primary">Create an account</Link>
           </p>
+        </div>
+
+        {/* Right cell — signup form home */}
+        <div className="hidden p-7 md:block md:p-10">
+          <h1 className="font-display text-3xl font-semibold">Create account</h1>
+          <p className="mt-1.5 text-sm text-on-surface-variant">
+            Free forever. Book in under a minute.
+          </p>
+          <div className="mt-6">
+            <SignupForm onDone={done} />
+          </div>
+        </div>
+
+        {/* Mobile signup form */}
+        {signup && (
+          <div className="border-t border-outline p-7 md:hidden">
+            <h1 className="font-display text-2xl font-semibold">Create account</h1>
+            <div className="mt-5">
+              <SignupForm onDone={done} />
+            </div>
+          </div>
+        )}
+
+        {/* Sliding brand card — covers the inactive side on desktop */}
+        <div
+          aria-hidden="true"
+          className={`absolute inset-y-0 left-0 hidden w-1/2 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:block ${
+            signup ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <BrandPanel mode={mode} />
         </div>
       </Card>
+
+      <p className="mt-4 hidden text-center text-xs text-on-surface-variant md:block">
+        Customers register freely · Worker accounts are created by admins and activated by invitation
+      </p>
     </div>
   );
 }
