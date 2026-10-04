@@ -9,6 +9,7 @@ import { parseWard, mentionsDamak, OUTSIDE_DAMAK } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
 import { audit } from "../services/notify.js";
 import { pushToUser } from "../services/push.js";
+import { inDamakPin, OUTSIDE_PIN } from "../utils/geo.js";
 
 const router = Router();
 
@@ -45,6 +46,9 @@ router.post(
       if (open.rowCount === 0 || !open.rows[0].is_open) {
         return res.status(400).json({ error: closedWardMessage(ward) });
       }
+    }
+    if (!inDamakPin(f.lat ?? null, f.lng ?? null)) {
+      return res.status(400).json({ error: OUTSIDE_PIN });
     }
     const r = await query<{ id: string }>(
       `INSERT INTO quote_requests(customer_id, category_id, title, description, photos, window_start, window_end, ward, landmark, lat, lng)

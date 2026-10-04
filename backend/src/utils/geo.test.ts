@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { validPin } from "./geo.js";
+import { inDamakPin, validPin } from "./geo.js";
 
 describe("geo pins", () => {
   it("accepts Damak-area pins, rejects junk", () => {
@@ -10,5 +10,12 @@ describe("geo pins", () => {
     assert.equal(validPin(0, 0), false);
     assert.equal(validPin(27.7, 85.3), true); // elsewhere in Nepal
     assert.equal(validPin(40.7, -74), false); // New York
+  });
+
+  it("limits pins to the Damak boundary", () => {
+    assert.equal(inDamakPin(26.655, 87.699), true);
+    assert.equal(inDamakPin(null, null), true);
+    assert.equal(inDamakPin(27.7, 85.3), false); // Kathmandu is out
+    assert.equal(inDamakPin(26.45, 87.27), false); // Birtamode is out
   });
 });

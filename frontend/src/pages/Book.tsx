@@ -9,7 +9,7 @@ import { MapPicker } from "../components/MapPicker";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
-import { DAMAK_CENTER, geocodeArea, reverseLabel } from "../lib/geo";
+import { DAMAK_CENTER, geocodeArea, suggestStreet } from "../lib/geo";
 import type { Pin } from "../lib/geo";
 import type { Address, Service } from "../lib/types";
 
@@ -55,7 +55,6 @@ export default function Book() {
   const [addrError, setAddrError] = useState("");
   const [bookingPin, setBookingPin] = useState<Pin | null>(null);
   const [bookingMapOpen, setBookingMapOpen] = useState(false);
-  const [pinLabel, setPinLabel] = useState("");
   const [approx, setApprox] = useState<Pin | null>(null);
   const [locating, setLocating] = useState(false);
   const slots = useMemo(buildSlots, []);
@@ -212,17 +211,10 @@ export default function Book() {
                             ? "Locating your area…"
                             : "Showing Damak — drop a pin to pinpoint your exact spot."}
                 </p>
-                {bookingPin && pinLabel !== "" && addresses.length === 0 && (
-                  <div className="mt-2 rounded-md bg-surface-container/70 p-2.5 text-xs">
-                    <p className="text-on-surface-variant">Near: <strong className="text-on-surface">{pinLabel.split(",").slice(0, 2).join(",")}</strong></p>
-                    <button
-                      type="button"
-                      onClick={() => setLine(pinLabel.split(",").slice(0, 2).join(","))}
-                      className="mt-1 font-bold text-primary hover:underline"
-                    >
-                      Use as address text
-                    </button>
-                  </div>
+                {bookingPin && addresses.length === 0 && (
+                  <p className="mt-2 rounded-md bg-success-container/60 p-2.5 text-xs font-semibold text-on-primary-container">
+                    Pinned — address box filled from the map. Edit it freely above.
+                  </p>
                 )}
                 <div className="mt-2.5">
                   <MiniMap
@@ -253,7 +245,15 @@ export default function Book() {
                   ? { lat: address.lat, lng: address.lng }
                   : DAMAK_CENTER)}
                 onClose={() => setBookingMapOpen(false)}
-                onConfirm={(p, label) => { setBookingPin(p); setPinLabel(label); setBookingMapOpen(false); }}
+                onConfirm={(p, label) => {
+                  setBookingPin(p);
+                  setBookingMapOpen(false);
+                  // Autofill the quick address box from the pin — editable after.
+                  if (addresses.length === 0) {
+                    const street = suggestStreet(label);
+                    if (street) setLine(street);
+                  }
+                }}
               />
             )}
             {step === 1 && (

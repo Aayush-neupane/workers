@@ -4,7 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Search, Satellite, Map as MapIcon, X, Check, Crosshair } from "lucide-react";
 import { Button } from "./ui";
-import { DAMAK_CENTER, roundPin, searchPlaces, reverseLabel, pinInNepal, type Pin, type SearchHit } from "../lib/geo";
+import { DAMAK_CENTER, DAMAK_BBOX, inDamak, roundPin, searchPlaces, reverseLabel, type Pin, type SearchHit } from "../lib/geo";
 
 function pineIcon(): L.DivIcon {
   return L.divIcon({
@@ -52,6 +52,7 @@ export function MapPicker({ initial, onConfirm, onClose }: {
   const [label, setLabel] = useState("");
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState("");
+  const [pinError, setPinError] = useState("");
   const coords = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
   const mounted = useRef(true);
   useEffect(() => {
@@ -115,8 +116,8 @@ export function MapPicker({ initial, onConfirm, onClose }: {
         if (!mounted.current) return;
         setLocating(false);
         const p = roundPin({ lat: g.coords.latitude, lng: g.coords.longitude });
-        if (!pinInNepal(p)) {
-          setLocError("You seem to be outside Nepal — drag the pin to the Damak job site.");
+        if (!inDamak(p)) {
+          setLocError("You're outside Damak — drag the pin to the job site inside wards 1–10.");
           return;
         }
         setPos(p);
@@ -188,9 +189,18 @@ export function MapPicker({ initial, onConfirm, onClose }: {
               </li>
             ))}
           </ul>
+        ) : q.trim().length >= 3 ? (
+          <p className="border-b border-outline/60 px-5 py-2 text-xs text-on-surface-variant">
+            Nothing found in Damak — try a nearby landmark, or drag the pin.
+          </p>
         ) : null}
 
-        <MapContainer center={[pos.lat, pos.lng]} zoom={15} scrollWheelZoom style={{ height: 320, width: "100%", zIndex: 0 }}>
+        <MapContainer center={[pos.lat, pos.lng]} zoom={15} scrollWheelZoom
+          style={{ height: 320, width: "100%", zIndex: 0 }}
+          minZoom={12}
+          maxBounds={[[DAMAK_BBOX.minLat, DAMAK_BBOX.minLng], [DAMAK_BBOX.maxLat, DAMAK_BBOX.maxLng]]}
+          maxBoundsViscosity={1.0}
+        >
           {layer === "streets" ? (
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -218,8 +228,15 @@ export function MapPicker({ initial, onConfirm, onClose }: {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-outline/60 px-5 py-3.5">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onConfirm(pos, label)}>Use this spot</Button>
+          <Button onClick={() => {
+            if (!inDamak(pos)) {
+              setPinError("That spot is outside Damak — drag the pin back inside wards 1–10.");
+              return;
+            }
+            onConfirm(pos, label);
+          }}>Use this spot</Button>
         </div>
+        {pinError && <p role="alert" className="border-t border-outline/60 px-5 py-2 text-xs font-medium text-error">{pinError}</p>}
       </div>
     </div>
   );

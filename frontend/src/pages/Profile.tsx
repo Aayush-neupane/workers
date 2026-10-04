@@ -7,7 +7,7 @@ import { Button, Card, Field, PageHero, Select, TextField } from "../components/
 import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { pinInNepal, roundPin, reverseLabel, type Pin } from "../lib/geo";
+import { inDamak, parseWardFromText, roundPin, reverseLabel, suggestStreet, type Pin } from "../lib/geo";
 import type { Address } from "../lib/types";
 
 const addressSchema = z.object({
@@ -25,7 +25,6 @@ export default function Profile() {
   const [phone, setPhone] = useState("");
   const [saved, setSaved] = useState("");
   const [pin, setPin] = useState<Pin | null>(null);
-  const [pinLabel, setPinLabel] = useState("");
   const [mapOpen, setMapOpen] = useState(false);
   const [locating, setLocating] = useState(false);
 
@@ -45,7 +44,6 @@ export default function Profile() {
       await post("/api/addresses", { ...f, city: "Damak", phone: f.phone ?? "", lat: pin?.lat ?? null, lng: pin?.lng ?? null });
       addr.reset({ label: "Home", line: "", phone: "" });
       setPin(null);
-      setPinLabel("");
       reload();
     } catch (e) {
       setAddrError(e instanceof Error ? e.message : "Could not add address");
@@ -78,13 +76,20 @@ export default function Profile() {
       (g) => {
         setLocating(false);
         const p = roundPin({ lat: g.coords.latitude, lng: g.coords.longitude });
-        if (!pinInNepal(p)) {
-          setAddrError("You seem to be outside Nepal — pin your Damak address on the map.");
+        if (!inDamak(p)) {
+          setAddrError("You're outside Damak — pin your Damak address on the map.");
           return;
         }
         setPin(p);
-        setPinLabel("");
-        reverseLabel(p).then((t) => setPinLabel(t)).catch(() => {});
+        // Autofill the address box from the GPS fix — editable after.
+        reverseLabel(p)
+          .then((t) => {
+            const street = suggestStreet(t);
+            if (street) addr.setValue("line", street, { shouldValidate: true, shouldDirty: true });
+            const w = parseWardFromText(t);
+            if (w !== null) addr.setValue("ward", w, { shouldValidate: true, shouldDirty: true });
+          })
+          .catch(() => {});
       },
       () => {
         setLocating(false);
@@ -140,28 +145,24 @@ export default function Profile() {
                 <Button type="button" variant="outline" onClick={locateMe} disabled={locating}>
                   <Crosshair size={15} aria-hidden="true" /> {locating ? "Locating…" : pin ? "Re-locate me" : "Locate me"}
                 </Button>
-                {pin && <Button type="button" variant="ghost" onClick={() => { setPin(null); setPinLabel(""); }}>Clear pin</Button>}
+                {pin && <Button type="button" variant="ghost" onClick={() => setPin(null)}>Clear pin</Button>}
               </div>
-              {pin && pinLabel !== "" && (
-                <div className="mt-2 rounded-md bg-surface-container/70 p-2.5 text-xs">
-                  <p className="text-on-surface-variant">Near: <strong className="text-on-surface">{pinLabel.split(",").slice(0, 2).join(",")}</strong></p>
-                  <button
-                    type="button"
-                    onClick={() => addr.setValue("line", pinLabel.split(",").slice(0, 2).join(","), { shouldValidate: true })}
-                    className="mt-1 font-bold text-primary hover:underline"
-                  >
-                    Use as address text
-                  </button>
-                </div>
-              )}
-              <p className="mt-1 text-xs text-on-surface-variant">Helps the pro find you. The ward above still decides coverage.</p>
+              <p className="mt-1 text-xs text-on-surface-variant">Pin fills the address box automatically — edit it freely after. The ward still decides coverage.</p>
             </div>
             {addrError && <p role="alert" className="text-sm font-medium text-error">{addrError}</p>}
             <Button type="submit">Add address</Button>
           </form>
           {mapOpen && (
             <MapPicker initial={pin} onClose={() => setMapOpen(false)}
-              onConfirm={(p, label) => { setPin(p); setPinLabel(label); setMapOpen(false); }} />
+              onConfirm={(p, label) => {
+                setPin(p);
+                setMapOpen(false);
+                // Autofill the address box from the pin — editable after.
+                const street = suggestStreet(label);
+                if (street) addr.setValue("line", street, { shouldValidate: true, shouldDirty: true });
+                const w = parseWardFromText(label);
+                if (w !== null) addr.setValue("ward", w, { shouldValidate: true, shouldDirty: true });
+              }} />
           )}
         </Card>
       </div>

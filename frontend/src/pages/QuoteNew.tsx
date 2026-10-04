@@ -7,7 +7,7 @@ import { MapPin } from "lucide-react";
 import { Button, Card, Field, PageHero, Select, TextArea, TextField } from "../components/ui";
 import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
-import type { Pin } from "../lib/geo";
+import { suggestStreet, type Pin } from "../lib/geo";
 import type { Category } from "../lib/types";
 
 const schema = z.object({
@@ -85,7 +85,12 @@ export default function QuoteNew() {
             </div>
             {mapOpen && (
               <MapPicker initial={pin} onClose={() => setMapOpen(false)}
-                onConfirm={(p) => { setPin(p); setMapOpen(false); }} />
+                onConfirm={(p, label) => {
+                  setPin(p);
+                  setMapOpen(false);
+                  const street = suggestStreet(label);
+                  if (street) form.setValue("landmark", street, { shouldValidate: true, shouldDirty: true });
+                }} />
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Preferred window start" error={form.formState.errors.windowStart?.message}>

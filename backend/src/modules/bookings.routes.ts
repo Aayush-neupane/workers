@@ -17,7 +17,7 @@ import {
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
 import { pushToAudience, pushToUser } from "../services/push.js";
-import { validPin } from "../utils/geo.js";
+import { inDamakPin, OUTSIDE_PIN, validPin } from "../utils/geo.js";
 
 const router = Router();
 
@@ -101,6 +101,9 @@ router.post(
     if (f.lat != null || f.lng != null) {
       if (!validPin(f.lat ?? null, f.lng ?? null)) {
         return res.status(400).json({ error: "Map pin is outside Nepal — pick a Damak location" });
+      }
+      if (!inDamakPin(f.lat ?? null, f.lng ?? null)) {
+        return res.status(400).json({ error: OUTSIDE_PIN });
       }
       addressLat = f.lat ?? null;
       addressLng = f.lng ?? null;

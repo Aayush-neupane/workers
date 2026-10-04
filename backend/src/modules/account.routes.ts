@@ -8,7 +8,7 @@ import {
   OUTSIDE_DAMAK, closedWardMessage, isDamakCity, parseWard,
 } from "../utils/coverage.js";
 import { resolveBookingId } from "../utils/booking.js";
-import { validPin } from "../utils/geo.js";
+import { inDamakPin, OUTSIDE_PIN, validPin } from "../utils/geo.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -34,6 +34,9 @@ router.post("/addresses", validate(addressSchema), ah(async (req, res) => {
   if (!isDamakCity(f.city)) return res.status(400).json({ error: OUTSIDE_DAMAK });
   if (!validPin(f.lat ?? null, f.lng ?? null)) {
     return res.status(400).json({ error: "Map pin is outside Nepal — pick a Damak location" });
+  }
+  if (!inDamakPin(f.lat ?? null, f.lng ?? null)) {
+    return res.status(400).json({ error: OUTSIDE_PIN });
   }
   const ward = f.ward ?? parseWard(f.line);
   if (ward !== null) {
