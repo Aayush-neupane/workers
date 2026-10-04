@@ -9,7 +9,7 @@ import { MapPicker } from "../components/MapPicker";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
-import { DAMAK_CENTER } from "../lib/geo";
+import { DAMAK_CENTER, geocodeArea } from "../lib/geo";
 import type { Pin } from "../lib/geo";
 import type { Address, Service } from "../lib/types";
 
@@ -55,6 +55,8 @@ export default function Book() {
   const [addrError, setAddrError] = useState("");
   const [bookingPin, setBookingPin] = useState<Pin | null>(null);
   const [bookingMapOpen, setBookingMapOpen] = useState(false);
+  const [approx, setApprox] = useState<Pin | null>(null);
+  const [locating, setLocating] = useState(false);
   const slots = useMemo(buildSlots, []);
 
   function reloadAddresses() {
@@ -79,6 +81,34 @@ export default function Book() {
     resolver: zodResolver(schema),
     defaultValues: { addressId: "", slot: "", instructions: "", paymentMethod: "cash", useRewards: false },
   });
+
+  const addressId = watch("addressId");
+
+  // Approximate map area from the address text when nobody pinned it yet,
+  // so checkout shows YOUR area instead of a generic Damak view.
+  useEffect(() => {
+    setApprox(null);
+    const addr = addresses.find((a) => a.id === addressId);
+    if (!addr || addr.lat != null || bookingPin) {
+      setLocating(false);
+      return;
+    }
+    setLocating(true);
+    const ctrl = new AbortController();
+    const t = window.setTimeout(async () => {
+      try {
+        setApprox(await geocodeArea(addr.line, ctrl.signal));
+      } catch {
+        /* offline — Damak overview stays */
+      } finally {
+        setLocating(false);
+      }
+    }, 600);
+    return () => {
+      ctrl.abort();
+      window.clearTimeout(t);
+    };
+  }, [addresses, addressId, bookingPin]);
 
   async function saveQuickAddress() {
     setAddrError("");
@@ -175,13 +205,21 @@ export default function Book() {
                       ? "Drop a pin now — it saves with your address and guides the pro."
                       : address?.lat != null
                         ? "Using your saved address pin — adjust it for this job if needed."
-                        : "No pin on this address yet — drop one so the pro finds you faster."}
+                        : approx
+                          ? "Approximate area from your address — drop a pin to pinpoint it."
+                          : locating
+                            ? "Locating your area…"
+                            : "Showing Damak — drop a pin to pinpoint your exact spot."}
                 </p>
                 <div className="mt-2.5">
                   <MiniMap
                     pin={bookingPin ?? (address?.lat != null && address?.lng != null
                       ? { lat: address.lat, lng: address.lng }
-                      : DAMAK_CENTER)}
+                      : approx ?? DAMAK_CENTER)}
+                    center={bookingPin ?? (address?.lat != null && address?.lng != null
+                      ? undefined
+                      : (approx ?? DAMAK_CENTER))}
+                    zoom={bookingPin != null || address?.lat != null ? 16 : 14}
                     marker={bookingPin != null || address?.lat != null}
                     height={170}
                   />

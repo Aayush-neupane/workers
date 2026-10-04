@@ -14,16 +14,19 @@ function dotIcon(): L.DivIcon {
 
 const ICON = dotIcon();
 
-/** Small non-interactive job-location map. No marker unless a real pin exists —
- *  a fallback dot would mislead pros about the job site. */
-export function MiniMap({ pin, height = 180, marker = true }: {
+/** Small non-interactive job-location map. Center can be an approximate area
+ *  (geocoded from the address text); the marker appears only for a real pin. */
+export function MiniMap({ pin, center, zoom, height = 180, marker = true }: {
   pin: Pin;
+  center?: Pin;
+  zoom?: number;
   height?: number;
   marker?: boolean;
 }) {
+  const at = center ?? pin;
   return (
     <div className="overflow-hidden rounded-lg border border-outline/60" style={{ height }}>
-      <MapContainer center={[pin.lat, pin.lng]} zoom={16} style={{ height: "100%", width: "100%" }}
+      <MapContainer key={`${at.lat.toFixed(5)},${at.lng.toFixed(5)}`} center={[at.lat, at.lng]} zoom={zoom ?? 16} style={{ height: "100%", width: "100%" }}
         dragging={false} scrollWheelZoom={false} doubleClickZoom={false}
         zoomControl={false} attributionControl={false} keyboard={false}>
         <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
