@@ -15,6 +15,7 @@ import {
   serviceServesDamak,
 } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
+import { maybeRewardReferral } from "../services/referrals.js";
 
 const router = Router();
 
@@ -180,6 +181,42 @@ router.get("/bookings/:id", requireAuth, ah(async (req, res) => {
      WHERE booking_id = $1 ORDER BY created_at`, [b.id]);
   return res.json({ booking: b, history: events.rows, assignments: assigns.rows });
 }));
+/**
+ * Reschedule to a new future slot. Customers before pro confirmation,
+ * admins any time before completion. Recorded in the timeline.
+ */
+router.put(
+  "/bookings/:id/slot",
+  requireAuth,
+  validate(z.object({ slot: z.string().datetime({ offset: true }) })),
+  ah(async (req, res) => {
+    const f = req.body as { slot: string };
+    if (new Date(f.slot).getTime() < Date.now() + 3600_000) {
+      return res.status(400).json({ error: "Pick a slot at least an hour ahead" });
+    }
+    const key = bookingKey(req.params.id);
+    if (!key) return res.status(400).json({ error: "Invalid request" });
+    const r = await query<{ id: string; customer_id: string; status: string }>(
+      `SELECT id, customer_id, status FROM bookings WHERE ${key.column} = $1`, [key.value]);
+    if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
+    const b = r.rows[0];
+    const isAdmin = req.user!.roles.includes("ADMIN");
+    const isOwner = b.customer_id === req.user!.id;
+    if (!isAdmin && !isOwner) return res.status(403).json({ error: "Forbidden" });
+    if (["completed", "cancelled", "in-progress", "awaiting-confirmation"].includes(b.status) && !isAdmin) {
+      return res.status(409).json({ error: `Cannot reschedule while ${b.status} — contact support` });
+    }
+    if (["completed", "cancelled"].includes(b.status)) {
+      return res.status(409).json({ error: `Cannot reschedule a ${b.status} booking` });
+    }
+    await query(`UPDATE bookings SET slot = $1, updated_at = now() WHERE id = $2`, [f.slot, b.id]);
+    await query(
+      `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note) VALUES ($1, $2, $3, $4, $5)`,
+      [b.id, b.status, isAdmin ? "admin" : "customer", req.user!.id, `Rescheduled`]);
+    return res.json({ ok: true });
+  }),
+);
+
 /**
  * Explicit assign / reassign (admin only). Validates eligibility, records the
  * assignment row, notifies the pro, and audit-logs the reason.
@@ -355,6 +392,7 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
            VALUES ($1, $2, 'bonus', 'Milestone bonus', $3) ON CONFLICT DO NOTHING`,
           [b.customer_id, mileBonus, b.id]);
       }
+      await maybeRewardReferral(client, b.customer_id);
       await notify(client, b.customer_id, "Job completed", "Your booking is complete — please rate the job.");
       if (b.worker_id) await notify(client, b.worker_id, "Job completed", "Booking marked complete. Earnings updated.");
     }

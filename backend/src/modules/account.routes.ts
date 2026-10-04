@@ -119,6 +119,19 @@ router.get("/rewards/mine", ah(async (req, res) => {
   return res.json({ txs: r.rows, balance });
 }));
 
+// ---------- Referrals (own code, invites, rewards) ----------
+router.get("/referrals/mine", ah(async (req, res) => {
+  const { ensureReferralCode } = await import("../services/referrals.js");
+  const code = await ensureReferralCode(pool, req.user!.id, req.user!.name);
+  const uses = await query(
+    `SELECT u.name AS referee, ru.rewarded, ru.created_at
+     FROM referral_uses ru JOIN users u ON u.id = ru.referee_user_id
+     JOIN referral_codes rc ON rc.code = ru.code
+     WHERE rc.owner_user_id = $1 ORDER BY ru.created_at DESC`, [req.user!.id]);
+  const settings = await query<{ value: Record<string, number> }>(`SELECT value FROM settings WHERE id = 'platform'`);
+  return res.json({ code, uses: uses.rows, bonus: settings.rows[0]?.value.referralBonus ?? 50 });
+}));
+
 router.get("/notifications", ah(async (req, res) => {
   const r = await query(`SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [req.user!.id]);
   return res.json({ notifications: r.rows });

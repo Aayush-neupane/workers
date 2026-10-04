@@ -6,6 +6,7 @@ INSERT INTO settings(id, value) VALUES ('platform', jsonb_build_object(
   'redeemDiscountPaisa', 5000,
   'milestoneBookings', 5,
   'milestoneBonus', 100,
+  'referralBonus', 50,
   'quotesRequireAdminApproval', true,
   'quotesApprovalThresholdPaisa', 500000,
   'cookiePolicyVersion', 'v1',

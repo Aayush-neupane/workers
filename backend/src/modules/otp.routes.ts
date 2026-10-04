@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { calcCommission } from "../utils/money.js";
 import { generateOtp, hashOtp, otpExpiry, OTP_MAX_ATTEMPTS } from "../utils/otp.js";
 import { notify } from "../services/notify.js";
+import { maybeRewardReferral } from "../services/referrals.js";
 
 const router = Router();
 
@@ -126,6 +127,7 @@ router.post(
            VALUES ($1, $2, 'earn', 'Booking completed', $3) ON CONFLICT DO NOTHING`,
           [b.customer_id, pts, b.id]);
       }
+      await maybeRewardReferral(client, b.customer_id);
       await notify(client, b.customer_id, "Job completed", "Verified complete — please rate the job.");
       if (b.worker_id) await notify(client, b.worker_id, "Job completed", "Code accepted. Earnings updated.");
       await client.query("COMMIT");

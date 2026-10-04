@@ -7,6 +7,7 @@ import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth, setSession, clearSession, signSession } from "../middleware/auth.js";
 import { audit } from "../services/notify.js";
+import { ensureReferralCode, redeemReferralCode } from "../services/referrals.js";
 
 const router = Router();
 
@@ -15,6 +16,7 @@ const registerSchema = z.object({
   phone: z.string().trim().min(10).max(20),
   email: z.string().trim().toLowerCase().email().max(160),
   password: z.string().min(8).max(128),
+  referralCode: z.string().trim().max(20).optional(),
 });
 
 /** Public registration creates CUSTOMERs only — roles are never client-assignable. */
@@ -41,6 +43,17 @@ router.post(
       }
       const role = await client.query<{ id: string }>(`SELECT id FROM roles WHERE name = 'CUSTOMER'`);
       await client.query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2)`, [userId, role.rows[0].id]);
+      await ensureReferralCode(client, userId, f.name);
+      if (f.referralCode) {
+        try {
+          await redeemReferralCode(client, f.referralCode, f.email, userId);
+        } catch (e) {
+          await client.query("ROLLBACK");
+          return res.status((e as { status?: number }).status ?? 400).json({
+            error: e instanceof Error ? e.message : "Invalid referral code",
+          });
+        }
+      }
       await client.query("COMMIT");
       setSession(res, await signSession(userId));
       return res.status(201).json({ ok: true });
