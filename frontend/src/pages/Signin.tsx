@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ArrowRight, Check, FlaskConical, MapPin, Star } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, FlaskConical, MapPin } from "lucide-react";
 import { Button, Card, Field, TextField } from "../components/ui";
 import { useAuth, homeFor } from "../lib/auth";
-import { api } from "../lib/api";
 
 const showDemo = import.meta.env.DEV;
 
@@ -77,16 +76,6 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const signup = mode === "signup";
-  const [spotlight, setSpotlight] = useState<{ rating: number; text: string; worker_name: string } | null>(null);
-
-  useEffect(() => {
-    api<{ reviews: { rating: number; text: string; worker_name: string }[] }>("/api/reviews?limit=10")
-      .then((d) => {
-        const withText = d.reviews.filter((r) => r.text && r.text.trim().length > 0);
-        if (withText.length > 0) setSpotlight(withText[0]);
-      })
-      .catch(() => {});
-  }, []);
 
   const loginForm = useForm<z.infer<typeof signinSchema>>({
     resolver: zodResolver(signinSchema),
@@ -155,30 +144,6 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
                 {busy && !signup ? "Please wait…" : "Sign in"}
               </Button>
             </form>
-            {showDemo && (
-              <div className="mt-4 rounded-md border border-dashed border-outline bg-surface-container/50 p-3">
-                <p className="text-[11px] font-extrabold tracking-widest text-on-surface-variant uppercase">Quick demo access — tap to fill</p>
-              <div className="mt-2 grid grid-cols-3 gap-1.5">
-                {[
-                  { label: "Client", email: "gita@demo.local", password: "Demo1234!" },
-                  { label: "Pro", email: "bijay@demo.local", password: "Demo1234!" },
-                  { label: "Admin", email: "admin@sajilo.local", password: "ChangeMe123!" },
-                ].map((a) => (
-                  <button
-                    key={a.label}
-                    type="button"
-                    onClick={() => {
-                      loginForm.setValue("email", a.email);
-                      loginForm.setValue("password", a.password);
-                    }}
-                    className="rounded-md border border-outline bg-white px-2 py-2 text-xs font-extrabold transition hover:border-primary active:scale-[0.97]"
-                  >
-                    {a.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            )}
             <ol className="mt-4 space-y-2.5 border-t border-outline pt-4">
               {[
                 ["Book in four steps", "Fixed-price services, live slot picker, rewards at checkout."],
@@ -193,15 +158,6 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
                 </li>
               ))}
             </ol>
-            {spotlight && (
-              <figure className="mt-3 rounded-md bg-surface-container/70 p-3.5">
-                <p className="inline-flex items-center gap-1 text-xs font-extrabold">
-                  <Star size={13} aria-hidden="true" className="fill-marigold-500 text-marigold-500" /> {spotlight.rating}/5 · {spotlight.worker_name}
-                </p>
-                <blockquote className="mt-1 text-[13px] leading-relaxed">"{spotlight.text}"</blockquote>
-                <figcaption className="mt-1 text-[11px] text-on-surface-variant">From a completed job — every review here is.</figcaption>
-              </figure>
-            )}
             <ul className="mt-4 space-y-2 border-t border-outline pt-4 text-[13px] text-on-surface-variant">
               {[
                 "Live tracking from request to completion code",
