@@ -335,6 +335,18 @@ router.post(
   }),
 );
 
+router.post(
+  "/admin/tickets/:id/status",
+  requirePermission("support.reply"),
+  validate(z.object({ status: z.enum(["open", "in-progress", "resolved"]) })),
+  ah(async (req, res) => {
+    const f = req.body as { status: string };
+    await query(`UPDATE support_tickets SET status = $1, updated_at = now() WHERE id = $2`, [f.status, req.params.id]);
+    await adminAudit(req.user!.id, "ticket-status", `${req.params.id} -> ${f.status}`);
+    return res.json({ ok: true });
+  }),
+);
+
 router.get("/admin/audit", requirePermission("audit.read"), ah(async (req, res) => {
   const r = await query(`SELECT a.*, u.name AS actor_name FROM audit_log a
     LEFT JOIN users u ON u.id = a.actor_id ORDER BY a.created_at DESC LIMIT 200`);
@@ -544,6 +556,19 @@ router.put(
     return res.json({ ok: true });
   }),
 );
+
+// ---------- Payments lookup (for refunds) ----------
+router.get("/admin/payments", ah(async (req, res) => {
+  const booking = typeof req.query.booking === "string" ? req.query.booking : "";
+  if (!booking) return res.status(400).json({ error: "booking required" });
+  const r = await query(
+    `SELECT p.*, b.booking_no FROM payments p JOIN bookings b ON b.id = p.booking_id
+     WHERE b.id = $1 OR b.booking_no = $1`, [booking]);
+  const refunds = await query(
+    `SELECT r.* FROM refunds r JOIN payments p ON p.id = r.payment_id
+     JOIN bookings b ON b.id = p.booking_id WHERE b.id = $1 OR b.booking_no = $1`, [booking]);
+  return res.json({ payments: r.rows, refunds: refunds.rows });
+}));
 
 // ---------- Quote pipeline ----------
 router.get("/admin/quotes", ah(async (_req, res) => {
