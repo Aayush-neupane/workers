@@ -53,8 +53,6 @@ export default function Book() {
   const [line, setLine] = useState("");
   const [phone, setPhone] = useState("");
   const [addrError, setAddrError] = useState("");
-  const [pin, setPin] = useState<Pin | null>(null);
-  const [mapOpen, setMapOpen] = useState(false);
   const [bookingPin, setBookingPin] = useState<Pin | null>(null);
   const [bookingMapOpen, setBookingMapOpen] = useState(false);
   const slots = useMemo(buildSlots, []);
@@ -89,7 +87,7 @@ export default function Book() {
     try {
       const out = await post<{ address: Address }>("/api/addresses", {
         label: "Home", line: line.trim(), city: "Damak", phone: phone.trim(),
-        lat: pin?.lat ?? null, lng: pin?.lng ?? null,
+        lat: bookingPin?.lat ?? null, lng: bookingPin?.lng ?? null,
       });
       setAddresses((a) => [...a, out.address]);
       setValue("addressId", out.address.id);
@@ -151,16 +149,6 @@ export default function Book() {
                 <Field label="Phone">
                   <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" />
                 </Field>
-                <div>
-                  <span className="mb-1.5 block text-sm font-semibold">Map pin (optional)</span>
-                  <Button type="button" variant="outline" onClick={() => setMapOpen(true)}>
-                    <MapPin size={15} aria-hidden="true" /> {pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Pin on map"}
-                  </Button>
-                </div>
-                {mapOpen && (
-                  <MapPicker initial={pin} onClose={() => setMapOpen(false)}
-                    onConfirm={(p) => { setPin(p); setMapOpen(false); }} />
-                )}
                 {addrError && <p role="alert" className="text-sm font-medium text-error">{addrError}</p>}
                 <Button onClick={saveQuickAddress}>Save & continue</Button>
               </div>
@@ -175,7 +163,7 @@ export default function Book() {
                 </Field>
               </>
             ) : null}
-            {step === 0 && addresses.length > 0 && (
+            {step === 0 && (
               <div className="mt-5 rounded-lg border border-outline/60 bg-surface-container/40 p-4">
                 <p className="flex items-center gap-1.5 text-sm font-extrabold">
                   <MapPin size={15} aria-hidden="true" /> Job location on map
@@ -183,9 +171,11 @@ export default function Book() {
                 <p className="mt-0.5 text-xs text-on-surface-variant">
                   {bookingPin
                     ? "Pinned for this booking — the pro navigates here."
-                    : address?.lat != null
-                      ? "Using your saved address pin — adjust it for this job if needed."
-                      : "No pin on this address yet — drop one so the pro finds you faster."}
+                    : addresses.length === 0
+                      ? "Drop a pin now — it saves with your address and guides the pro."
+                      : address?.lat != null
+                        ? "Using your saved address pin — adjust it for this job if needed."
+                        : "No pin on this address yet — drop one so the pro finds you faster."}
                 </p>
                 <div className="mt-2.5">
                   <MiniMap
