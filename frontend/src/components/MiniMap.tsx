@@ -24,8 +24,10 @@ export function MiniMap({ pin, center, zoom, height = 180, marker = true }: {
   marker?: boolean;
 }) {
   const at = center ?? pin;
+  // `isolate` traps Leaflet's high internal z-indexes inside this map so a
+  // preview can never paint over dialogs (e.g. the pin picker).
   return (
-    <figure className="overflow-hidden rounded-lg border border-outline/60">
+    <figure className="isolate overflow-hidden rounded-lg border border-outline/60">
       <div style={{ height }}>
         <MapContainer key={`${at.lat.toFixed(5)},${at.lng.toFixed(5)}`} center={[at.lat, at.lng]} zoom={zoom ?? 16} style={{ height: "100%", width: "100%" }}
           dragging={false} scrollWheelZoom={false} doubleClickZoom={false}

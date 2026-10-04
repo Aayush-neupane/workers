@@ -196,6 +196,7 @@ export function MapPicker({ initial, onConfirm, onClose }: {
         ) : null}
 
         <MapContainer center={[pos.lat, pos.lng]} zoom={15} scrollWheelZoom
+          className="isolate"
           style={{ height: 320, width: "100%", zIndex: 0 }}
           minZoom={12}
           maxBounds={[[DAMAK_BBOX.minLat, DAMAK_BBOX.minLng], [DAMAK_BBOX.maxLat, DAMAK_BBOX.maxLng]]}

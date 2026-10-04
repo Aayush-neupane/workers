@@ -71,7 +71,7 @@ export function LiveMap({ stops, me, route, height = 300, interactive = false }:
     ...(me ? [me] : []),
   ];
   return (
-    <figure className="overflow-hidden rounded-lg border border-outline/60">
+    <figure className="isolate overflow-hidden rounded-lg border border-outline/60">
       <div style={{ height }}>
         <MapContainer center={center} zoom={14} style={{ height: "100%", width: "100%", zIndex: 0 }}
           scrollWheelZoom={interactive} dragging={interactive} zoomControl={interactive}
