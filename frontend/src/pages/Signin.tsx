@@ -3,177 +3,257 @@ import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowRight, BadgeCheck, CreditCard, Gift, ShieldCheck, Star, Wrench } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, FlaskConical, MapPin } from "lucide-react";
 import { Button, Card, Field, TextField } from "../components/ui";
 import { useAuth, homeFor } from "../lib/auth";
 
-const schema = z.object({
-  name: z.string().trim().optional(),
-  phone: z.string().trim().optional(),
+const signinSchema = z.object({
   email: z.string().email("Enter a valid email"),
   password: z.string().min(1, "Enter your password"),
 });
 
-function BrandPanel({ mode }: { mode: "signin" | "signup" }) {
+const signupSchema = signinSchema.extend({
+  name: z.string().trim().min(2, "Enter your full name"),
+  phone: z.string().trim().min(10, "Enter a valid phone number").max(20),
+  terms: z.boolean(),
+});
+
+/** Demo logins — local seed data only, never shown in production builds. */
+const DEMO_ACCOUNTS = [
+  { label: "Client", email: "gita@demo.local", password: "Demo1234!", to: "/dashboard" },
+  { label: "Professional", email: "bijay@demo.local", password: "Demo1234!", to: "/worker" },
+  { label: "Admin", email: "admin@sajilo.local", password: "ChangeMe123!", to: "/admin" },
+];
+
+function CoverContent({ mode }: { mode: "signin" | "signup" }) {
   return (
-    <div className="ring-band dotgrid-light flex h-full flex-col justify-between p-8 md:p-10">
-      <p className="flex items-center gap-2 font-bold text-white">
-        <span className="grid size-9 place-items-center rounded-lg bg-marigold-300 text-pine-950">
-          <Wrench size={18} aria-hidden="true" />
-        </span>
-        <span className="font-display text-xl font-semibold">Sajilo Damak</span>
+    <div key={mode} className="fade-up flex h-full flex-col p-8 md:p-10">
+      <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-extrabold tracking-[0.14em] text-marigold-300 uppercase">
+        <MapPin size={12} aria-hidden="true" /> सजिलो दमक · Wards 1–10
       </p>
-      <div key={mode} className="fade-up">
-        <p className="font-display text-3xl leading-tight font-semibold text-white md:text-4xl">
-          {mode === "signin" ? "New to Damak's verified pros?" : "One of us already?"}
+      <div className="mt-auto mb-auto pt-8">
+        <p className="font-display text-3xl leading-tight font-semibold text-white md:text-[2.6rem] md:leading-[1.1]">
+          {mode === "signin" ? "First time here?" : "Welcome back."}
         </p>
-        <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/75">
-          {mode === "signin"
-            ? "Create a free account to book verified electricians, plumbers, cleaners and more — and earn rewards on every job."
-            : "Sign back in to track bookings, manage addresses and spend your loyalty points."}
-        </p>
+        <p className="font-display mt-2 text-lg text-marigold-300 italic">Ramro Sewa, Sajilo Jeevan.</p>
+        <ul className="mt-6 space-y-3 text-sm text-white/85">
+          {[
+            "Pros join by invitation only — never self-registered",
+            "Every job closes with your one-time code",
+            "Loyalty points on each completed booking",
+          ].map((t) => (
+            <li key={t} className="flex items-start gap-2.5">
+              <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-marigold-300 text-pine-950" aria-hidden="true">
+                <Check size={13} strokeWidth={3} />
+              </span>
+              {t}
+            </li>
+          ))}
+        </ul>
         <Link
           to={mode === "signin" ? "/signup" : "/signin"}
-          className="mt-6 inline-flex items-center gap-2 rounded-lg border border-white/30 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-white/10"
+          className="mt-8 inline-flex items-center gap-2 rounded-lg bg-marigold-300 px-5 py-2.5 text-sm font-extrabold text-pine-950 transition hover:brightness-105 active:scale-[0.98]"
         >
           {mode === "signin" ? (
-            <>Create account <ArrowRight size={15} aria-hidden="true" /></>
+            <>Create free account <ArrowRight size={15} aria-hidden="true" /></>
           ) : (
-            <>Sign in <ArrowRight size={15} aria-hidden="true" /></>
+            <><ArrowLeft size={15} aria-hidden="true" /> Back to sign in</>
           )}
         </Link>
       </div>
-      <p className="flex items-center gap-1.5 text-xs text-white/60">
-        <ShieldCheck size={13} className="text-marigold-300" aria-hidden="true" />
-        Invite-only pros · Damak wards 1–10 · Cash + online pay
+      <p className="text-xs leading-relaxed text-white/55">
+        Damak-5, Himal Chowk · Sun–Sat · Cash, eSewa & Khalti where configured
       </p>
     </div>
   );
 }
-
-const TRUST = [
-  { icon: ShieldCheck, t: "Verified pros", b: "Invite-only onboarding" },
-  { icon: CreditCard, t: "Easy pay", b: "Cash · eSewa · Khalti" },
-  { icon: Gift, t: "Rewards", b: "Points on every job" },
-];
 
 export default function Signin({ mode }: { mode: "signin" | "signup" }) {
   const { signIn, signUp, authError } = useAuth();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const signup = mode === "signup";
-  const form = useForm<z.infer<typeof schema>>({
-    resolver: zodResolver(schema),
-    defaultValues: { name: "", phone: "", email: "", password: "" },
+
+  const loginForm = useForm<z.infer<typeof signinSchema>>({
+    resolver: zodResolver(signinSchema),
+    defaultValues: { email: "", password: "" },
+  });
+  const joinForm = useForm<z.infer<typeof signupSchema>>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: { name: "", phone: "", email: "", password: "", terms: false },
   });
 
-  async function submit(f: z.infer<typeof schema>) {
-    if (signup) {
-      if (!f.name || f.name.trim().length < 2) {
-        form.setError("name", { message: "Enter your full name" });
-        return;
-      }
-      if (!f.phone || f.phone.trim().length < 10) {
-        form.setError("phone", { message: "Enter a valid phone number" });
-        return;
-      }
-      if (!f.password || f.password.length < 8) {
-        form.setError("password", { message: "Minimum 8 characters" });
-        return;
-      }
-    }
+  async function doLogin(f: z.infer<typeof signinSchema>) {
     setBusy(true);
-    const role =
-      signup
-        ? await signUp(f.name!.trim(), f.phone!.trim(), f.email, f.password)
-        : await signIn(f.email, f.password);
+    const role = await signIn(f.email, f.password);
     setBusy(false);
     if (role) navigate(homeFor(role), { replace: true });
   }
 
+  async function doSignup(f: z.infer<typeof signupSchema>) {
+    if (!f.terms) {
+      joinForm.setError("terms", { message: "Please accept the Terms and Privacy Policy to continue." });
+      return;
+    }
+    setBusy(true);
+    const role = await signUp(f.name.trim(), f.phone.trim(), f.email, f.password);
+    setBusy(false);
+    if (role) navigate(homeFor(role), { replace: true });
+  }
+
+  function fillDemo(email: string, password: string) {
+    loginForm.setValue("email", email);
+    loginForm.setValue("password", password);
+    joinForm.setValue("email", email);
+    joinForm.setValue("password", password);
+  }
+
   return (
     <div className="wrap fade-up py-10 md:py-14">
-      {/* Mobile brand strip */}
-      <div className="ring-band mb-4 rounded-lg p-5 md:hidden">
-        <p className="flex items-center gap-2 font-bold text-white">
-          <span className="grid size-8 place-items-center rounded-md bg-marigold-300 text-pine-950">
-            <Wrench size={16} aria-hidden="true" />
-          </span>
-          <span className="font-display text-lg font-semibold">Sajilo Damak</span>
-        </p>
-        <p className="mt-2 text-sm text-white/75">
-          {signup ? "Create your free account." : "Welcome back."}{" "}
-          <Link to={signup ? "/signin" : "/signup"} className="font-bold text-marigold-300">
-            {signup ? "Sign in instead" : "Create an account"}
-          </Link>
-        </p>
+      {/* Mobile switch strip */}
+      <div className="ring-band mb-4 flex items-center justify-between rounded-lg p-5 md:hidden">
+        <div>
+          <p className="font-display text-lg font-semibold text-white">{signup ? "Create account" : "Welcome back"}</p>
+          <p className="text-sm text-white/70">{signup ? "Free forever. Book in minutes." : "Sign in to continue."}</p>
+        </div>
+        <Link to={signup ? "/signin" : "/signup"} className="rounded-lg bg-marigold-300 px-4 py-2 text-sm font-extrabold text-pine-950">
+          {signup ? "Sign in" : "Join"}
+        </Link>
       </div>
 
-      <Card className="elev-2 mx-auto grid max-w-4xl overflow-hidden md:grid-cols-2">
-        <div className="flex flex-col p-7 md:p-10">
-          <h1 className="font-display text-3xl font-semibold">{signup ? "Create account" : "Sign in"}</h1>
-          <p className="mt-1.5 text-sm text-on-surface-variant">
-            {signup ? "Free forever. Book in under a minute." : "Track bookings, rewards and receipts."}
-          </p>
-          <form className="mt-6 space-y-4" onSubmit={form.handleSubmit(submit)}>
-            {signup && (
-              <>
-                <Field label="Full name" error={form.formState.errors.name?.message}>
-                  <TextField {...form.register("name")} placeholder="e.g. Gita Sharma" autoComplete="name" />
-                </Field>
-                <Field label="Phone" error={form.formState.errors.phone?.message}>
-                  <TextField {...form.register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
-                </Field>
-              </>
-            )}
-            <Field label="Email" error={form.formState.errors.email?.message}>
-              <TextField {...form.register("email")} type="email" placeholder="you@example.com" autoComplete="email" />
-            </Field>
-            <Field label="Password" error={form.formState.errors.password?.message}>
-              <TextField {...form.register("password")} type="password"
-                placeholder={signup ? "Minimum 8 characters" : "Your password"}
-                autoComplete={signup ? "new-password" : "current-password"} />
-            </Field>
-            {signup && (
-              <p className="text-xs leading-relaxed text-on-surface-variant">
-                By creating an account you agree to the{" "}
-                <Link to="/terms" className="font-semibold text-primary">Terms</Link> and{" "}
-                <Link to="/privacy" className="font-semibold text-primary">Privacy Policy</Link>.
-                Customer accounts only — pros join by admin invitation.
-              </p>
-            )}
-            {authError && <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{authError}</p>}
-            <Button type="submit" className="w-full py-3" disabled={busy}>
-              {busy ? "Please wait…" : signup ? "Create account" : "Sign in"}
-            </Button>
-          </form>
-          {!signup && (
-            <p className="mt-4 text-center text-sm text-on-surface-variant">
-              Just looking?{" "}
-              <Link to="/services" className="font-bold text-primary">Browse services as guest</Link>
+      <Card className="elev-2 relative mx-auto max-w-4xl overflow-hidden md:min-h-[620px]">
+        <div className="grid md:grid-cols-2">
+          {/* Left cell — sign in (same size as right) */}
+          <div className={`${signup ? "hidden md:flex" : "flex"} flex-col p-7 md:p-10`}>
+            <h1 className="font-display text-3xl font-semibold">Sign in</h1>
+            <p className="mt-1.5 text-sm text-on-surface-variant">Bookings, rewards and receipts await.</p>
+            <form className="mt-6 flex-1 space-y-4" onSubmit={loginForm.handleSubmit(doLogin)}>
+              <Field label="Email" error={loginForm.formState.errors.email?.message}>
+                <TextField {...loginForm.register("email")} type="email" placeholder="you@example.com" autoComplete="email" />
+              </Field>
+              <Field label="Password" error={loginForm.formState.errors.password?.message}>
+                <TextField {...loginForm.register("password")} type="password" autoComplete="current-password" />
+              </Field>
+              {!signup && authError && (
+                <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{authError}</p>
+              )}
+              <Button type="submit" className="w-full py-3" disabled={busy}>
+                {busy && !signup ? "Please wait…" : "Sign in"}
+              </Button>
+            </form>
+            <p className="mt-4 text-center text-sm text-on-surface-variant md:hidden">
+              New here? <Link to="/signup" className="font-bold text-primary">Create an account</Link>
             </p>
-          )}
-          <div className="mt-6 grid grid-cols-3 gap-2 border-t border-outline pt-5">
-            {TRUST.map((f) => (
-              <div key={f.t} className="text-center">
-                <f.icon size={18} aria-hidden="true" className="mx-auto text-primary" />
-                <p className="mt-1.5 text-xs font-bold">{f.t}</p>
-                <p className="text-[11px] leading-snug text-on-surface-variant">{f.b}</p>
-              </div>
-            ))}
           </div>
-          <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-on-surface-variant">
-            <Star size={13} aria-hidden="true" className="text-marigold-500" />
-            Every review here comes from a completed job — no exceptions.
-          </p>
+
+          {/* Right cell — create account (same size as left) */}
+          <div className="hidden flex-col p-7 md:flex md:p-10">
+            <h1 className="font-display text-3xl font-semibold">Create account</h1>
+            <p className="mt-1.5 text-sm text-on-surface-variant">Free forever. Book in under a minute.</p>
+            <form className="mt-6 flex-1 space-y-4" onSubmit={joinForm.handleSubmit(doSignup)}>
+              <Field label="Full name" error={joinForm.formState.errors.name?.message}>
+                <TextField {...joinForm.register("name")} placeholder="e.g. Gita Sharma" autoComplete="name" />
+              </Field>
+              <Field label="Phone" error={joinForm.formState.errors.phone?.message}>
+                <TextField {...joinForm.register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
+              </Field>
+              <Field label="Email" error={joinForm.formState.errors.email?.message}>
+                <TextField {...joinForm.register("email")} type="email" placeholder="you@example.com" autoComplete="email" />
+              </Field>
+              <Field label="Password" error={joinForm.formState.errors.password?.message}>
+                <TextField {...joinForm.register("password")} type="password" placeholder="Minimum 8 characters" autoComplete="new-password" />
+              </Field>
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-outline p-3 text-[13px] leading-relaxed">
+                <input type="checkbox" {...joinForm.register("terms")} className="mt-0.5 size-4 shrink-0 accent-[#0f6b44]" />
+                <span>
+                  I agree to the <Link to="/terms" className="font-bold text-primary hover:underline">Terms of Service</Link>{" "}
+                  and <Link to="/privacy" className="font-bold text-primary hover:underline">Privacy Policy</Link>.
+                </span>
+              </label>
+              {joinForm.formState.errors.terms && (
+                <p role="alert" className="text-xs font-medium text-error">{joinForm.formState.errors.terms.message}</p>
+              )}
+              {signup && authError && (
+                <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{authError}</p>
+              )}
+              <Button type="submit" className="w-full py-3" disabled={busy}>
+                {busy && signup ? "Please wait…" : "Create account"}
+              </Button>
+            </form>
+          </div>
+
+          {/* Mobile signup form */}
+          {signup && (
+            <div className="border-t border-outline p-7 md:hidden">
+              <h1 className="font-display text-2xl font-semibold">Create account</h1>
+              <form className="mt-5 space-y-4" onSubmit={joinForm.handleSubmit(doSignup)}>
+                <Field label="Full name" error={joinForm.formState.errors.name?.message}>
+                  <TextField {...joinForm.register("name")} placeholder="e.g. Gita Sharma" autoComplete="name" />
+                </Field>
+                <Field label="Phone" error={joinForm.formState.errors.phone?.message}>
+                  <TextField {...joinForm.register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
+                </Field>
+                <Field label="Email" error={joinForm.formState.errors.email?.message}>
+                  <TextField {...joinForm.register("email")} type="email" placeholder="you@example.com" autoComplete="email" />
+                </Field>
+                <Field label="Password" error={joinForm.formState.errors.password?.message}>
+                  <TextField {...joinForm.register("password")} type="password" placeholder="Minimum 8 characters" autoComplete="new-password" />
+                </Field>
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-outline p-3 text-[13px] leading-relaxed">
+                  <input type="checkbox" {...joinForm.register("terms")} className="mt-0.5 size-4 shrink-0 accent-[#0f6b44]" />
+                  <span>
+                    I agree to the <Link to="/terms" className="font-bold text-primary hover:underline">Terms</Link>{" "}
+                    and <Link to="/privacy" className="font-bold text-primary hover:underline">Privacy Policy</Link>.
+                  </span>
+                </label>
+                {joinForm.formState.errors.terms && (
+                  <p role="alert" className="text-xs font-medium text-error">{joinForm.formState.errors.terms.message}</p>
+                )}
+                {authError && (
+                  <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{authError}</p>
+                )}
+                <Button type="submit" className="w-full py-3" disabled={busy}>
+                  {busy ? "Please wait…" : "Create account"}
+                </Button>
+              </form>
+            </div>
+          )}
         </div>
-        <div className="hidden md:block">
-          <BrandPanel mode={mode} />
+
+        {/* Sliding cover — reveals the active side */}
+        <div
+          aria-hidden="true"
+          className={`ring-band dotgrid-light absolute inset-y-0 left-0 hidden w-1/2 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:block ${
+            signup ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <CoverContent mode={mode} />
         </div>
       </Card>
 
-      <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-on-surface-variant">
-        <BadgeCheck size={13} aria-hidden="true" />
+      {/* Demo logins — local seed data only */}
+      <Card className="mx-auto mt-4 max-w-4xl border-dashed p-5">
+        <p className="flex items-center gap-1.5 text-sm font-bold">
+          <FlaskConical size={15} aria-hidden="true" /> Try the demo — one tap fills the form
+        </p>
+        <p className="mt-0.5 text-xs text-on-surface-variant">Local seed accounts. The admin password must be changed before any public launch.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {DEMO_ACCOUNTS.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              onClick={() => fillDemo(a.email, a.password)}
+              className="rounded-md border border-outline bg-surface-container/60 p-3 text-left transition hover:border-primary active:scale-[0.98]"
+            >
+              <span className="block text-sm font-extrabold">{a.label}</span>
+              <span className="block truncate font-mono text-xs text-on-surface-variant">{a.email}</span>
+              <span className="block font-mono text-xs text-on-surface-variant">{a.password}</span>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <p className="mt-4 text-center text-xs text-on-surface-variant">
         Customers register freely · Worker accounts are created by admins and activated by invitation
       </p>
     </div>

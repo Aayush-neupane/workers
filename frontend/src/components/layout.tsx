@@ -121,6 +121,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <ul className="mt-2 space-y-1.5 text-sm text-white/80">
               <li><Link to="/services" className="hover:underline">All services</Link></li>
               <li><Link to="/quotes/new" className="hover:underline">Request a quote</Link></li>
+              <li><Link to="/rewards" className="hover:underline">Rewards</Link></li>
               <li><Link to="/support" className="hover:underline">Support</Link></li>
             </ul>
           </div>

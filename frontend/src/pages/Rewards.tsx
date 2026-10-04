@@ -1,0 +1,93 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { Gift } from "lucide-react";
+import { Button, Card, EmptyState, PageHero } from "../components/ui";
+import { api } from "../lib/api";
+
+interface Tx {
+  id: string;
+  points: number;
+  kind: "earn" | "redeem" | "reverse" | "bonus";
+  reason: string;
+  at: string;
+}
+
+interface Rules {
+  rewardPerNpr100: number;
+  redeemPoints: number;
+  redeemDiscountPaisa: number;
+  milestoneBookings: number;
+  milestoneBonus: number;
+}
+
+export default function Rewards() {
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [balance, setBalance] = useState(0);
+  const [rules, setRules] = useState<Rules>({ rewardPerNpr100: 1, redeemPoints: 100, redeemDiscountPaisa: 5000, milestoneBookings: 5, milestoneBonus: 100 });
+
+  useEffect(() => {
+    api<{ txs: Tx[]; balance: number }>("/api/rewards/mine").then((d) => { setTxs(d.txs); setBalance(d.balance); }).catch(() => {});
+    api<Rules>("/api/settings").then(setRules).catch(() => {});
+  }, []);
+
+  const progress = Math.min(Math.max(balance, 0), rules.redeemPoints);
+
+  return (
+    <div className="fade-up">
+      <PageHero eyebrow="Loyalty" title="Rewards that respect you" body="Earned only on completed jobs. No tiers, no expiry surprises — points in, discounts out." />
+      <div className="wrap grid items-start gap-5 py-8 lg:grid-cols-[320px_1fr]">
+        <Card className="ring-band dotgrid-light border-0 p-6 text-white lg:sticky lg:top-24">
+          <p className="flex items-center gap-1.5 text-xs font-extrabold tracking-[0.14em] text-marigold-300 uppercase">
+            <Gift size={14} aria-hidden="true" /> Balance
+          </p>
+          <p className="font-display mt-1 text-5xl font-semibold">{balance} <span className="text-2xl">pts</span></p>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/25" role="progressbar"
+            aria-valuenow={progress} aria-valuemin={0} aria-valuemax={rules.redeemPoints} aria-label="Progress to next reward">
+            <div className="h-full rounded-full bg-marigold-300" style={{ width: `${(progress / rules.redeemPoints) * 100}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-white/75">
+            {balance >= rules.redeemPoints
+              ? `Reward unlocked — redeem ${rules.redeemPoints} pts for Rs ${rules.redeemDiscountPaisa / 100} off at checkout`
+              : `${rules.redeemPoints - progress} points to your next Rs ${rules.redeemDiscountPaisa / 100} reward`}
+          </p>
+          <Link to="/services" className="mt-4 inline-block"><Button className="bg-marigold-300 text-pine-950 hover:brightness-105">Earn more</Button></Link>
+        </Card>
+        <div className="space-y-5">
+          <Card className="p-5">
+            <p className="font-bold">How it works</p>
+            <ul className="mt-2 grid gap-2 text-sm text-on-surface-variant sm:grid-cols-3">
+              <li className="rounded-md bg-surface-container p-3"><strong className="text-on-surface">{rules.rewardPerNpr100} pt / Rs 100</strong><br />earned per completed booking</li>
+              <li className="rounded-md bg-surface-container p-3"><strong className="text-on-surface">+{rules.milestoneBonus} pts</strong><br />bonus every {rules.milestoneBookings} completions</li>
+              <li className="rounded-md bg-surface-container p-3"><strong className="text-on-surface">{rules.redeemPoints} pts = Rs {rules.redeemDiscountPaisa / 100}</strong><br />redeemable at checkout</li>
+            </ul>
+            <p className="mt-2 text-xs text-on-surface-variant">Refunded bookings reverse their points automatically. One earn entry per booking — duplicates are impossible by database constraint.</p>
+          </Card>
+          <Card className="overflow-x-auto">
+            <p className="px-4 pt-4 font-bold">History</p>
+            {txs.length === 0 ? (
+              <div className="p-4"><EmptyState title="No reward activity yet" body="Complete a booking to earn your first points." /></div>
+            ) : (
+              <table className="w-full min-w-[480px] text-sm">
+                <thead><tr className="text-left text-xs text-on-surface-variant">
+                  <th className="px-4 py-2.5">When</th><th className="px-4 py-2.5">Reason</th><th className="px-4 py-2.5">Type</th><th className="px-4 py-2.5 text-right">Points</th>
+                </tr></thead>
+                <tbody>
+                  {[...txs].reverse().map((t) => (
+                    <tr key={t.id} className="border-t border-outline/60">
+                      <td className="px-4 py-2.5 text-xs text-on-surface-variant">{new Date(t.at).toLocaleDateString()}</td>
+                      <td className="px-4 py-2.5">{t.reason}</td>
+                      <td className="px-4 py-2.5 capitalize">{t.kind}</td>
+                      <td className={`px-4 py-2.5 text-right font-bold ${t.points < 0 ? "text-error" : "text-success"}`}>
+                        {t.points > 0 ? `+${t.points}` : t.points}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

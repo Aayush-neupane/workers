@@ -101,6 +101,7 @@ export default function Dashboard() {
             <p className="text-xs font-extrabold tracking-widest text-marigold-300 uppercase">Loyalty</p>
             <p className="font-display mt-1 text-4xl font-semibold">{balance} <span className="text-lg">pts</span></p>
             <p className="mt-1 text-xs text-white/70">100 pts = Rs 50 off at checkout. Earned only on completed jobs.</p>
+            <Link to="/rewards" className="mt-3 inline-block rounded-md bg-marigold-300 px-3 py-1.5 text-xs font-extrabold text-pine-950">View rewards</Link>
           </Card>
           <Card className="p-5">
             <p className="font-bold">Notifications</p>

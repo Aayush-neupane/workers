@@ -35,45 +35,52 @@ const FAQS = [
   },
 ];
 
-function HeroArt({ service }: { service: Service | null }) {
+function HeroArt({ service, openWards }: { service: Service | null; openWards: number | null }) {
   return (
     <div className="relative mx-auto w-full max-w-md" aria-hidden="true">
       <div className="dotgrid absolute -inset-6 rounded-lg" />
-      <Card className="elev-2 relative -rotate-[1.5deg] p-5">
+      {/* Coverage card — the Damak-only promise, visualized */}
+      <Card className="elev-2 relative p-5">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-extrabold tracking-[0.14em] text-on-surface-variant uppercase">
-            Live in Damak · BK-2003
+            Coverage · Damak Municipality
           </p>
-          <Badge tone="info">In progress</Badge>
+          <Badge tone="success"><MapPin size={12} /> {openWards ?? 10}/10 wards</Badge>
         </div>
-        <p className="font-display mt-2 text-2xl font-semibold">{service?.name ?? "Ceiling fan installation"}</p>
-        <p className="mt-1 flex items-center gap-1.5 text-sm text-on-surface-variant">
-          <MapPin size={14} /> Damak-5, Himal Chowk · Verified pro on site
+        <div className="mt-4 grid grid-cols-5 gap-1.5">
+          {Array.from({ length: 10 }, (_, i) => (
+            <span
+              key={i}
+              className={`grid aspect-square place-items-center rounded-md text-xs font-extrabold ${
+                openWards === null || i < openWards
+                  ? "bg-primary-container text-on-primary-container"
+                  : "bg-surface-container text-on-surface-variant"
+              }`}
+            >
+              {i + 1}
+            </span>
+          ))}
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-on-surface-variant">
+          {service ? <>Booking now: <strong className="text-on-surface">{service.name}</strong> — every address checked ward-by-ward.</> : "Every address is checked ward-by-ward before a booking is accepted."}
         </p>
-        <div className="mt-4 flex items-center gap-3 rounded-md bg-surface-container/70 p-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-pine-800 font-display text-lg font-bold text-white">
-            B
-          </span>
-          <div className="flex-1">
-            <p className="text-sm font-bold">Bijay Rai · Electrician</p>
-            <p className="text-xs text-on-surface-variant">Invite-verified · 6 yrs in Damak</p>
-          </div>
-          <Badge tone="success"><ShieldCheck size={12} /> Verified</Badge>
-        </div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-container">
-          <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-primary to-pine-800" />
-        </div>
-        <p className="mt-1.5 text-xs font-semibold text-on-surface-variant">Work underway · completion code pending</p>
       </Card>
-      <Card className="elev-2 absolute -right-3 -bottom-8 rotate-[2deg] p-4 sm:-right-8">
-        <p className="flex items-center gap-1 text-sm font-bold">
-          <Star size={15} className="fill-marigold-500 text-marigold-500" /> Genuine reviews
+      {/* OTP card — the Sajilo signature */}
+      <Card className="elev-2 relative mx-6 -mt-3 border-t-2 border-marigold-500 p-5">
+        <p className="text-xs font-extrabold tracking-[0.14em] text-on-surface-variant uppercase">
+          How jobs close here
         </p>
-        <p className="mt-0.5 text-xs text-on-surface-variant">Only from completed jobs</p>
-      </Card>
-      <Card className="elev-2 absolute -top-7 -left-3 -rotate-[3deg] px-4 py-3 sm:-left-8">
-        <p className="text-xs font-extrabold tracking-wide text-on-surface-variant uppercase">Starting at</p>
-        {service ? <Price paisa={service.base_price_paisa} /> : <p className="font-bold">Rs 800</p>}
+        <div className="mt-3 flex gap-1.5">
+          {["4", "9", "2", "0", "7", "1"].map((d, i) => (
+            <span key={i} className="grid size-9 place-items-center rounded-md bg-pine-950 font-mono text-base font-bold text-marigold-300">
+              {d}
+            </span>
+          ))}
+        </div>
+        <p className="mt-2.5 text-xs leading-relaxed text-on-surface-variant">
+          A one-time code reaches <strong className="text-on-surface">only you</strong> when the work ends.
+          No code, no completion — satisfaction can't be faked.
+        </p>
       </Card>
     </div>
   );
@@ -85,12 +92,15 @@ export default function Home() {
   const [cats, setCats] = useState<Category[]>([]);
   const [popular, setPopular] = useState<Service[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [openWards, setOpenWards] = useState<number | null>(null);
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     api<{ categories: Category[] }>("/api/categories").then((d) => setCats(d.categories)).catch(() => setLoadError("server"));
     api<{ services: Service[] }>("/api/services?sort=popular").then((d) => setPopular(d.services.slice(0, 6))).catch(() => setLoadError("server"));
     api<{ reviews: Review[] }>("/api/reviews?limit=3").then((d) => setReviews(d.reviews)).catch(() => {});
+    api<{ wards: { ward: number; is_open: boolean }[] }>("/api/wards")
+      .then((d) => setOpenWards(d.wards.filter((w) => w.is_open).length)).catch(() => {});
   }, []);
 
   return (
@@ -98,7 +108,6 @@ export default function Home() {
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-outline">
         <div className="dotgrid absolute inset-0" aria-hidden="true" />
-        <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-pine-900 via-primary to-marigold-500" aria-hidden="true" />
         <div className="wrap relative grid items-center gap-12 py-14 md:grid-cols-[1.05fr_0.95fr] md:py-20">
           <div>
             <Badge tone="success"><ShieldCheck size={13} aria-hidden="true" /> 100% invite-verified professionals</Badge>
@@ -138,7 +147,7 @@ export default function Home() {
               <MapPin size={13} aria-hidden="true" /> Damak Municipality only · Free cancellation before pro confirmation
             </p>
           </div>
-          <HeroArt service={popular[0] ?? null} />
+          <HeroArt service={popular[0] ?? null} openWards={openWards} />
         </div>
       </section>
 

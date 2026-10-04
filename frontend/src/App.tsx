@@ -12,6 +12,8 @@ const Signin = lazy(() => import("./pages/Signin"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Book = lazy(() => import("./pages/Book"));
 const QuoteNew = lazy(() => import("./pages/QuoteNew"));
+const Rewards = lazy(() => import("./pages/Rewards"));
+const Invite = lazy(() => import("./pages/Invite"));
 const Track = lazy(() => import("./pages/Track"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Worker = lazy(() => import("./pages/Worker"));
@@ -35,6 +37,7 @@ export default function App() {
               <Route path="/services/:id" element={<ServiceDetail />} />
               <Route path="/signin" element={<Signin mode="signin" />} />
               <Route path="/signup" element={<Signin mode="signup" />} />
+              <Route path="/invite" element={<Invite />} />
               <Route path="/support" element={<Support />} />
               <Route path="/terms" element={<LegalTerms />} />
               <Route path="/privacy" element={<LegalPrivacy />} />
@@ -43,6 +46,7 @@ export default function App() {
               <Route path="/book/:id" element={<Protected><Book /></Protected>} />
               <Route path="/quotes/new" element={<Protected><QuoteNew /></Protected>} />
               <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+              <Route path="/rewards" element={<Protected><Rewards /></Protected>} />
               <Route path="/track/:id" element={<Protected><Track /></Protected>} />
               <Route path="/profile" element={<Protected><Profile /></Protected>} />
               <Route path="/worker" element={<Protected roles={["worker", "admin"]}><Worker /></Protected>} />
