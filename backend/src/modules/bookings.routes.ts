@@ -17,6 +17,7 @@ import {
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
 import { pushToAudience, pushToUser } from "../services/push.js";
+import { validPin } from "../utils/geo.js";
 
 const router = Router();
 
@@ -37,6 +38,9 @@ const createSchema = z.object({
   instructions: z.string().trim().min(10).max(2000),
   paymentMethod: z.enum(["cash", "esewa", "khalti"]),
   useRewards: z.boolean().default(false),
+  // Optional booking-level pin override (checkout map). Coverage still gates on city/ward.
+  lat: z.number().min(26).max(31).nullable().optional(),
+  lng: z.number().min(80).max(89).nullable().optional(),
 });
 
 /** Customer creates a booking. Commission rate snapshotted from the category. */
@@ -92,6 +96,14 @@ router.post(
       if (open.rowCount === 0 || !open.rows[0].is_open) {
         return res.status(400).json({ error: closedWardMessage(ward) });
       }
+    }
+    // Booking-level pin wins when the checkout map was used; otherwise the address pin.
+    if (f.lat != null || f.lng != null) {
+      if (!validPin(f.lat ?? null, f.lng ?? null)) {
+        return res.status(400).json({ error: "Map pin is outside Nepal — pick a Damak location" });
+      }
+      addressLat = f.lat ?? null;
+      addressLng = f.lng ?? null;
     }
 
     const client = await pool.connect();

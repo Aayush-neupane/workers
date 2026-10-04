@@ -110,6 +110,18 @@ router.patch(
   }),
 );
 
+router.patch(
+  "/me/onboarding",
+  requireAuth,
+  validate(z.object({ done: z.boolean() })),
+  ah(async (req, res) => {
+    const f = req.body as { done: boolean };
+    if (!f.done) return res.status(400).json({ error: "Nothing to do" });
+    await query(`UPDATE users SET onboarded = true WHERE id = $1`, [req.user!.id]);
+    return res.json({ ok: true });
+  }),
+);
+
 // ---------- Worker invite accept (admin-created invites only) ----------
 router.post(
   "/worker/invite/check",

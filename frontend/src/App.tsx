@@ -14,6 +14,7 @@ const Book = lazy(() => import("./pages/Book"));
 const QuoteNew = lazy(() => import("./pages/QuoteNew"));
 const Rewards = lazy(() => import("./pages/Rewards"));
 const Notifications = lazy(() => import("./pages/Notifications"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Invite = lazy(() => import("./pages/Invite"));
 const Track = lazy(() => import("./pages/Track"));
 const Profile = lazy(() => import("./pages/Profile"));
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="/notifications" element={<Protected><Notifications /></Protected>} />
               <Route path="/track/:id" element={<Protected><Track /></Protected>} />
               <Route path="/profile" element={<Protected><Profile /></Protected>} />
+              <Route path="/welcome" element={<Protected><Onboarding /></Protected>} />
               <Route path="/worker" element={<Protected roles={["worker", "admin"]}><Worker /></Protected>} />
               <Route path="/admin" element={<Protected roles={["admin"]}><Admin /></Protected>} />
               <Route path="*" element={<NotFound />} />

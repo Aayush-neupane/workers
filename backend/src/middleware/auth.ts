@@ -11,7 +11,7 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      user?: { id: string; email: string; name: string; roles: string[] };
+      user?: { id: string; email: string; name: string; roles: string[]; onboarded: boolean };
     }
   }
 }
@@ -45,8 +45,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     const { payload } = await jwtVerify(token, secret);
     const sub = payload.sub as string;
-    const r = await query<{ id: string; email: string; name: string; is_active: boolean }>(
-      `SELECT id, email, name, is_active FROM users WHERE id = $1`,
+    const r = await query<{ id: string; email: string; name: string; is_active: boolean; onboarded: boolean }>(
+      `SELECT id, email, name, is_active, onboarded FROM users WHERE id = $1`,
       [sub],
     );
     if (r.rowCount === 0 || r.rows[0].is_active === false) {
@@ -61,6 +61,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       email: r.rows[0].email,
       name: r.rows[0].name,
       roles: roles.rows.map((x) => x.name),
+      onboarded: r.rows[0].onboarded,
     };
     next();
   } catch {

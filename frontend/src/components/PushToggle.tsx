@@ -35,8 +35,15 @@ export function PushToggle() {
           setMsg("Push isn't configured on the server yet — in-app notifications still work.");
         }
       }
-    } catch {
-      setMsg("Couldn't change push setting — try again.");
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : "";
+      if (reason === "dismissed") {
+        setMsg("Permission dismissed — tap again to retry the browser prompt.");
+      } else if (reason === "service-unreachable") {
+        setMsg("Couldn't reach the push service — check your connection and retry.");
+      } else {
+        setMsg("Couldn't change push setting — try again.");
+      }
     } finally {
       setBusy(false);
     }

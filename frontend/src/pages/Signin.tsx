@@ -5,7 +5,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, ArrowRight, Check, FlaskConical, MapPin } from "lucide-react";
 import { Button, Card, Field, TextField } from "../components/ui";
-import { useAuth, homeFor } from "../lib/auth";
+import { homeFor, toRole, useAuth } from "../lib/auth";
 
 const showDemo = import.meta.env.DEV;
 
@@ -88,9 +88,13 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
 
   async function doLogin(f: z.infer<typeof signinSchema>) {
     setBusy(true);
-    const role = await signIn(f.email, f.password);
+    const me = await signIn(f.email, f.password);
     setBusy(false);
-    if (role) navigate(homeFor(role), { replace: true });
+    if (me) {
+      const role = toRole(me.roles);
+      if (!role) return;
+      navigate(me.onboarded ? homeFor(role) : "/welcome", { replace: true });
+    }
   }
 
   async function doSignup(f: z.infer<typeof signupSchema>) {
@@ -99,9 +103,10 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
       return;
     }
     setBusy(true);
-    const role = await signUp(f.name.trim(), f.phone.trim(), f.email, f.password, f.referralCode?.trim() || undefined);
+    const me = await signUp(f.name.trim(), f.phone.trim(), f.email, f.password, f.referralCode?.trim() || undefined);
     setBusy(false);
-    if (role) navigate(homeFor(role), { replace: true });
+    // Brand-new accounts always start with the setup tutorial.
+    if (me) navigate("/welcome", { replace: true });
   }
 
   function fillDemo(email: string, password: string) {

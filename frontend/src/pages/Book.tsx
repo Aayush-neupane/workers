@@ -9,6 +9,7 @@ import { MapPicker } from "../components/MapPicker";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
+import { DAMAK_CENTER } from "../lib/geo";
 import type { Pin } from "../lib/geo";
 import type { Address, Service } from "../lib/types";
 
@@ -54,6 +55,8 @@ export default function Book() {
   const [addrError, setAddrError] = useState("");
   const [pin, setPin] = useState<Pin | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
+  const [bookingPin, setBookingPin] = useState<Pin | null>(null);
+  const [bookingMapOpen, setBookingMapOpen] = useState(false);
   const slots = useMemo(buildSlots, []);
 
   function reloadAddresses() {
@@ -121,6 +124,7 @@ export default function Book() {
       const out = await post<{ bookingNo: string }>("/api/bookings", {
         serviceId: service.id, addressId: f.addressId || undefined, slot: f.slot,
         instructions: f.instructions, paymentMethod: f.paymentMethod, useRewards: f.useRewards && canRedeem,
+        lat: bookingPin?.lat ?? null, lng: bookingPin?.lng ?? null,
       });
       navigate(`/track/${out.bookingNo}`);
     } catch (e) {
@@ -169,13 +173,47 @@ export default function Book() {
                     ))}
                   </Select>
                 </Field>
-                {address?.lat != null && address?.lng != null && (
-                  <div className="mt-3">
-                    <MiniMap pin={{ lat: address.lat, lng: address.lng }} height={150} />
-                  </div>
-                )}
               </>
             ) : null}
+            {step === 0 && addresses.length > 0 && (
+              <div className="mt-5 rounded-lg border border-outline/60 bg-surface-container/40 p-4">
+                <p className="flex items-center gap-1.5 text-sm font-extrabold">
+                  <MapPin size={15} aria-hidden="true" /> Job location on map
+                </p>
+                <p className="mt-0.5 text-xs text-on-surface-variant">
+                  {bookingPin
+                    ? "Pinned for this booking — the pro navigates here."
+                    : address?.lat != null
+                      ? "Using your saved address pin — adjust it for this job if needed."
+                      : "No pin on this address yet — drop one so the pro finds you faster."}
+                </p>
+                <div className="mt-2.5">
+                  <MiniMap
+                    pin={bookingPin ?? (address?.lat != null && address?.lng != null
+                      ? { lat: address.lat, lng: address.lng }
+                      : DAMAK_CENTER)}
+                    height={170}
+                  />
+                </div>
+                <div className="mt-2.5 flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setBookingMapOpen(true)}>
+                    {bookingPin ? "Move pin" : "Drop a pin"}
+                  </Button>
+                  {bookingPin && (
+                    <Button type="button" variant="ghost" onClick={() => setBookingPin(null)}>Use address pin</Button>
+                  )}
+                </div>
+              </div>
+            )}
+            {bookingMapOpen && (
+              <MapPicker
+                initial={bookingPin ?? (address?.lat != null && address?.lng != null
+                  ? { lat: address.lat, lng: address.lng }
+                  : DAMAK_CENTER)}
+                onClose={() => setBookingMapOpen(false)}
+                onConfirm={(p) => { setBookingPin(p); setBookingMapOpen(false); }}
+              />
+            )}
             {step === 1 && (
               <fieldset>
                 <legend className="mb-2.5 text-sm font-semibold">Available slots (next 7 days)</legend>
@@ -225,6 +263,17 @@ export default function Book() {
                 <div className="flex justify-between gap-4 border-t border-outline pt-3"><dt className="text-on-surface-variant">Estimate</dt><dd><Price paisa={estimate} /></dd></div>
                 {discount > 0 && <div className="flex justify-between gap-4 font-semibold text-success"><dt>Rewards discount</dt><dd>−Rs {discount / 100}</dd></div>}
                 <div className="flex justify-between gap-4 border-t border-outline pt-3 text-base"><dt className="font-bold">Total due</dt><dd className="font-bold"><Price paisa={total} /></dd></div>
+                <div className="pt-1">
+                  <MiniMap
+                    pin={bookingPin ?? (address?.lat != null && address?.lng != null
+                      ? { lat: address.lat, lng: address.lng }
+                      : DAMAK_CENTER)}
+                    height={150}
+                  />
+                  <p className="mt-1 text-xs text-on-surface-variant">
+                    {bookingPin ? "Booking pin set — the pro navigates here." : "Address location preview."}
+                  </p>
+                </div>
               </dl>
             )}
             {submitError && <p role="alert" className="mt-4 rounded-md bg-error-container p-3 text-sm font-medium text-error">{submitError}</p>}

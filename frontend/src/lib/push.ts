@@ -39,7 +39,7 @@ async function registration(): Promise<ServiceWorkerRegistration> {
   return navigator.serviceWorker.register("/sw.js");
 }
 
-/** Current device state (checks the live subscription, not just storage). */
+/** Current device state (browser subscription AND server record must agree). */
 export async function pushStatus(): Promise<PushState> {
   if (!pushSupported()) return "unsupported";
   if (Notification.permission === "denied") return "denied";
@@ -51,7 +51,19 @@ export async function pushStatus(): Promise<PushState> {
   try {
     const reg = await navigator.serviceWorker.getRegistration("/");
     const sub = await reg?.pushManager.getSubscription();
-    return sub ? "on" : "off";
+    if (!sub) return "off";
+    // Self-heal: a browser subscription the server forgot (DB reset, reseed)
+    // looks "on" but receives nothing. Detect and clean it.
+    const { devices } = await api<{ devices: { audience: string }[] }>("/api/push/devices");
+    if (devices.length === 0) {
+      try {
+        await sub.unsubscribe();
+      } catch {
+        /* ignore */
+      }
+      return "off";
+    }
+    return "on";
   } catch {
     return "off";
   }
@@ -60,14 +72,22 @@ export async function pushStatus(): Promise<PushState> {
 export async function enablePush(role: Role): Promise<PushState> {
   if (!pushSupported()) return "unsupported";
   if (Notification.permission === "denied") return "denied";
-  const perm = await Notification.requestPermission();
-  if (perm !== "granted") return "denied";
+  if (Notification.permission === "default") {
+    const perm = await Notification.requestPermission();
+    if (perm === "default") throw new Error("dismissed");
+    if (perm !== "granted") return "denied";
+  }
   const { key } = await api<{ key: string }>("/api/push/vapid-key");
   const reg = await registration();
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: keyToBytes(key),
-  });
+  let sub: PushSubscription;
+  try {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: keyToBytes(key),
+    });
+  } catch {
+    throw new Error("service-unreachable");
+  }
   const json = sub.toJSON();
   await post("/api/push/subscribe", {
     endpoint: sub.endpoint,

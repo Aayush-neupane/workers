@@ -8,6 +8,7 @@ export interface SessionUser {
   email: string;
   name: string;
   roles: string[];
+  onboarded: boolean;
 }
 
 interface AuthValue {
@@ -15,9 +16,10 @@ interface AuthValue {
   role: Role | null;
   ready: boolean;
   authError: string;
-  signIn: (email: string, password: string) => Promise<Role | null>;
-  signUp: (name: string, phone: string, email: string, password: string, referralCode?: string) => Promise<Role | null>;
+  signIn: (email: string, password: string) => Promise<SessionUser | null>;
+  signUp: (name: string, phone: string, email: string, password: string, referralCode?: string) => Promise<SessionUser | null>;
   signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const AuthCtx = createContext<AuthValue | null>(null);
@@ -55,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await post("/api/auth/login", { email, password });
       const me = await api<{ user: SessionUser }>("/api/auth/me");
       setUser(me.user);
-      return toRole(me.user.roles);
+      return me.user;
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : "Sign in failed");
       return null;
@@ -68,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await post("/api/auth/register", { name, phone, email, password, referralCode: referralCode || undefined });
       const me = await api<{ user: SessionUser }>("/api/auth/me");
       setUser(me.user);
-      return toRole(me.user.roles);
+      return me.user;
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : "Sign up failed");
       return null;
@@ -84,9 +86,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const refresh = useCallback(async () => {
+    try {
+      const me = await api<{ user: SessionUser }>("/api/auth/me");
+      setUser(me.user);
+    } catch {
+      setUser(null);
+    }
+  }, []);
+
   const value = useMemo<AuthValue>(
-    () => ({ user, role: user ? toRole(user.roles) : null, ready, authError, signIn, signUp, signOut }),
-    [user, ready, authError, signIn, signUp, signOut],
+    () => ({ user, role: user ? toRole(user.roles) : null, ready, authError, signIn, signUp, signOut, refresh }),
+    [user, ready, authError, signIn, signUp, signOut, refresh],
   );
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
