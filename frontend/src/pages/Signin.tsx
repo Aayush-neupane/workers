@@ -16,6 +16,7 @@ const signupSchema = signinSchema.extend({
   name: z.string().trim().min(2, "Enter your full name"),
   phone: z.string().trim().min(10, "Enter a valid phone number").max(20),
   terms: z.boolean(),
+  referralCode: z.string().trim().max(20).optional(),
 });
 
 /** Demo logins — local seed data only, never shown in production builds. */
@@ -80,7 +81,7 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
   });
   const joinForm = useForm<z.infer<typeof signupSchema>>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { name: "", phone: "", email: "", password: "", terms: false },
+    defaultValues: { name: "", phone: "", email: "", password: "", terms: false, referralCode: "" },
   });
 
   async function doLogin(f: z.infer<typeof signinSchema>) {
@@ -96,7 +97,7 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
       return;
     }
     setBusy(true);
-    const role = await signUp(f.name.trim(), f.phone.trim(), f.email, f.password);
+    const role = await signUp(f.name.trim(), f.phone.trim(), f.email, f.password, f.referralCode?.trim() || undefined);
     setBusy(false);
     if (role) navigate(homeFor(role), { replace: true });
   }
@@ -177,6 +178,9 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
               <Field label="Password" error={joinForm.formState.errors.password?.message}>
                 <TextField {...joinForm.register("password")} type="password" placeholder="Minimum 8 characters" autoComplete="new-password" />
               </Field>
+              <Field label="Referral code (optional)" hint="Invited by a friend? You both earn bonus points on your first job.">
+                <TextField {...joinForm.register("referralCode")} placeholder="e.g. GITA-4F8K2Q" className="uppercase" />
+              </Field>
               <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-outline p-3 text-[13px] leading-relaxed">
                 <input type="checkbox" {...joinForm.register("terms")} className="mt-0.5 size-4 shrink-0 accent-[#0f6b44]" />
                 <span>
@@ -212,6 +216,9 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
                 </Field>
                 <Field label="Password" error={joinForm.formState.errors.password?.message}>
                   <TextField {...joinForm.register("password")} type="password" placeholder="Minimum 8 characters" autoComplete="new-password" />
+                </Field>
+                <Field label="Referral code (optional)">
+                  <TextField {...joinForm.register("referralCode")} placeholder="e.g. GITA-4F8K2Q" className="uppercase" />
                 </Field>
                 <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-outline p-3 text-[13px] leading-relaxed">
                   <input type="checkbox" {...joinForm.register("terms")} className="mt-0.5 size-4 shrink-0 accent-[#0f6b44]" />

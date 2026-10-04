@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useForm } from "react-hook-form";
 import { Badge, Button, Card, EmptyState, Price } from "../components/ui";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
@@ -33,7 +32,8 @@ export default function Track() {
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [reviewMsg, setReviewMsg] = useState("");
-  const reviewForm = useForm<{ note: string }>();
+  const [newSlot, setNewSlot] = useState("");
+  const [rescheduling, setRescheduling] = useState(false);
 
   function reload() {
     api<{ booking: Booking; history: History[] }>(`/api/bookings/${id}`)
@@ -60,6 +60,22 @@ export default function Track() {
       setReviewMsg("Thanks — your review is live.");
     } catch (e) {
       setReviewMsg(e instanceof Error ? e.message : "Could not submit review");
+    }
+  }
+
+  async function reschedule() {
+    if (!newSlot) return;
+    setError("");
+    try {
+      await api(`/api/bookings/${id}/slot`, {
+        method: "PUT",
+        body: JSON.stringify({ slot: new Date(newSlot).toISOString() }),
+      });
+      setRescheduling(false);
+      setNewSlot("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Reschedule failed");
     }
   }
 
@@ -95,12 +111,28 @@ export default function Track() {
             {error && <p role="alert" className="mt-4 rounded-md bg-error-container p-3 text-sm font-medium text-error">{error}</p>}
             <div className="mt-6 flex flex-wrap gap-2">
               {["pending", "awaiting-worker", "confirmed"].includes(booking.status) && (
-                <Button variant="outline" onClick={() => transition("cancelled", { note: "cancelled by customer" })}>Cancel booking</Button>
+                <>
+                  <Button variant="outline" onClick={() => setRescheduling((r) => !r)}>Reschedule</Button>
+                  <Button variant="outline" onClick={() => transition("cancelled", { note: "cancelled by customer" })}>Cancel booking</Button>
+                </>
               )}
               {["in-progress", "awaiting-confirmation"].includes(booking.status) && (
                 <Button variant="outline" onClick={() => transition("disputed", { note: "raised by customer" })}>Report a problem</Button>
               )}
+              {["completed", "cancelled"].includes(booking.status) && (
+                <Link to={`/book/${booking.service_id}`}><Button>Book again</Button></Link>
+              )}
             </div>
+            {rescheduling && (
+              <Card className="mt-3 flex flex-col gap-2 p-4 sm:flex-row sm:items-end">
+                <div className="flex-1">
+                  <label htmlFor="new-slot" className="mb-1.5 block text-sm font-semibold">New slot (at least an hour ahead)</label>
+                  <input id="new-slot" type="datetime-local" value={newSlot} onChange={(e) => setNewSlot(e.target.value)}
+                    className="w-full rounded-md border border-outline bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+                </div>
+                <Button onClick={reschedule} disabled={!newSlot}>Confirm move</Button>
+              </Card>
+            )}
             {booking.status === "completed" && (
               <Card className="mt-6 p-5">
                 <p className="font-bold">Rate this job</p>
@@ -119,7 +151,6 @@ export default function Track() {
                 {reviewMsg && <p className="mt-2 text-sm font-medium">{reviewMsg}</p>}
               </Card>
             )}
-            <form className="hidden" onSubmit={reviewForm.handleSubmit(() => {})} />
           </div>
           <aside>
             <Card className="p-5 text-sm">

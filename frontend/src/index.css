@@ -88,7 +88,19 @@ body {
   to { opacity: 1; transform: none; }
 }
 
+.ticker { overflow: hidden; white-space: nowrap; }
+.ticker-track {
+  display: inline-flex;
+  gap: 0;
+  animation: ticker 30s linear infinite;
+  will-change: transform;
+}
+@keyframes ticker {
+  to { transform: translateX(-50%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fade-up { animation: none; }
+  .ticker-track { animation: none; }
   * { transition-duration: 0.01ms !important; }
 }

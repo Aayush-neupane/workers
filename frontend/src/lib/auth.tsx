@@ -16,7 +16,7 @@ interface AuthValue {
   ready: boolean;
   authError: string;
   signIn: (email: string, password: string) => Promise<Role | null>;
-  signUp: (name: string, phone: string, email: string, password: string) => Promise<Role | null>;
+  signUp: (name: string, phone: string, email: string, password: string, referralCode?: string) => Promise<Role | null>;
   signOut: () => Promise<void>;
 }
 
@@ -62,10 +62,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const signUp = useCallback(async (name: string, phone: string, email: string, password: string) => {
+  const signUp = useCallback(async (name: string, phone: string, email: string, password: string, referralCode?: string) => {
     setAuthError("");
     try {
-      await post("/api/auth/register", { name, phone, email, password });
+      await post("/api/auth/register", { name, phone, email, password, referralCode: referralCode || undefined });
       const me = await api<{ user: SessionUser }>("/api/auth/me");
       setUser(me.user);
       return toRole(me.user.roles);

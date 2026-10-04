@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Gift } from "lucide-react";
+import { Copy, Gift, Users } from "lucide-react";
 import { Button, Card, EmptyState, PageHero } from "../components/ui";
 import { api } from "../lib/api";
 
@@ -24,11 +24,25 @@ export default function Rewards() {
   const [txs, setTxs] = useState<Tx[]>([]);
   const [balance, setBalance] = useState(0);
   const [rules, setRules] = useState<Rules>({ rewardPerNpr100: 1, redeemPoints: 100, redeemDiscountPaisa: 5000, milestoneBookings: 5, milestoneBonus: 100 });
+  const [referral, setReferral] = useState<{ code: string; bonus: number; uses: { referee: string; rewarded: boolean; created_at: string }[] } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     api<{ txs: Tx[]; balance: number }>("/api/rewards/mine").then((d) => { setTxs(d.txs); setBalance(d.balance); }).catch(() => {});
     api<Rules>("/api/settings").then(setRules).catch(() => {});
+    api<typeof referral>("/api/referrals/mine").then(setReferral).catch(() => {});
   }, []);
+
+  async function copyCode() {
+    if (!referral) return;
+    try {
+      await navigator.clipboard.writeText(referral.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
 
   const progress = Math.min(Math.max(balance, 0), rules.redeemPoints);
 
@@ -61,6 +75,35 @@ export default function Rewards() {
               <li className="rounded-md bg-surface-container p-3"><strong className="text-on-surface">{rules.redeemPoints} pts = Rs {rules.redeemDiscountPaisa / 100}</strong><br />redeemable at checkout</li>
             </ul>
             <p className="mt-2 text-xs text-on-surface-variant">Refunded bookings reverse their points automatically. One earn entry per booking — duplicates are impossible by database constraint.</p>
+          </Card>
+          <Card className="p-5">
+            <p className="flex items-center gap-1.5 font-bold"><Users size={16} aria-hidden="true" /> Refer friends — both earn {referral?.bonus ?? 50} pts</p>
+            <p className="mt-1 text-sm text-on-surface-variant">Your friend enters your code at signup. When their first job completes, you both get bonus points. Self-referrals are rejected.</p>
+            {referral && (
+              <>
+                <button onClick={copyCode}
+                  className="mt-3 flex w-full items-center justify-between gap-2 rounded-md border-2 border-dashed border-primary/50 bg-primary-container/50 px-4 py-3 font-mono text-lg font-extrabold tracking-widest transition active:scale-[0.99]">
+                  {referral.code}
+                  <span className="inline-flex items-center gap-1 font-sans text-xs font-bold text-primary">
+                    <Copy size={14} aria-hidden="true" /> {copied ? "Copied!" : "Copy"}
+                  </span>
+                </button>
+                {referral.uses.length > 0 ? (
+                  <ul className="mt-3 space-y-1.5 text-sm">
+                    {referral.uses.map((u, i) => (
+                      <li key={i} className="flex justify-between rounded-md bg-surface-container px-3 py-2">
+                        <span>{u.referee}</span>
+                        <span className={u.rewarded ? "font-bold text-success" : "text-on-surface-variant"}>
+                          {u.rewarded ? `+${referral.bonus} pts paid` : "waiting for first job"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-on-surface-variant">No invites yet — share your code in the family group.</p>
+                )}
+              </>
+            )}
           </Card>
           <Card className="overflow-x-auto">
             <p className="px-4 pt-4 font-bold">History</p>
