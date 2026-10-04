@@ -299,12 +299,18 @@ export function Shell({ children }: { children: ReactNode }) {
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Aayush Neupane — portfolio"
-              className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1.5 font-semibold text-white/85 transition hover:border-marigold-300 hover:text-marigold-300"
+              className="inline-flex items-center gap-2 font-semibold text-white/85 transition hover:text-marigold-300"
             >
-              <span aria-hidden="true" className="grid size-5 place-items-center rounded-full bg-marigold-300 font-display text-[10px] font-bold text-pine-950">
-                A
+              <img
+                src="/logotrp.png"
+                alt="Aayush Neupane"
+                width={28}
+                height={28}
+                draggable={false}
+              />
+              <span>
+                Developed by <span className="font-extrabold text-white">Aayush Neupane</span>
               </span>
-              Developed by <span className="font-extrabold text-white">Aayush Neupane</span>
             </a>
           </div>
         </div>

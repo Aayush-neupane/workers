@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ArrowRight, Check, FlaskConical, MapPin } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, FlaskConical, MapPin, Star } from "lucide-react";
 import { Button, Card, Field, TextField } from "../components/ui";
 import { useAuth, homeFor } from "../lib/auth";
+import { api } from "../lib/api";
+
+const showDemo = import.meta.env.DEV;
 
 const signinSchema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -74,6 +77,16 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const signup = mode === "signup";
+  const [spotlight, setSpotlight] = useState<{ rating: number; text: string; worker_name: string } | null>(null);
+
+  useEffect(() => {
+    api<{ reviews: { rating: number; text: string; worker_name: string }[] }>("/api/reviews?limit=10")
+      .then((d) => {
+        const withText = d.reviews.filter((r) => r.text && r.text.trim().length > 0);
+        if (withText.length > 0) setSpotlight(withText[0]);
+      })
+      .catch(() => {});
+  }, []);
 
   const loginForm = useForm<z.infer<typeof signinSchema>>({
     resolver: zodResolver(signinSchema),
@@ -142,8 +155,9 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
                 {busy && !signup ? "Please wait…" : "Sign in"}
               </Button>
             </form>
-            <div className="mt-4 rounded-md border border-dashed border-outline bg-surface-container/50 p-3">
-              <p className="text-[11px] font-extrabold tracking-widest text-on-surface-variant uppercase">Quick demo access — tap to fill</p>
+            {showDemo && (
+              <div className="mt-4 rounded-md border border-dashed border-outline bg-surface-container/50 p-3">
+                <p className="text-[11px] font-extrabold tracking-widest text-on-surface-variant uppercase">Quick demo access — tap to fill</p>
               <div className="mt-2 grid grid-cols-3 gap-1.5">
                 {[
                   { label: "Client", email: "gita@demo.local", password: "Demo1234!" },
@@ -164,6 +178,30 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
                 ))}
               </div>
             </div>
+            )}
+            <ol className="mt-4 space-y-2.5 border-t border-outline pt-4">
+              {[
+                ["Book in four steps", "Fixed-price services, live slot picker, rewards at checkout."],
+                ["Track the code", "A one-time code sent to you closes the job — nothing else can."],
+                ["Complain freely", "The code confirms work done, never satisfaction. Support stays open."],
+              ].map(([t, b], i) => (
+                <li key={t} className="flex gap-2.5">
+                  <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-container text-xs font-extrabold text-on-primary-container">
+                    {i + 1}
+                  </span>
+                  <p className="text-[13px] leading-snug"><strong>{t}.</strong> <span className="text-on-surface-variant">{b}</span></p>
+                </li>
+              ))}
+            </ol>
+            {spotlight && (
+              <figure className="mt-3 rounded-md bg-surface-container/70 p-3.5">
+                <p className="inline-flex items-center gap-1 text-xs font-extrabold">
+                  <Star size={13} aria-hidden="true" className="fill-marigold-500 text-marigold-500" /> {spotlight.rating}/5 · {spotlight.worker_name}
+                </p>
+                <blockquote className="mt-1 text-[13px] leading-relaxed">"{spotlight.text}"</blockquote>
+                <figcaption className="mt-1 text-[11px] text-on-surface-variant">From a completed job — every review here is.</figcaption>
+              </figure>
+            )}
             <ul className="mt-4 space-y-2 border-t border-outline pt-4 text-[13px] text-on-surface-variant">
               {[
                 "Live tracking from request to completion code",
@@ -274,27 +312,29 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
         </div>
       </Card>
 
-      {/* Demo logins — local seed data only */}
-      <Card className="mx-auto mt-4 max-w-4xl border-dashed p-5">
-        <p className="flex items-center gap-1.5 text-sm font-bold">
-          <FlaskConical size={15} aria-hidden="true" /> Try the demo — one tap fills the form
-        </p>
-        <p className="mt-0.5 text-xs text-on-surface-variant">Local seed accounts. The admin password must be changed before any public launch.</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {DEMO_ACCOUNTS.map((a) => (
-            <button
-              key={a.label}
-              type="button"
-              onClick={() => fillDemo(a.email, a.password)}
-              className="rounded-md border border-outline bg-surface-container/60 p-3 text-left transition hover:border-primary active:scale-[0.98]"
-            >
-              <span className="block text-sm font-extrabold">{a.label}</span>
-              <span className="block truncate font-mono text-xs text-on-surface-variant">{a.email}</span>
-              <span className="block font-mono text-xs text-on-surface-variant">{a.password}</span>
-            </button>
-          ))}
-        </div>
-      </Card>
+      {/* Demo logins — dev only, never in production builds */}
+      {showDemo && (
+        <Card className="mx-auto mt-4 max-w-4xl border-dashed p-5">
+          <p className="flex items-center gap-1.5 text-sm font-bold">
+            <FlaskConical size={15} aria-hidden="true" /> Try the demo — one tap fills the form
+          </p>
+          <p className="mt-0.5 text-xs text-on-surface-variant">Local seed accounts. The admin password must be changed before any public launch.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {DEMO_ACCOUNTS.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => fillDemo(a.email, a.password)}
+                className="rounded-md border border-outline bg-surface-container/60 p-3 text-left transition hover:border-primary active:scale-[0.98]"
+              >
+                <span className="block text-sm font-extrabold">{a.label}</span>
+                <span className="block truncate font-mono text-xs text-on-surface-variant">{a.email}</span>
+                <span className="block font-mono text-xs text-on-surface-variant">{a.password}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <p className="mt-4 text-center text-xs text-on-surface-variant">
         Customers register freely · Worker accounts are created by admins and activated by invitation
