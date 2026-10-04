@@ -361,4 +361,199 @@ router.put(
   }),
 );
 
+// ---------- Reports (date-ranged, finance kept honest) ----------
+router.get("/admin/reports/summary", ah(async (req, res) => {
+  const from = typeof req.query.from === "string" ? req.query.from : "1970-01-01";
+  const to = typeof req.query.to === "string" ? req.query.to : "2100-01-01";
+  const totals = await query(
+    `SELECT COUNT(*)::int AS bookings,
+            COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+            COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled,
+            COUNT(*) FILTER (WHERE status = 'disputed')::int AS disputed
+     FROM bookings WHERE created_at::date BETWEEN $1 AND $2`, [from, to]);
+  const money = await query(
+    `SELECT COALESCE(SUM(total_paisa), 0)::bigint AS gross,
+            COALESCE(SUM(commission_paisa), 0)::bigint AS commission
+     FROM commission_ledger cl JOIN bookings b ON b.id = cl.booking_id
+     WHERE b.created_at::date BETWEEN $1 AND $2`, [from, to]);
+  const cash = await query(
+    `SELECT COALESCE(SUM(c.amount_paisa), 0)::bigint AS cash FROM cash_collections c
+     JOIN bookings b ON b.id = c.booking_id WHERE b.created_at::date BETWEEN $1 AND $2`, [from, to]);
+  const refunds = await query(
+    `SELECT COALESCE(SUM(r.amount_paisa), 0)::bigint AS total FROM refunds r
+     JOIN payments p ON p.id = r.payment_id JOIN bookings b ON b.id = p.booking_id
+     WHERE r.created_at::date BETWEEN $1 AND $2`, [from, to]);
+  const byDay = await query(
+    `SELECT b.created_at::date AS day, COUNT(*)::int AS bookings,
+            COUNT(*) FILTER (WHERE b.status = 'completed')::int AS completed
+     FROM bookings b WHERE b.created_at::date BETWEEN $1 AND $2
+     GROUP BY 1 ORDER BY 1`, [from, to]);
+  const topServices = await query(
+    `SELECT s.name, COUNT(*)::int AS jobs FROM bookings b JOIN services s ON s.id = b.service_id
+     WHERE b.status = 'completed' AND b.created_at::date BETWEEN $1 AND $2
+     GROUP BY s.name ORDER BY jobs DESC LIMIT 8`, [from, to]);
+  const payments = await query(
+    `SELECT provider, p.status, COUNT(*)::int AS n, COALESCE(SUM(amount_paisa), 0)::bigint AS total
+     FROM payments p JOIN bookings b ON b.id = p.booking_id
+     WHERE b.created_at::date BETWEEN $1 AND $2 GROUP BY provider, p.status`, [from, to]);
+  const leaderboard = await query(
+    `SELECT u.name, COUNT(*) FILTER (WHERE b.status = 'completed')::int AS completed,
+            COALESCE(AVG(r.rating), 0)::float AS rating
+     FROM users u JOIN bookings b ON b.worker_id = u.id
+     LEFT JOIN reviews r ON r.booking_id = b.id
+     WHERE b.created_at::date BETWEEN $1 AND $2
+     GROUP BY u.name ORDER BY completed DESC LIMIT 8`, [from, to]);
+  return res.json({
+    totals: totals.rows[0],
+    grossPaisa: money.rows[0].gross,
+    commissionPaisa: money.rows[0].commission,
+    cashPaisa: cash.rows[0].cash,
+    refundsPaisa: refunds.rows[0].total,
+    byDay: byDay.rows,
+    topServices: topServices.rows,
+    payments: payments.rows,
+    leaderboard: leaderboard.rows,
+  });
+}));
+
+// ---------- Commission ledger ----------
+router.get("/admin/ledger", ah(async (req, res) => {
+  const settled = typeof req.query.settled === "string" ? req.query.settled : "";
+  const r = await query(
+    `SELECT cl.*, b.booking_no, cu.name AS customer_name, w.name AS worker_name
+     FROM commission_ledger cl JOIN bookings b ON b.id = cl.booking_id
+     LEFT JOIN users cu ON cu.id = b.customer_id LEFT JOIN users w ON w.id = b.worker_id
+     ${settled === "open" ? "WHERE cl.is_settled = false" : settled === "settled" ? "WHERE cl.is_settled = true" : ""}
+     ORDER BY cl.created_at DESC LIMIT 200`);
+  const cash = await query(
+    `SELECT c.*, b.booking_no, u.name AS collector FROM cash_collections c
+     JOIN bookings b ON b.id = c.booking_id LEFT JOIN users u ON u.id = c.collected_by
+     ORDER BY c.created_at DESC LIMIT 200`);
+  const settlements = await query(
+    `SELECT s.*, u.name AS worker_name FROM settlements s JOIN users u ON u.id = s.worker_user_id
+     ORDER BY s.created_at DESC LIMIT 200`);
+  return res.json({ ledger: r.rows, cash: cash.rows, settlements: settlements.rows });
+}));
+
+// ---------- Reviews moderation ----------
+router.get("/admin/reviews", ah(async (_req, res) => {
+  const r = await query(
+    `SELECT r.*, b.booking_no, w.name AS worker_name, cu.name AS customer_name
+     FROM reviews r JOIN bookings b ON b.id = r.booking_id
+     LEFT JOIN users w ON w.id = r.worker_user_id LEFT JOIN users cu ON cu.id = r.customer_id
+     ORDER BY r.created_at DESC LIMIT 200`);
+  return res.json({ reviews: r.rows });
+}));
+
+router.delete("/admin/reviews/:id", ah(async (req, res) => {
+  await query(`DELETE FROM reviews WHERE id = $1`, [req.params.id]);
+  await adminAudit(req.user!.id, "review-delete", req.params.id);
+  return res.json({ ok: true });
+}));
+
+// ---------- Broadcast (role audience, recorded per user) ----------
+router.post(
+  "/admin/notifications/broadcast",
+  validate(z.object({
+    audience: z.enum(["CUSTOMER", "WORKER", "ADMIN", "ALL"]),
+    title: z.string().trim().min(4).max(120),
+    body: z.string().trim().min(4).max(600),
+  })),
+  ah(async (req, res) => {
+    const f = req.body as { audience: string; title: string; body: string };
+    const r = await query<{ n: number }>(
+      f.audience === "ALL"
+        ? `INSERT INTO notifications(user_id, title, body) SELECT id, $1, $2 FROM users WHERE is_active = true RETURNING 1`
+        : `INSERT INTO notifications(user_id, title, body)
+           SELECT u.id, $2, $3 FROM users u JOIN user_roles ur ON ur.user_id = u.id
+           JOIN roles r ON r.id = ur.role_id WHERE r.name = $1 AND u.is_active = true RETURNING 1`,
+      f.audience === "ALL" ? [f.title, f.body] : [f.audience, f.title, f.body]);
+    await adminAudit(req.user!.id, "broadcast", `${f.audience}: ${f.title} (${r.rowCount ?? 0})`);
+    return res.json({ ok: true, recipients: r.rowCount ?? 0 });
+  }),
+);
+
+// ---------- Customer detail ----------
+router.get("/admin/customers/:id", ah(async (req, res) => {
+  const u = await query(`SELECT id, name, email, phone, is_active, created_at FROM users WHERE id = $1`, [req.params.id]);
+  if (u.rowCount === 0) return res.status(404).json({ error: "Not found" });
+  const bookings = await query(
+    `SELECT b.*, s.name AS service_name FROM bookings b LEFT JOIN services s ON s.id = b.service_id
+     WHERE b.customer_id = $1 ORDER BY b.created_at DESC LIMIT 50`, [req.params.id]);
+  const rewards = await query(`SELECT COALESCE(SUM(points), 0)::int AS balance FROM reward_ledger WHERE user_id = $1`, [req.params.id]);
+  const tickets = await query(`SELECT * FROM support_tickets WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 20`, [req.params.id]);
+  const addresses = await query(`SELECT * FROM addresses WHERE user_id = $1`, [req.params.id]);
+  return res.json({
+    customer: u.rows[0],
+    bookings: bookings.rows,
+    rewardBalance: rewards.rows[0].balance,
+    tickets: tickets.rows,
+    addresses: addresses.rows,
+  });
+}));
+
+router.post(
+  "/admin/customers/:id/restrict",
+  validate(z.object({ active: z.boolean() })),
+  ah(async (req, res) => {
+    const f = req.body as { active: boolean };
+    await query(`UPDATE users SET is_active = $1 WHERE id = $2`, [f.active, req.params.id]);
+    await adminAudit(req.user!.id, "customer-restrict", `${req.params.id} active=${f.active}`);
+    return res.json({ ok: true });
+  }),
+);
+
+// ---------- Catalog management ----------
+router.get("/admin/services-all", ah(async (_req, res) => {
+  const r = await query(
+    `SELECT s.*, c.name AS category_name, c.slug AS category_slug,
+            (SELECT COUNT(*)::int FROM bookings WHERE service_id = s.id AND status = 'completed') AS jobs_done
+     FROM services s LEFT JOIN categories c ON c.id = s.category_id ORDER BY c.sort_order, s.name`);
+  const cats = await query(`SELECT * FROM categories ORDER BY sort_order`);
+  return res.json({ services: r.rows, categories: cats.rows });
+}));
+
+router.put(
+  "/admin/services/:id",
+  requirePermission("catalog.edit"),
+  validate(z.object({
+    name: z.string().trim().min(3).max(120).optional(),
+    description: z.string().max(2000).optional(),
+    basePricePaisa: z.number().int().min(0).optional(),
+    durationMin: z.number().int().min(0).optional(),
+    isActive: z.boolean().optional(),
+  })),
+  ah(async (req, res) => {
+    const f = req.body as Record<string, string | number | boolean>;
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const map: Record<string, string> = {
+      name: "name", description: "description", basePricePaisa: "base_price_paisa",
+      durationMin: "duration_min", isActive: "is_active",
+    };
+    for (const [k, col] of Object.entries(map)) {
+      if (f[k] !== undefined) {
+        params.push(f[k]);
+        sets.push(`${col} = $${params.length}`);
+      }
+    }
+    if (sets.length === 0) return res.status(400).json({ error: "Nothing to update" });
+    params.push(req.params.id);
+    await query(`UPDATE services SET ${sets.join(", ")}, updated_at = now() WHERE id = $${params.length}`, params);
+    await adminAudit(req.user!.id, "catalog-service-edit", `${req.params.id}: ${sets.join(", ")}`);
+    return res.json({ ok: true });
+  }),
+);
+
+// ---------- Quote pipeline ----------
+router.get("/admin/quotes", ah(async (_req, res) => {
+  const r = await query(
+    `SELECT q.*, c.name AS category_name, cu.name AS customer_name,
+       (SELECT json_agg(p ORDER BY p.created_at) FROM quote_proposals p WHERE p.request_id = q.id) AS proposals
+     FROM quote_requests q LEFT JOIN categories c ON c.id = q.category_id
+     LEFT JOIN users cu ON cu.id = q.customer_id
+     ORDER BY q.created_at DESC LIMIT 100`);
+  return res.json({ requests: r.rows });
+}));
+
 export default router;

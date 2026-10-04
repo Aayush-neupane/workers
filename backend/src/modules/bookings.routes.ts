@@ -162,10 +162,11 @@ router.get("/bookings/:id", requireAuth, ah(async (req, res) => {
   if (!key) return res.status(400).json({ error: "Invalid request" });
   const r = await query(
     `SELECT b.*, s.name AS service_name, s.description AS service_description,
-            u.name AS worker_name, c.name AS category_name
+            u.name AS worker_name, c.name AS category_name, cu.phone AS customer_phone
      FROM bookings b LEFT JOIN services s ON s.id = b.service_id
      LEFT JOIN users u ON u.id = b.worker_id
      LEFT JOIN categories c ON c.id = s.category_id
+     LEFT JOIN users cu ON cu.id = b.customer_id
      WHERE b.${key.column} = $1`, [key.value]);
   if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
   const b = r.rows[0] as Record<string, unknown>;
@@ -179,6 +180,63 @@ router.get("/bookings/:id", requireAuth, ah(async (req, res) => {
      WHERE booking_id = $1 ORDER BY created_at`, [b.id]);
   return res.json({ booking: b, history: events.rows, assignments: assigns.rows });
 }));
+/**
+ * Explicit assign / reassign (admin only). Validates eligibility, records the
+ * assignment row, notifies the pro, and audit-logs the reason.
+ */
+router.post(
+  "/bookings/:id/assign",
+  requireAuth,
+  requireRole("ADMIN"),
+  validate(z.object({
+    workerId: z.string().uuid(),
+    reason: z.string().trim().max(300).default(""),
+  })),
+  ah(async (req, res) => {
+    const f = req.body as { workerId: string; reason: string };
+    const key = bookingKey(req.params.id);
+    if (!key) return res.status(400).json({ error: "Invalid request" });
+    const b = await query<{ id: string; service_id: string; worker_id: string | null; status: string }>(
+      `SELECT id, service_id, worker_id, status FROM bookings WHERE ${key.column} = $1`, [key.value]);
+    if (b.rowCount === 0) return res.status(404).json({ error: "Not found" });
+    const booking = b.rows[0];
+    if (["completed", "cancelled"].includes(booking.status)) {
+      return res.status(409).json({ error: `Cannot reassign a ${booking.status} booking` });
+    }
+    const w = await query(
+      `SELECT u.id FROM users u JOIN worker_profiles wp ON wp.user_id = u.id
+       JOIN worker_services ws ON ws.worker_user_id = u.id
+       WHERE u.id = $1 AND u.is_active = true AND wp.verification_state = 'verified'
+         AND wp.is_active = true AND ws.service_id = $2`,
+      [f.workerId, booking.service_id]);
+    if (w.rowCount === 0) return res.status(400).json({ error: "Worker not eligible for this service" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`UPDATE bookings SET worker_id = $1, updated_at = now() WHERE id = $2`, [f.workerId, booking.id]);
+      await client.query(
+        `INSERT INTO assignments(booking_id, worker_user_id, assigned_by, reason) VALUES ($1, $2, $3, $4)`,
+        [booking.id, f.workerId, req.user!.id, f.reason || (booking.worker_id ? "reassignment" : "assignment")]);
+      await client.query(
+        `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note)
+         VALUES ($1, $2, 'admin', $3, $4)`,
+        [booking.id, booking.status, req.user!.id, `Assigned to pro${booking.worker_id ? " (reassigned)" : ""}`]);
+      await notify(client, f.workerId, "New assignment", "A booking was assigned to you.");
+      if (booking.worker_id && booking.worker_id !== f.workerId) {
+        await notify(client, booking.worker_id, "Assignment changed", "A booking was reassigned away from you.");
+      }
+      await client.query("COMMIT");
+      const { audit } = await import("../services/notify.js");
+      await audit(req.user!.id, "ADMIN", "booking-assign", `${booking.id} -> ${f.workerId}: ${f.reason}`);
+      return res.json({ ok: true, reassigned: Boolean(booking.worker_id) });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
 
 const transitionSchema = z.object({
   to: z.enum(["awaiting-worker", "confirmed", "en-route", "in-progress",

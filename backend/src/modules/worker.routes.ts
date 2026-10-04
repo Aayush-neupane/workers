@@ -22,8 +22,9 @@ router.get("/worker/jobs", ah(async (req, res) => {
     return res.status(403).json({ error: "Only verified, active pros" });
   }
   const r = await query(
-    `SELECT b.*, s.name AS service_name
+    `SELECT b.*, s.name AS service_name, cu.phone AS customer_phone, cu.name AS customer_name
      FROM bookings b LEFT JOIN services s ON s.id = b.service_id
+     LEFT JOIN users cu ON cu.id = b.customer_id
      WHERE b.worker_id = $1 AND b.status NOT IN ('completed', 'cancelled')
      ORDER BY b.slot`, [req.user!.id]);
   const open = await query(
@@ -34,8 +35,19 @@ router.get("/worker/jobs", ah(async (req, res) => {
   return res.json({ jobs: r.rows, requests: open.rows });
 }));
 
-router.get("/worker/earnings", ah(async (req, res) => {
+/** The pro's own customer feedback + average. */
+router.get("/worker/reviews", ah(async (req, res) => {
   const r = await query(
+    `SELECT r.id, r.rating, r.text, r.created_at, b.booking_no
+     FROM reviews r JOIN bookings b ON b.id = r.booking_id
+     WHERE r.worker_user_id = $1 ORDER BY r.created_at DESC LIMIT 50`, [req.user!.id]);
+  const avg = await query(
+    `SELECT COUNT(*)::int AS n, COALESCE(AVG(rating), 0)::float AS avg FROM reviews WHERE worker_user_id = $1`,
+    [req.user!.id]);
+  return res.json({ reviews: r.rows, count: avg.rows[0].n, avg: Math.round(avg.rows[0].avg * 10) / 10 });
+}));
+
+router.get("/worker/earnings", ah(async (req, res) => {  const r = await query(
     `SELECT cl.*, b.booking_no FROM commission_ledger cl JOIN bookings b ON b.id = cl.booking_id
      WHERE b.worker_id = $1 ORDER BY cl.created_at DESC`, [req.user!.id]);
   const rows = r.rows as { worker_paisa: string; commission_paisa: string; is_settled: boolean }[];

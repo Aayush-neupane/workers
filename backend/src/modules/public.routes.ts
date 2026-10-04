@@ -114,6 +114,24 @@ router.get("/wards", ah(async (_req, res) => {
   return res.json({ zone: "Damak", wards: r.rows });
 }));
 
+/** Honest platform stats — real counts only, for the landing page. */
+router.get("/stats", ah(async (_req, res) => {
+  const services = await query(`SELECT COUNT(*)::int AS n FROM services WHERE is_active = true`);
+  const pros = await query(
+    `SELECT COUNT(*)::int AS n FROM worker_profiles WHERE verification_state = 'verified' AND is_active = true`);
+  const done = await query(`SELECT COUNT(*)::int AS n FROM bookings WHERE status = 'completed'`);
+  const wards = await query(`SELECT COUNT(*)::int AS n FROM coverage_wards WHERE is_open = true`);
+  const rev = await query(`SELECT COUNT(*)::int AS n, COALESCE(AVG(rating), 0)::float AS avg FROM reviews`);
+  return res.json({
+    services: services.rows[0].n,
+    verifiedPros: pros.rows[0].n,
+    completedJobs: done.rows[0].n,
+    openWards: wards.rows[0].n,
+    reviewCount: rev.rows[0].n,
+    avgRating: Math.round(rev.rows[0].avg * 10) / 10,
+  });
+}));
+
 router.get("/settings", ah(async (_req, res) => {
   const r = await query<{ value: unknown }>(`SELECT value FROM settings WHERE id = 'platform'`);
   const v = (r.rows[0]?.value ?? {}) as Record<string, unknown>;
