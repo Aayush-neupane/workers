@@ -7,7 +7,7 @@ import { query } from "../db/pool.js";
 import { pool } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth, requireRole, signSession, SESSION_COOKIE } from "../middleware/auth.js";
+import { requireAuth, signSession, SESSION_COOKIE } from "../middleware/auth.js";
 import { env, isProd } from "../config/env.js";
 
 const router = Router();
@@ -116,84 +116,6 @@ router.patch(
     params.push(req.user!.id);
     await query(`UPDATE users SET ${sets.join(", ")}, updated_at = now() WHERE id = $${params.length}`, params);
     return res.json({ ok: true });
-  }),
-);
-
-const createWorkerSchema = z.object({
-  name: z.string().trim().min(2).max(80),
-  email: z.string().trim().toLowerCase().email(),
-  phone: z.string().trim().max(20).default(""),
-  bio: z.string().max(2000).default(""),
-  yearsExp: z.number().int().min(0).max(60).default(0),
-  areas: z.array(z.string().max(60)).max(20).default(["Damak"]),
-  avatarHue: z.number().int().min(0).max(360).default(150),
-  categoryIds: z.array(z.string().uuid()).max(20).default([]),
-});
-
-// Admin-only: create the worker account + profile, return a one-time invite token.
-router.post(
-  "/workers",
-  requireAuth,
-  requireRole("ADMIN"),
-  validate(createWorkerSchema),
-  ah(async (req, res) => {
-    const body = req.body as z.infer<typeof createWorkerSchema>;
-    const dupe = await query(`SELECT id FROM users WHERE email = $1`, [body.email]);
-    if (dupe.rowCount > 0) return res.status(409).json({ error: "Email already in use" });
-
-    const rawToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-    const expires = new Date(Date.now() + 7 * 24 * 3600 * 1000);
-
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const u = await client.query(
-        `INSERT INTO users(email, name, phone, is_active) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [body.email, body.name, body.phone, false],
-      );
-      const userId = u.rows[0].id as string;
-      const role = await client.query(`SELECT id FROM roles WHERE name = 'WORKER'`);
-      await client.query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2)`, [
-        userId,
-        role.rows[0].id,
-      ]);
-      await client.query(
-        `INSERT INTO worker_profiles(user_id, bio, years_exp, areas, avatar_hue, verification_state, is_active)
-         VALUES ($1, $2, $3, $4, $5, 'draft', false)`,
-        [userId, body.bio, body.yearsExp, body.areas, body.avatarHue],
-      );
-      // Capabilities: every active service in the chosen categories.
-      if (body.categoryIds.length > 0) {
-        await client.query(
-          `INSERT INTO worker_services(worker_user_id, service_id)
-           SELECT $1, s.id FROM services s WHERE s.category_id = ANY($2::uuid[]) AND s.is_active = true
-           ON CONFLICT DO NOTHING`,
-          [userId, body.categoryIds],
-        );
-      }
-      await client.query(
-        `INSERT INTO worker_invites(email, name, token_hash, expires_at, created_by)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [body.email, body.name, tokenHash, expires.toISOString(), req.user!.id],
-      );
-      await client.query(
-        `INSERT INTO verification_records(worker_user_id, state, reviewer_id, notes)
-         VALUES ($1, 'draft', $2, 'Account created by admin; invite issued.')`,
-        [userId, req.user!.id],
-      );
-      await client.query(
-        `INSERT INTO audit_log(actor_id, actor_role, action, detail) VALUES ($1, 'ADMIN', 'worker-create', $2)`,
-        [req.user!.id, `Worker account created for ${body.email}`],
-      );
-      await client.query("COMMIT");
-      return res.status(201).json({ ok: true, userId, inviteToken: rawToken, expiresAt: expires.toISOString() });
-    } catch (e) {
-      await client.query("ROLLBACK");
-      throw e;
-    } finally {
-      client.release();
-    }
   }),
 );
 

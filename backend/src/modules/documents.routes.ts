@@ -1,40 +1,27 @@
 import { Router } from "express";
 import { z } from "zod";
 import multer from "multer";
-import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { storeVerificationDoc, validateDoc, uploadLimits } from "../services/storage.js";
+import { notifyAdmins } from "../services/notify.js";
 
 const router = Router();
 
 const UPLOAD_ROOT = path.resolve("uploads", "verification");
 fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
 
-const storage = multer.diskStorage({
-  destination: (req, _file, cb) => {
-    const dir = path.join(UPLOAD_ROOT, req.user!.id);
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${crypto.randomBytes(16).toString("hex")}${ext}`);
-  },
-});
-
 const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: uploadLimits.maxBytes, files: 1 },
   fileFilter: (_req, file, cb) => {
-    if (["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPG, PNG, WebP or PDF"));
-    }
+    const err = validateDoc(file.mimetype, 0);
+    if (err && err.startsWith("Only")) cb(new Error("Only JPG, PNG, WebP or PDF"));
+    else cb(null, true);
   },
 });
 
@@ -56,15 +43,23 @@ router.post(
   ah(async (req, res) => {
     const file = (req as Express.Request & { file?: Express.Multer.File }).file;
     if (!file) return res.status(400).json({ error: "No file received" });
+    const sizeErr = validateDoc(file.mimetype, file.size);
+    if (sizeErr) return res.status(400).json({ error: sizeErr });
     const { kind } = req.body as { kind: string };
     const uid = req.user!.id;
+    let stored = "";
+    try {
+      stored = await storeVerificationDoc(file.buffer, file.mimetype, file.originalname, uid);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : "Upload failed" });
+    }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       const d = await client.query(
         `INSERT INTO verification_documents(worker_user_id, kind, storage_path)
          VALUES ($1, $2, $3) RETURNING id, uploaded_at`,
-        [uid, kind, path.relative(process.cwd(), file.path)],
+        [uid, kind, stored],
       );
       const prof = await client.query(
         `SELECT verification_state FROM worker_profiles WHERE user_id = $1`,
@@ -79,18 +74,13 @@ router.post(
           `INSERT INTO verification_records(worker_user_id, state, notes) VALUES ($1, 'under-review', 'Documents submitted by worker.')`,
           [uid],
         );
-        await client.query(
-          `INSERT INTO notifications(user_id, title, body)
-           SELECT u.id, 'Documents submitted', 'A worker submitted verification documents.'
-           FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-           WHERE r.name = 'ADMIN'`,
-        );
+        notifyAdmins("Documents submitted", "A worker submitted verification documents.");
       }
       await client.query("COMMIT");
       return res.status(201).json({ ok: true, id: (d.rows[0] as { id: string }).id });
     } catch (e) {
       await client.query("ROLLBACK");
-      fs.rm(file.path, { force: true }, () => undefined);
+      if (stored) fs.rm(path.resolve(stored), { force: true }, () => undefined);
       throw e;
     } finally {
       client.release();
