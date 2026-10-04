@@ -49,14 +49,14 @@ if ((existing.rowCount ?? 0) > 0) {
 const gita = await userId("gita@demo.local", "Gita Sharma", "9852611111", "CUSTOMER");
 const ram = await userId("ram@demo.local", "Ram Thapa", "9852622222", "CUSTOMER");
 
-for (const [uid, label, line, ward, phone] of [
-  [gita, "Home", "Damak-5, Himal Chowk, House 12", 5, "9852611111"],
-  [gita, "Shop", "Damak-6, Main Road, Shutter 4", 6, "9852611111"],
-  [ram, "Home", "Damak-2, Campus Chowk, House 8", 2, "9852622222"],
+for (const [uid, label, line, ward, phone, lat, lng] of [
+  [gita, "Home", "Damak-5, Himal Chowk, House 12", 5, "9852611111", 26.6552, 87.6985],
+  [gita, "Shop", "Damak-6, Main Road, Shutter 4", 6, "9852611111", 26.659, 87.702],
+  [ram, "Home", "Damak-2, Campus Chowk, House 8", 2, "9852622222", 26.661, 87.705],
 ] as const) {
   await query(
-    `INSERT INTO addresses(user_id, label, line, city, ward, phone) VALUES ($1, $2, $3, 'Damak', $4, $5)`,
-    [uid, label, line, ward, phone],
+    `INSERT INTO addresses(user_id, label, line, city, ward, phone, lat, lng) VALUES ($1, $2, $3, 'Damak', $4, $5, $6, $7)`,
+    [uid, label, line, ward, phone, lat, lng],
   );
 }
 const gitaAddr = (await query<{ id: string }>(
@@ -206,6 +206,10 @@ for (const b of bookings) {
     );
   }
 }
+// Dispatch-aid pins so maps have something to show in demo.
+await query(`UPDATE bookings SET lat = 26.6552, lng = 87.6985 WHERE booking_no IN ('BK-2001', 'BK-2002')`);
+await query(`UPDATE bookings SET lat = 26.661, lng = 87.705 WHERE booking_no IN ('BK-2003', 'BK-2004')`);
+await query(`UPDATE bookings SET lat = 26.659, lng = 87.702 WHERE booking_no = 'BK-2005'`);
 // Note: no redeem entry here — redemptions happen at real checkouts
 // (gita's earned balance must stay non-negative for the demo).
 

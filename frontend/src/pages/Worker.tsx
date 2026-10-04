@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BadgeCheck, ChevronDown, FileUp, Phone, Star } from "lucide-react";
 import { Badge, Button, Card, EmptyState, PageHero, Price, TextField } from "../components/ui";
-import { MiniMap } from "../components/MiniMap";
+import { LiveMap } from "../components/LiveMap";
+import { fetchRoute, formatKm, type Pin } from "../lib/geo";
 import { api, post } from "../lib/api";
 import { formatSlot, formatNPR } from "../lib/format";
 import type { Booking } from "../lib/types";
@@ -221,6 +222,11 @@ function JobCard({ job, onDone, onMsg }: {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [me, setMe] = useState<Pin | null>(null);
+  const [route, setRoute] = useState<[number, number][] | null>(null);
+  const [routeInfo, setRouteInfo] = useState("");
+  const [routing, setRouting] = useState(false);
+  const [locMsg, setLocMsg] = useState("");
   const next = NEXT[job.status];
 
   async function issue() {
@@ -247,6 +253,52 @@ function JobCard({ job, onDone, onMsg }: {
       onMsg(e instanceof Error ? e.message : "Verification failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // One position source per card: the Route tap itself is the gesture.
+  async function ensurePosition(): Promise<Pin | null> {
+    if (me) return me;
+    setLocMsg("");
+    if (!("geolocation" in navigator)) {
+      setLocMsg("This device cannot share location — ride to the pin shown.");
+      return null;
+    }
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (g) => {
+          const fix = { lat: g.coords.latitude, lng: g.coords.longitude };
+          setMe(fix);
+          resolve(fix);
+        },
+        (err) => {
+          setLocMsg(
+            err.code === err.PERMISSION_DENIED
+              ? "Location denied — allow it once and tap Route again."
+              : "No GPS fix — ride to the pin shown.",
+          );
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 },
+      );
+    });
+  }
+
+  async function drawRoute() {
+    if (job.lat == null || job.lng == null || routing) return;
+    setRouting(true);
+    setRouteInfo("");
+    try {
+      const origin = await ensurePosition();
+      if (!origin) return;
+      const r = await fetchRoute(origin, { lat: job.lat, lng: job.lng });
+      setRoute(r.coords);
+      setRouteInfo(`${formatKm(r.distanceKm)} · ~${Math.max(1, Math.round(r.durationMin))} min ride`);
+    } catch {
+      setRouteInfo("Routing unavailable — ride to the pin shown.");
+      setRoute(null);
+    } finally {
+      setRouting(false);
     }
   }
 
@@ -277,14 +329,28 @@ function JobCard({ job, onDone, onMsg }: {
           </div>
           <p className="rounded-md bg-white p-3"><strong>Instructions:</strong> {job.instructions || "—"}</p>
           {job.lat != null && job.lng != null && (
-            <>
-              <MiniMap pin={{ lat: job.lat, lng: job.lng }} height={160} />
-              <a href={`https://www.openstreetmap.org/directions?to=${job.lat}%2C${job.lng}`}
-                target="_blank" rel="noopener noreferrer"
-                className="inline-flex w-fit items-center gap-1 text-sm font-bold text-primary hover:underline">
-                Get directions <span aria-hidden="true">↗</span>
-              </a>
-            </>
+            <div className="space-y-2">
+              <LiveMap
+                stops={[{ id: job.id, label: job.booking_no, sub: job.address_text ?? "", pin: { lat: job.lat, lng: job.lng } }]}
+                me={me}
+                route={route}
+                height={200}
+              />
+              {locMsg && <p role="alert" className="text-xs font-medium text-error">{locMsg}</p>}
+              <div className="flex flex-wrap items-center gap-2">
+                {routeInfo && (
+                  <span className="rounded-full bg-pine-950 px-3 py-1.5 font-mono text-[11px] font-bold text-white">{routeInfo}</span>
+                )}
+                <Button variant="outline" onClick={drawRoute} disabled={routing}>
+                  {routing ? "Routing…" : route ? "Refresh route" : "Route →"}
+                </Button>
+                <a href={`https://www.openstreetmap.org/directions?to=${job.lat}%2C${job.lng}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="inline-flex w-fit items-center gap-1 text-sm font-bold text-primary hover:underline">
+                  Get directions <span aria-hidden="true">↗</span>
+                </a>
+              </div>
+            </div>
           )}
           <div className="flex flex-wrap gap-2">
             {next && <Button onClick={() => move(job.id, next.to, onDone, onMsg)}>{next.label}</Button>}

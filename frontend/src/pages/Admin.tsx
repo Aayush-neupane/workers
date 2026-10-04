@@ -5,6 +5,7 @@ import {
   Star, Trash2, UserCheck, UserX, X,
 } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
+import { LiveMap } from "../components/LiveMap";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot, formatNPR } from "../lib/format";
@@ -243,8 +244,24 @@ function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
   }
   useEffect(() => { load(status); }, [status]);
 
+  const stops = list
+    .filter((b) => typeof b.lat === "number" && typeof b.lng === "number")
+    .slice(0, 50)
+    .map((b) => ({
+      id: String(b.id),
+      label: String(b.booking_no),
+      sub: `${String(b.service_name)} · ${String(b.status)}`,
+      pin: { lat: Number(b.lat), lng: Number(b.lng) },
+    }));
+
   return (
     <div className="space-y-4">
+      {stops.length > 0 && (
+        <div>
+          <p className="mb-2 text-sm font-bold">Live job map ({stops.length} pinned)</p>
+          <LiveMap stops={stops} height={280} />
+        </div>
+      )}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Booking status filter">
         {STATUSES.map((s) => (
           <button key={s || "all"} onClick={() => setStatus(s)}

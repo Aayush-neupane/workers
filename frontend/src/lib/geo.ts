@@ -108,3 +108,32 @@ export async function reverseLabel(p: Pin, signal?: AbortSignal): Promise<string
   const j = (await r.json()) as { display_name?: string };
   return j.display_name ?? "";
 }
+
+export interface RouteInfo {
+  coords: [number, number][]; // [lat, lng] polyline
+  distanceKm: number;
+  durationMin: number;
+}
+
+/** Driving route via the OSRM demo server (free, keyless — fine at this volume). */
+export async function fetchRoute(from: Pin, to: Pin, signal?: AbortSignal): Promise<RouteInfo> {
+  const r = await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`,
+    { signal },
+  );
+  if (!r.ok) throw new Error("Routing unavailable");
+  const j = (await r.json()) as {
+    routes?: { geometry?: { coordinates?: [number, number][] }; distance?: number; duration?: number }[];
+  };
+  const coords = j.routes?.[0]?.geometry?.coordinates?.map(([lng, lat]) => [lat, lng] as [number, number]) ?? [];
+  if (coords.length < 2) throw new Error("No route found");
+  return {
+    coords,
+    distanceKm: (j.routes?.[0]?.distance ?? 0) / 1000,
+    durationMin: (j.routes?.[0]?.duration ?? 0) / 60,
+  };
+}
+
+export function formatKm(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
