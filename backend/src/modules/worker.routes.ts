@@ -15,6 +15,35 @@ function eligible(req: { user?: { id: string } }) {
   );
 }
 
+/** Own profile summary + lifetime stats for the portal header. */
+router.get("/worker/me", ah(async (req, res) => {
+  const p = await query(
+    `SELECT verification_state, is_active, bio, years_exp FROM worker_profiles WHERE user_id = $1`,
+    [req.user!.id]);
+  const jobs = await query(
+    `SELECT COUNT(*) FILTER (WHERE status = 'completed')::int AS done,
+            COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled'))::int AS active
+     FROM bookings WHERE worker_id = $1`, [req.user!.id]);
+  const rev = await query(
+    `SELECT COUNT(*)::int AS n, COALESCE(AVG(rating), 0)::float AS avg FROM reviews WHERE worker_user_id = $1`,
+    [req.user!.id]);
+  return res.json({
+    profile: p.rows[0] ?? null,
+    jobsDone: jobs.rows[0]?.done ?? 0,
+    activeJobs: jobs.rows[0]?.active ?? 0,
+    reviewCount: rev.rows[0].n,
+    avgRating: Math.round(rev.rows[0].avg * 10) / 10,
+  });
+}));
+
+/** Own verification documents. */
+router.get("/worker/documents/mine", ah(async (req, res) => {
+  const r = await query(
+    `SELECT id, kind, uploaded_at FROM verification_documents WHERE worker_user_id = $1 ORDER BY uploaded_at`,
+    [req.user!.id]);
+  return res.json({ documents: r.rows });
+}));
+
 /** Today's schedule + new assignment requests + upcoming — the pro's four questions. */
 router.get("/worker/jobs", ah(async (req, res) => {
   const e = await eligible(req);

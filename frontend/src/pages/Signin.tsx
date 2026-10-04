@@ -141,8 +141,22 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
                 {busy && !signup ? "Please wait…" : "Sign in"}
               </Button>
             </form>
-            <p className="mt-4 text-center text-sm text-on-surface-variant md:hidden">
+            <ul className="mt-5 space-y-2 border-t border-outline pt-4 text-[13px] text-on-surface-variant">
+              {[
+                "Live tracking from request to completion code",
+                "OTP-secured closing — no code, no completion",
+                "Loyalty points on every completed job",
+              ].map((t) => (
+                <li key={t} className="flex items-start gap-2">
+                  <Check size={15} className="mt-0.5 shrink-0 text-success" aria-hidden="true" /> {t}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-center text-sm text-on-surface-variant md:hidden">
               New here? <Link to="/signup" className="font-bold text-primary">Create an account</Link>
+            </p>
+            <p className="mt-1 hidden text-center text-sm text-on-surface-variant md:block">
+              Just looking? <Link to="/services" className="font-bold text-primary">Browse services as guest</Link>
             </p>
           </div>
 

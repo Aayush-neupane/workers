@@ -20,8 +20,23 @@ const STEPS = [
   ["A code closes the job", "You share a one-time code only when the work is done. No code, no completion."],
 ];
 
-const FAQS = [
-  {
+const VERIFICATION_STEPS = [
+  ["Invite only", "Admins create every pro account. There is no public pro signup — ever."],
+  ["Documents", "Citizenship, trade certificates and references, stored privately with narrow access."],
+  ["Background check", "Identity and background review by a verification officer before anything else."],
+  ["Activate", "Only verified + activated pros can be assigned. Suspension is one click away."],
+];
+
+interface Stats {
+  services: number;
+  verifiedPros: number;
+  completedJobs: number;
+  openWards: number;
+  reviewCount: number;
+  avgRating: number;
+}
+
+const FAQS = [  {
     q: "Are pros really verified?",
     a: "Yes. Admins invite every pro and review identity, qualifications and background checks before activation. Unverified accounts can never receive jobs.",
   },
@@ -93,6 +108,7 @@ export default function Home() {
   const [popular, setPopular] = useState<Service[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [openWards, setOpenWards] = useState<number | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
@@ -101,6 +117,7 @@ export default function Home() {
     api<{ reviews: Review[] }>("/api/reviews?limit=3").then((d) => setReviews(d.reviews)).catch(() => {});
     api<{ wards: { ward: number; is_open: boolean }[] }>("/api/wards")
       .then((d) => setOpenWards(d.wards.filter((w) => w.is_open).length)).catch(() => {});
+    api<Stats>("/api/stats").then(setStats).catch(() => {});
   }, []);
 
   return (
@@ -157,6 +174,24 @@ export default function Home() {
             <WifiOff size={16} aria-hidden="true" />
             Couldn't reach the server — is the API running on :4001 with the database migrated and seeded?
           </p>
+        )}
+
+        {stats && (
+          <dl className="grid grid-cols-2 gap-3 rounded-lg border border-outline/60 bg-white p-5 sm:grid-cols-3 lg:grid-cols-6" aria-label="Platform in numbers">
+            {[
+              [`${stats.services}`, "Services live"],
+              [`${stats.verifiedPros}`, "Verified pros"],
+              [`${stats.completedJobs}`, "Jobs completed"],
+              [`${stats.openWards}/10`, "Wards open"],
+              [stats.reviewCount > 0 ? stats.avgRating.toFixed(1) : "—", "Average rating"],
+              [`${stats.reviewCount}`, "Genuine reviews"],
+            ].map(([v, l]) => (
+              <div key={l} className="text-center">
+                <dd className="font-display text-3xl font-semibold">{v}</dd>
+                <dt className="mt-0.5 text-xs font-bold text-on-surface-variant uppercase tracking-wide">{l}</dt>
+              </div>
+            ))}
+          </dl>
         )}
 
         <h2 className="font-display text-2xl font-semibold">What do you need today?</h2>
@@ -258,6 +293,42 @@ export default function Home() {
           </>
         )}
 
+        <section className="mt-10 grid items-start gap-5 lg:grid-cols-2" aria-label="Why trust us">
+          <div>
+            <h2 className="font-display text-2xl font-semibold">Verified means verified</h2>
+            <p className="mt-2 max-w-lg leading-relaxed text-on-surface-variant">
+              Anyone can print "trusted" on a homepage. Here's the machinery behind ours —
+              every step leaves an audit trail our team can show.
+            </p>
+            <div className="mt-5 space-y-4">
+              {VERIFICATION_STEPS.map(([t, b], i) => (
+                <div key={t} className="flex gap-3">
+                  <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-pine-950 text-sm font-extrabold text-marigold-300">
+                    {i + 1}
+                  </span>
+                  <div>
+                    <p className="font-bold">{t}</p>
+                    <p className="mt-0.5 text-sm leading-relaxed text-on-surface-variant">{b}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <Card className="ring-band dotgrid-light border-0 p-6 text-white md:p-8 lg:sticky lg:top-24">
+            <p className="text-xs font-extrabold tracking-[0.14em] text-marigold-300 uppercase">Are you a skilled pro?</p>
+            <p className="font-display mt-2 text-2xl font-semibold">Good work deserves good work.</p>
+            <p className="mt-2 text-sm leading-relaxed text-white/80">
+              We invite electricians, plumbers, cleaners and more — steady Damak jobs, transparent
+              per-job earnings, weekly settlements, no platform games. There is no public signup:
+              introduce yourself and our team starts your verification.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link to="/support"><Button className="bg-marigold-300 text-pine-950 hover:brightness-105">Talk to our team</Button></Link>
+              <Link to="/services"><Button variant="outline" className="border-white/30 text-white hover:bg-white/10">See the trades</Button></Link>
+            </div>
+          </Card>
+        </section>
+
         <h2 className="mt-10 font-display text-2xl font-semibold">Good questions</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {FAQS.map((f) => (
@@ -267,6 +338,22 @@ export default function Home() {
             </Card>
           ))}
         </div>
+
+        <section className="mt-10 overflow-hidden rounded-lg border border-outline/60 bg-white" aria-label="Get started">
+          <div className="grid items-center gap-6 p-7 md:grid-cols-[1fr_auto] md:p-10">
+            <div>
+              <h2 className="font-display text-2xl font-semibold md:text-3xl">Something broken right now?</h2>
+              <p className="mt-2 max-w-xl leading-relaxed text-on-surface-variant">
+                Fixed-price jobs book in four steps. Uncertain, variable work goes through quotes
+                you compare side by side. Either way: Damak only, verified pros only.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row md:flex-col">
+              <Link to="/services"><Button className="px-8 py-3">Book a service</Button></Link>
+              <Link to="/quotes/new"><Button variant="outline" className="px-8 py-3">Request a quote</Button></Link>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
