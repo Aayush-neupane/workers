@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Sajilo Damak — Feature Manual</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #17211b; font-size: 11pt; line-height: 1.55; margin: 0; }
+  h1, h2, h3, h4 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.25; }
+  .cover { text-align: center; padding: 90px 0 40px 0; }
+  .cover .brand { display: inline-block; background: #0a2015; color: #f5c445; font-family: Helvetica, Arial, sans-serif; font-weight: bold; font-size: 28pt; width: 72px; height: 72px; line-height: 72px; border-radius: 16px; }
+  .cover h1 { font-size: 34pt; margin: 18px 0 4px 0; }
+  .cover .tagline { font-style: italic; font-size: 14pt; color: #0f6b44; }
+  .cover .meta { margin-top: 26px; font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #5b655d; }
+  .toc { margin: 30px 0; font-family: Helvetica, Arial, sans-serif; font-size: 10.5pt; }
+  .toc li { margin: 3px 0; }
+  h2 { font-size: 17pt; color: #0a2015; border-bottom: 3px solid #e9a319; padding-bottom: 4px; margin-top: 34px; page-break-after: avoid; }
+  h3 { font-size: 12.5pt; color: #0e3b26; margin-top: 20px; page-break-after: avoid; }
+  h4 { font-size: 11pt; margin: 12px 0 4px 0; }
+  p, li { orphans: 3; widows: 3; }
+  code, .mono { font-family: 'Courier New', monospace; font-size: 9.5pt; background: #f0ebe0; padding: 1px 5px; border-radius: 4px; }
+  pre { background: #0a2015; color: #e8f0e8; padding: 12px 14px; border-radius: 8px; font-size: 9pt; overflow-x: auto; page-break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5pt; font-family: Helvetica, Arial, sans-serif; }
+  th { background: #0a2015; color: #fff; text-align: left; padding: 6px 8px; }
+  td { border-bottom: 1px solid #ddd6c6; padding: 6px 8px; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  .how { background: #faf7f0; border-left: 4px solid #0f6b44; padding: 8px 12px; margin: 8px 0; }
+  .uses { background: #fffdf5; border: 1px solid #ddd6c6; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 10pt; }
+  .uses b { font-family: Helvetica, Arial, sans-serif; }
+  .note { font-size: 10pt; color: #5b655d; font-style: italic; }
+  ul, ol { padding-left: 22px; }
+  section { page-break-inside: auto; }
+  .feat { page-break-inside: avoid; }
+  .pagebreak { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="brand">स</div>
+  <h1>Sajilo Damak</h1>
+  <p class="tagline">Ramro Sewa, Sajilo Jeevan.</p>
+  <p><strong>Complete Feature Manual</strong> — every feature, exactly how it works, and what it uses.</p>
+  <p class="meta">Version 1.0 · October 2026 · Damak Municipality, Jhapa, Nepal<br/>Covers the web application (customer, professional and administration portals) and its API.</p>
+</div>
+
+<div class="toc">
+  <h3>Contents</h3>
+  <ol>
+    <li>Product at a glance — portals, roles, rules</li>
+    <li>Customer portal features</li>
+    <li>Professional portal features</li>
+    <li>Administration portal features</li>
+    <li>Cross-cutting systems (coverage, money, OTP, rewards, notifications, consent, security)</li>
+    <li>Maps and location subsystem</li>
+    <li>Technology inventory — what everything uses</li>
+    <li>Data model summary</li>
+    <li>API endpoint catalog</li>
+    <li>Running it — environments, seed data, demo logins</li>
+  </ol>
+</div>
+
+<!-- ================= 1 ================= -->
+<h2>1. Product at a glance</h2>
+<p>Sajilo Damak is a <strong>Damak-only</strong> on-demand service marketplace. Customers book verified local professionals; professionals work assigned jobs; administrators run verification, dispatch, money and content. It is a single build serving four experiences routed by hostname (<span class="mono">www / clients / pros / admin</span> subdomains in production, path routing on localhost).</p>
+<table>
+  <tr><th>Portal</th><th>Audience</th><th>Home route</th><th>Sees</th></tr>
+  <tr><td>Public site</td><td>Visitors</td><td><span class="mono">/</span></td><td>Discovery, marketing, policies, sign-in</td></tr>
+  <tr><td>Customer portal</td><td>CUSTOMER</td><td><span class="mono">/dashboard</span></td><td>Bookings, quotes, rewards, addresses, support</td></tr>
+  <tr><td>Professional portal</td><td>WORKER</td><td><span class="mono">/worker</span></td><td>Jobs, requests, earnings, availability, documents</td></tr>
+  <tr><td>Administration</td><td>ADMIN</td><td><span class="mono">/admin</span></td><td>14-section control centre (see §4)</td></tr>
+</table>
+<p><strong>Non-negotiable rules:</strong> (1) every booking is server-validated against the Damak boundary; (2) professionals enter by admin invitation only and must be verified + activated before any assignment; (3) money is integer paisa with snapshotted commissions and append-only ledgers; (4) jobs close only with the customer's one-time code; (5) role enforcement happens on the backend — the portals are navigation, not security.</p>
+
+<!-- ================= 2 ================= -->
+<h2>2. Customer portal features</h2>
+
+<h3>2.1 Registration, sign-in and onboarding tutorial</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Public registration creates <strong>CUSTOMER</strong> accounts only — roles are never client-assignable (the register handler hard-codes the CUSTOMER role). Sessions are 7-day HS256 JWTs in an <span class="mono">HttpOnly, SameSite=Lax, Secure-in-production</span>, host-only cookie, re-validated with fresh role lookup on every request. New accounts land on a 5-step tutorial (<span class="mono">/welcome</span>): how-it-works → profile (name/phone) → first Damak address with map pin → push opt-in → rewards/referral intro; completion persists in <span class="mono">users.onboarded</span>, and logins funnel un-onboarded users there once. Signup requires an explicit Terms + Privacy checkbox.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">POST /api/auth/register|login|logout</span>, <span class="mono">GET|PATCH /api/auth/me</span>, <span class="mono">PATCH /api/auth/me/onboarding</span>; <span class="mono">bcryptjs</span> (cost 12), <span class="mono">jose</span> JWT, <span class="mono">Zod</span> validation, React Hook Form; pages <span class="mono">Signin.tsx</span> (sliding auth card), <span class="mono">Onboarding.tsx</span>.</div>
+</div>
+
+<h3>2.2 Service discovery</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Searchable directory over admin-configured services only. Filters for text, category, max price and minimum rating; sorts for popular, price and rating. Ratings and job counts are computed live from completed bookings and genuine reviews — nothing is fabricated. Quote-type services show “Custom quote” instead of a price.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">GET /api/categories</span>, <span class="mono">GET /api/services</span>, <span class="mono">GET /api/services/:id</span> (service + eligible verified pros + reviews); pages <span class="mono">Home.tsx</span> (hero, ticker, tiles, stats from <span class="mono">GET /api/stats</span>), <span class="mono">Services.tsx</span>, <span class="mono">ServiceDetail.tsx</span>.</div>
+</div>
+
+<h3>2.3 Direct booking (Mode A)</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Four steps — address → slot (next 7 days, 4 daily windows) → details + payment + rewards → review. On submit the server: rejects past slots; snapshots the category commission rate onto the booking; re-validates the Damak address and open ward; applies loyalty redemption (balance-checked inside the same transaction); creates the booking (<span class="mono">pending</span>), its first timeline event and a pending payment row — all atomically with a unique human <span class="mono">BK-XXXX</span> number.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">POST /api/bookings</span> (transactional, idempotent booking numbers); page <span class="mono">Book.tsx</span>; money math in <span class="mono">utils/money.ts</span>.</div>
+</div>
+
+<h3>2.4 Quote requests (Mode B)</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> For complex jobs: title, category, detailed description, photos, preferred window, ward/landmark (+ optional pin). The request is routed to eligible verified pros with the customer's identity and exact address masked (ward + description only). Pros propose fixed prices; high-value proposals wait for admin approval per platform policy; the customer compares and accepts one — acceptance mints a <span class="mono">confirmed</span> booking with the pro assigned and an assignment record.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">POST /api/quotes/requests</span>, <span class="mono">GET /api/quotes/requests/mine|open</span>, <span class="mono">POST …/proposals</span>, <span class="mono">POST /api/quotes/proposals/:id/approve|accept</span>; tables <span class="mono">quote_requests, quote_proposals</span>; pages <span class="mono">QuoteNew.tsx</span>, Dashboard proposals.</div>
+</div>
+
+<h3>2.5 Tracking, reschedule, rebook, disputes</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Every booking carries a full status timeline (<span class="mono">pending → awaiting-worker → confirmed → en-route → in-progress → awaiting-confirmation → completed</span>, plus <span class="mono">cancelled/disputed</span>) with actor + timestamp per step — history is never rewritten. Customers can reschedule (future slots, blocked mid-job except by admins), cancel free before confirmation, raise disputes, review completed jobs (one per booking), and rebook any past service in one tap.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">GET /api/bookings/mine|:id</span> (history + assignments), <span class="mono">POST …/transition</span> (role-aware state machine in <span class="mono">utils/transitions.ts</span>), <span class="mono">PUT …/slot</span>, <span class="mono">POST /api/reviews</span>; page <span class="mono">Track.tsx</span>.</div>
+</div>
+
+<h3>2.6 Loyalty, referrals and rewards</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Points per Rs 100 of completed spending, milestone bonuses, 100-pts-to-Rs-50 redemption at checkout, and a referral program (code at signup → both sides paid on the referee's first completed job; self-referral rejected). All balances derive from an append-only ledger with a one-earn-per-booking database constraint; refunds auto-reverse awards.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">reward_ledger, referral_codes, referral_uses</span>; <span class="mono">GET /api/rewards/mine</span>, <span class="mono">GET /api/referrals/mine</span>; commission/reward posting inside the completion transactions; pages <span class="mono">Rewards.tsx</span>, Dashboard loyalty card.</div>
+</div>
+
+<h3>2.7 Addresses, support, notifications</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Up to 5 Damak-only addresses (city normalized, ward parsed or explicit, closed wards rejected, optional GPS pin inside the municipality box). Support tickets with threaded replies and reopen-on-follow-up. In-app notification inbox with unread tracking plus opt-in web push (see §5).</div>
+<div class="uses"><b>Uses:</b> <span class="mono">/api/addresses</span>, <span class="mono">/api/tickets</span>, <span class="mono">/api/notifications(+/read-all)</span>; pages <span class="mono">Profile.tsx, Support.tsx, Notifications.tsx</span>; header <span class="mono">NoticeBell</span>.</div>
+</div>
+
+<!-- ================= 3 ================= -->
+<div class="pagebreak"></div>
+<h2>3. Professional portal features</h2>
+
+<h3>3.1 Invitation and verification</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Two doors, one gate. (a) Email invite: admin creates an invite (only a hash is stored), the worker claims it via a token link, sets phone + password, and lands <span class="mono">awaiting-documents</span>. (b) Office flow: the customer signs up normally, submits certificates physically, and the admin sends the invite <em>to their profile</em> — they accept in-app from their dashboard and land in the pro portal. Verification states are <span class="mono">draft → awaiting-documents → under-review → verified → rejected|suspended</span> with an immutable per-change record. Activation additionally requires skill selection and is blocked unless verified.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">worker_invites, worker_profiles, verification_records, verification_documents, worker_services, worker_availability</span>; <span class="mono">/api/admin/workers/invite|invite-user|verify|activate</span>, <span class="mono">/api/auth/worker/invite/check|accept</span>, <span class="mono">/api/worker/invites/mine|accept</span>; pages <span class="mono">Invite.tsx</span>, <span class="mono">Worker.tsx</span> documents tab.</div>
+</div>
+
+<h3>3.2 Jobs, requests and completion codes</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> The portal answers four questions: today's schedule, open requests matching the pro's skills (self-accept enforces the same eligibility as admin assignment), upcoming jobs, and next actions. Expandable job cards show instructions, customer contact (tap-to-call), payment, estimate, map and route. When work ends the pro issues the completion code (job moves to awaiting-confirmation, code delivered to the customer only); the customer reads it out, the pro submits it — correct code completes the job, posts commission + rewards + referral bonuses. Wrong codes count attempts (5 max), codes expire in 10 minutes and are hashed at rest.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">GET /api/worker/jobs|me|reviews</span>, <span class="mono">POST /api/bookings/:id/otp/issue|verify</span>, <span class="mono">booking_otps</span> table, <span class="mono">utils/otp.ts</span> (crypto RNG, sha256); page <span class="mono">Worker.tsx</span>.</div>
+</div>
+
+<h3>3.3 Availability, earnings, quotes, routing</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Weekly open/closed days control slot offers. Earnings show a per-booking ledger (total, commission, keep, settled state) plus settlement history — finalized figures are never editable by pros. Quote requests appear masked; proposals state approval needs. Each job offers in-app OSRM routing (distance/ride-time chip) from the pro's GPS fix plus an OSM directions link.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">GET|PUT /api/worker/availability</span>, <span class="mono">GET /api/worker/earnings</span>, <span class="mono">commission_ledger, settlements, cash_collections</span>, <span class="mono">lib/geo.ts fetchRoute</span> (OSRM), <span class="mono">LiveMap</span> component.</div>
+</div>
+
+<!-- ================= 4 ================= -->
+<h2>4. Administration portal features</h2>
+<p>The control centre has 14 sections: <strong>Overview</strong> (linked stat cards, unassigned alerts, verification queue, disputes, latest bookings) · <strong>Dispatch</strong> (status filters, per-booking drawer with timeline, assign/reassign with eligibility + recorded reason, status correction, live multi-stop job map, aging badges) · <strong>Workers</strong> (state filters, email + in-profile invites, document review, verify/reject/suspend, skill selection + activation gate) · <strong>Customers</strong> (search, full file, restrict/lift) · <strong>Quotes</strong> (requests with proposals, approvals) · <strong>Catalog</strong> (inline price/duration/active editing with historical snapshots preserved, new services + categories) · <strong>Finance</strong> (commission ledger with settled filter, cash collections, settlement recorder, payment lookup + refunds with reward reversal) · <strong>Rewards</strong> (live rules + settings editor) · <strong>Reviews</strong> (moderation with delete) · <strong>Support</strong> (reply, resolve/reopen) · <strong>Broadcast</strong> (role-audience in-app + push) · <strong>Reports</strong> (date range, totals, per-day bars, top services, payments split, pro leaderboard) · <strong>Audit</strong> (every sensitive action with actor/action/detail) · <strong>Settings</strong> (coverage wards editor, platform rules).</p>
+<div class="uses"><b>Uses:</b> <span class="mono">GET /api/admin/overview|bookings|workers|customers|customers/:id|quotes|services-all|ledger|reviews|tickets|audit|settings|wards|reports/summary|payments</span> and the matching write routes (see §9); capability-checked by <span class="mono">role_permissions</span> (<span class="mono">worker.verify, finance.settle…</span>); page <span class="mono">Admin.tsx</span> with sidebar + slide-in drawers.</div>
+
+<!-- ================= 5 ================= -->
+<div class="pagebreak"></div>
+<h2>5. Cross-cutting systems</h2>
+
+<h3>5.1 Damak-only coverage</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> A single pure module (<span class="mono">utils/coverage.ts</span>, unit-tested) normalizes city names, detects Damak mentions, and parses ward numbers from free text. Addresses, bookings and quote requests are all gated server-side: non-Damak cities rejected with an explanation, closed wards rejected, services must list Damak, and pins must fall inside the municipality box. Coverage lives in data (<span class="mono">coverage_wards</span>, <span class="mono">settings.platform</span>) — new towns are rows + an admin toggle, never a code change.</div>
+</div>
+
+<h3>5.2 Money: commissions, cash, online payments, refunds</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> All money is integer paisa. Category commission rates (basis points) snapshot onto each booking; worker/category overrides live in <span class="mono">commission_rules</span>. Completion posts one immutable ledger row (total/commission/keep/rate). Cash collected on-site is recorded per booking and reconciled via payout/collection settlements — never silently deducted. eSewa/Khalti run a sandbox initiate → idempotent callback → server-side verify flow keyed on unique provider refs; frontend success is never trusted. Refunds support partial amounts and auto-reverse reward points. Reports always separate gross, collected, commission and refunds.</div>
+</div>
+
+<h3>5.3 Notifications: in-app guaranteed, push as the fast lane</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Every event writes an in-app row (the guaranteed channel). Web push (VAPID) fans out best-effort per device subscription and audience, with 404/410 pruning — it can never break business logic. The completion code itself stays in-app (lock-screen safe); pushes only nudge. Clients get a header bell with unread badge, a full notification centre, and an opt-in toggle with self-test buzz.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">notifications, push_subscriptions</span>; <span class="mono">services/push.ts</span> (<span class="mono">web-push</span>), <span class="mono">/api/push/*</span>, custom <span class="mono">public/sw.js</span>, <span class="mono">lib/push.ts</span>, <span class="mono">NoticeBell</span>, <span class="mono">PushToggle</span>, <span class="mono">Notifications.tsx</span>.</div>
+</div>
+
+<h3>5.4 Consent, privacy, legal</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> A real consent manager (banner with accept-all / reject-optional / customize, per-category preference centre, versioned re-prompts) gates optional tracking — the inventory lists only technologies actually in use. Records persist server-side. Separate Terms, Privacy, Cookie and Cancellation documents with contents sidebar, versions and contact paths.</div>
+<div class="uses"><b>Uses:</b> <span class="mono">consent_records</span>, <span class="mono">POST|GET /api/consent*</span>, <span class="mono">lib/consent.ts</span>, <span class="mono">CookieConsent.tsx</span>, <span class="mono">Legal.tsx</span>.</div>
+</div>
+
+<h3>5.5 Security and audit</h3>
+<div class="feat">
+<div class="how"><b>How it works.</b> Helmet headers, CORS locked to the app origin, tiered rate limits, Zod validation on every write, per-request role re-fetch, capability permissions, audit log on all sensitive actions, bcrypt-hashed passwords, private verification documents, <span class="mono">X-Robots-Tag: noindex</span> on admin APIs, open-redirect-safe navigation, and idempotent, retry-safe writes (unique constraints + transactions).</div>
+</div>
+
+<!-- ================= 6 ================= -->
+<h2>6. Maps and location subsystem</h2>
+<table>
+  <tr><th>Piece</th><th>What it is</th><th>What it uses</th></tr>
+  <tr><td>MapPicker</td><td>Pin dialog: Damak-biased search, tap/drag pin, streets + satellite, locate-me, live reverse label, Damak bbox lock</td><td>Leaflet + react-leaflet, Nominatim + Photon geocoding, browser geolocation</td></tr>
+  <tr><td>MiniMap</td><td>Non-interactive preview with OSM attribution; marker only for real pins</td><td>Leaflet, OSM tiles</td></tr>
+  <tr><td>LiveMap</td><td>Multi-stop dispatch/pro map with popups, pro position, OSRM route polyline, smart fit-bounds</td><td>Leaflet, OSRM demo server</td></tr>
+  <tr><td>Checkout map</td><td>Always-visible job-location panel; saved pin, Photon area geocoding, or Damak overview with honest states</td><td>MiniMap + MapPicker + booking pin override</td></tr>
+  <tr><td>Autofill</td><td>Pin pick fills address text + ward (editable after); GPS fix fills gaps</td><td>reverseLabel, parseWardFromText</td></tr>
+  <tr><td>Storage</td><td>Optional lat/lng on addresses, bookings, quote requests; Nepal CHECK constraints + Damak enforcement</td><td>PostgreSQL, migration 003</td></tr>
+</table>
+<p>Tiles: OpenStreetMap (free, keyless, attributed). Satellite: Esri World Imagery (free, keyless, attributed). Routing: OSRM demo server (free, keyless). Geocoding: Nominatim + Photon (both free/keyless, debounced, Damak-filtered).</p>
+
+<!-- ================= 7 ================= -->
+<div class="pagebreak"></div>
+<h2>7. Technology inventory</h2>
+<h3>Frontend (single build, four portals)</h3>
+<table>
+  <tr><th>Technology</th><th>Used for</th></tr>
+  <tr><td>React 19 + TypeScript + Vite</td><td>UI, type-safe development, dev server + production build</td></tr>
+  <tr><td>Tailwind CSS v4 + design tokens</td><td>Styling; pine/marigold M3-informed theme in <span class="mono">index.css</span></td></tr>
+  <tr><td>React Router</td><td>Portal routes + role guards (<span class="mono">Protected.tsx</span>) + host routing (<span class="mono">lib/host.ts</span>)</td></tr>
+  <tr><td>React Hook Form + Zod</td><td>All forms with schema validation</td></tr>
+  <tr><td>Lucide icons</td><td>Iconography incl. per-category tiles</td></tr>
+  <tr><td>Leaflet + react-leaflet</td><td>All maps (picker, previews, live)</td></tr>
+  <tr><td>Push API + custom service worker</td><td>Opt-in web push display</td></tr>
+</table>
+<h3>Backend (API-first for a future Android app)</h3>
+<table>
+  <tr><th>Technology</th><th>Used for</th></tr>
+  <tr><td>Node.js + Express + TypeScript</td><td>REST API (<span class="mono">/api/*</span>), stateless for VPS or container scaling</td></tr>
+  <tr><td>PostgreSQL 16 (<span class="mono">pg</span> pool)</td><td>All data; schema + numbered idempotent migrations; integer-paisa money</td></tr>
+  <tr><td>jose (HS256 JWT)</td><td>Host-only session cookies</td></tr>
+  <tr><td>bcryptjs</td><td>Password hashing (cost 12)</td></tr>
+  <tr><td>Zod</td><td>Request validation with field errors</td></tr>
+  <tr><td>helmet / cors / cookie-parser / express-rate-limit</td><td>Security headers, origin lock, cookies, tiered throttling</td></tr>
+  <tr><td>web-push (VAPID)</td><td>Push fan-out with endpoint pruning</td></tr>
+  <tr><td>tsx (dev) / tsc (build) + node:test</td><td>Dev runner, typechecks, 21 unit tests</td></tr>
+</table>
+<h3>External services</h3>
+<table>
+  <tr><th>Service</th><th>Used for</th><th>Status model</th></tr>
+  <tr><td>OpenStreetMap tiles + Nominatim</td><td>Map tiles, search bias, reverse labels</td><td>Live, free/keyless, attributed</td></tr>
+  <tr><td>Photon (Komoot)</td><td>Street/locality search Nominatim misses</td><td>Live, free/keyless</td></tr>
+  <tr><td>Esri World Imagery</td><td>Satellite layer</td><td>Live, free/keyless, attributed</td></tr>
+  <tr><td>OSRM demo server</td><td>Pro driving routes + ride estimates</td><td>Live, free/keyless, best-effort</td></tr>
+  <tr><td>eSewa / Khalti</td><td>Online payments</td><td>Sandbox flow built; live keys pending merchant onboarding</td></tr>
+  <tr><td>Netlify + VPS (Nginx/PM2)</td><td>Frontend hosting + API/database hosting</td><td>Documented in <span class="mono">docs/DEPLOY.md</span></td></tr>
+</table>
+<p class="note">Nothing above is claimed operational beyond what is implemented: payments stay sandbox until merchant keys exist; SMS/push-provider channels attach later at the notify service.</p>
+
+<!-- ================= 8 ================= -->
+<h2>8. Data model summary</h2>
+<table>
+  <tr><th>Group</th><th>Tables</th></tr>
+  <tr><td>Identity & access</td><td><span class="mono">users, roles, permissions, user_roles, role_permissions</span> (+ <span class="mono">users.onboarded</span>)</td></tr>
+  <tr><td>Professionals</td><td><span class="mono">worker_invites (email + in-profile), worker_profiles, verification_records, verification_documents, worker_services, worker_availability</span></td></tr>
+  <tr><td>Catalog & coverage</td><td><span class="mono">categories, services, coverage_wards, settings(platform)</span></td></tr>
+  <tr><td>Customers & jobs</td><td><span class="mono">addresses, bookings (+ward/lat/lng), booking_events, assignments, booking_otps, quote_requests, quote_proposals</span></td></tr>
+  <tr><td>Money</td><td><span class="mono">payments, cash_collections, refunds, commission_rules, commission_ledger, settlements</span></td></tr>
+  <tr><td>Loyalty</td><td><span class="mono">reward_ledger, referral_codes, referral_uses</span></td></tr>
+  <tr><td>Trust & comms</td><td><span class="mono">reviews, notifications, push_subscriptions, support_tickets, ticket_messages</span></td></tr>
+  <tr><td>Governance</td><td><span class="mono">consent_records, audit_log</span></td></tr>
+</table>
+
+<!-- ================= 9 ================= -->
+<div class="pagebreak"></div>
+<h2>9. API endpoint catalog</h2>
+<h4>Auth & session</h4>
+<p><span class="mono">POST /api/auth/register|login|logout · GET /api/auth/me · PATCH /api/auth/me|me/onboarding · POST /api/auth/worker/invite/check|accept</span></p>
+<h4>Public</h4>
+<p><span class="mono">GET /api/categories|services|services/:id|reviews|wards|settings|stats</span></p>
+<h4>Account (signed in)</h4>
+<p><span class="mono">/api/addresses (GET|POST|DELETE) · /api/reviews · /api/tickets(+/:id/messages) · /api/rewards/mine · /api/referrals/mine · /api/notifications(+/:id/read|read-all) · /api/consent(+/latest) · /api/worker/invites/mine|accept</span></p>
+<h4>Bookings</h4>
+<p><span class="mono">POST /api/bookings · GET /api/bookings/mine|:id · POST /api/bookings/:id/transition|assign · PUT /api/bookings/:id/slot · POST /api/bookings/:id/otp/issue|verify</span></p>
+<h4>Quotes</h4>
+<p><span class="mono">POST /api/quotes/requests · GET /api/quotes/requests/mine|open · POST …/:id/proposals · POST /api/quotes/proposals/:id/approve|accept</span></p>
+<h4>Professional</h4>
+<p><span class="mono">GET /api/worker/me|jobs|earnings|availability|reviews|documents/mine · PUT /api/worker/availability · POST /api/worker/documents</span></p>
+<h4>Administration (role + capability checked, noindex headers)</h4>
+<p><span class="mono">GET /api/admin/overview|bookings|workers|customers|customers/:id|quotes|services-all|ledger|reviews|tickets|audit|settings|wards|reports/summary|payments · POST …/workers/invite|invite-user|verify|activate · POST …/customers/:id/restrict · POST …/categories|services · PUT …/services/:id|wards|settings · POST …/commission-rules|settlements|refunds · POST …/tickets/:id/reply|status · DELETE …/reviews/:id · POST …/notifications/broadcast</span></p>
+<h4>Payments & push</h4>
+<p><span class="mono">GET /api/payments/providers · POST /api/bookings/:id/cash-collect · POST /api/payments/:id/esewa/initiate|/esewa/callback|/khalti/initiate|verify · GET /api/push/vapid-key · POST /api/push/subscribe|unsubscribe|test · GET /api/push/devices</span></p>
+
+<!-- ================= 10 ================= -->
+<h2>10. Running it</h2>
+<pre>createdb sajilo
+npm --workspace backend run db:migrate   # schema + migrations 001–006
+npm --workspace backend run db:seed       # roles, settings, catalog, admin
+npm --workspace backend run db:seed-demo  # demo users, jobs, quotes
+npm --workspace backend run dev           # API on :4001
+npm --workspace frontend run dev          # app on :5173</pre>
+<p><strong>Demo logins</strong> (local seed only): customer <span class="mono">gita@demo.local / Demo1234!</span> · professional <span class="mono">bijay@demo.local / Demo1234!</span> · admin <span class="mono">admin@sajilo.local / ChangeMe123!</span> (rotate before any public launch).</p>
+<p class="note">Repository: the project source of truth. Online payments stay in sandbox until merchant keys are configured; external notification channels beyond web push attach later without changing business logic — the API is versionable for the future Android app.</p>
+
+</body>
+</html>
