@@ -5,6 +5,7 @@ import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth, requireRole, requirePermission } from "../middleware/auth.js";
 import { notify, audit } from "../services/notify.js";
+import { resolveBookingId } from "../utils/booking.js";
 import { createHash, randomBytes } from "node:crypto";
 
 const router = Router();
@@ -561,12 +562,12 @@ router.put(
 router.get("/admin/payments", ah(async (req, res) => {
   const booking = typeof req.query.booking === "string" ? req.query.booking : "";
   if (!booking) return res.status(400).json({ error: "booking required" });
+  const bookingId = await resolveBookingId({ query }, booking);
+  if (!bookingId) return res.status(404).json({ error: "Booking not found" });
   const r = await query(
-    `SELECT p.*, b.booking_no FROM payments p JOIN bookings b ON b.id = p.booking_id
-     WHERE b.id = $1 OR b.booking_no = $1`, [booking]);
+    `SELECT p.*, b.booking_no FROM payments p JOIN bookings b ON b.id = p.booking_id WHERE b.id = $1`, [bookingId]);
   const refunds = await query(
-    `SELECT r.* FROM refunds r JOIN payments p ON p.id = r.payment_id
-     JOIN bookings b ON b.id = p.booking_id WHERE b.id = $1 OR b.booking_no = $1`, [booking]);
+    `SELECT r.* FROM refunds r JOIN payments p ON p.id = r.payment_id WHERE p.booking_id = $1`, [bookingId]);
   return res.json({ payments: r.rows, refunds: refunds.rows });
 }));
 

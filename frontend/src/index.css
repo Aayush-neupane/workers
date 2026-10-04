@@ -41,6 +41,7 @@ body {
   font-family: var(--font-sans);
   margin: 0;
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
 }
 
 ::selection { background: var(--color-marigold-300); color: var(--color-pine-950); }

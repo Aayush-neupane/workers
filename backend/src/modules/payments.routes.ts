@@ -5,6 +5,7 @@ import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth } from "../middleware/auth.js";
 import { env } from "../config/env.js";
+import { resolveBookingId } from "../utils/booking.js";
 
 const router = Router();
 
@@ -26,8 +27,10 @@ router.post(
     const f = req.body as { amountPaisa: number };
     const uid = req.user!.id;
     const roles = req.user!.roles;
+    const bookingId = await resolveBookingId({ query }, req.params.id);
+    if (!bookingId) return res.status(404).json({ error: "Not found" });
     const b = await query<{ id: string; worker_id: string | null; status: string }>(
-      `SELECT id, worker_id, status FROM bookings WHERE id = $1 OR booking_no = $1`, [req.params.id]);
+      `SELECT id, worker_id, status FROM bookings WHERE id = $1`, [bookingId]);
     if (b.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const booking = b.rows[0];
     const allowed = roles.includes("ADMIN") || (booking.worker_id === uid && roles.includes("WORKER"));

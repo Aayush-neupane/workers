@@ -348,6 +348,17 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
         [b.id, f.workerId, uid, f.note || "admin assignment"]);
       await notify(client, f.workerId, "New assignment", "A booking was assigned to you.");
     } else if (byRole === "worker" && !b.worker_id && to === "confirmed") {
+      // Self-accept enforces the same eligibility as admin assignment.
+      const elig = await client.query(
+        `SELECT u.id FROM users u JOIN worker_profiles wp ON wp.user_id = u.id
+         JOIN worker_services ws ON ws.worker_user_id = u.id
+         WHERE u.id = $1 AND u.is_active = true AND wp.verification_state = 'verified'
+           AND wp.is_active = true AND ws.service_id = $2`,
+        [uid, b.service_id]);
+      if (elig.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "This service is not in your skills — ask admin for assignment" });
+      }
       await client.query(`UPDATE bookings SET worker_id = $1 WHERE id = $2`, [uid, b.id]);
       await client.query(
         `INSERT INTO assignments(booking_id, worker_user_id, assigned_by, reason) VALUES ($1, $2, $2, 'self-accept')`,

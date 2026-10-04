@@ -108,7 +108,7 @@ export default function Home() {
             <p className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-1.5 text-xs font-bold text-marigold-300">
               <ShieldCheck size={14} aria-hidden="true" /> 100% invite-verified professionals · Damak only
             </p>
-            <h1 className="font-display mt-5 text-[2.75rem] leading-[1.03] font-semibold text-balance md:text-6xl">
+            <h1 className="font-display mt-5 text-4xl leading-[1.05] font-semibold text-balance sm:text-5xl md:text-6xl">
               The right pro for every{" "}
               <span className="relative inline-block text-marigold-300">
                 Damak home
@@ -149,7 +149,7 @@ export default function Home() {
               ))}
             </div>
             {stats && (
-              <dl className="mt-8 grid max-w-lg grid-cols-4 gap-4 border-t border-white/15 pt-5" aria-label="Platform in numbers">
+              <dl className="mt-8 grid max-w-lg grid-cols-2 gap-4 border-t border-white/15 pt-5 sm:grid-cols-4" aria-label="Platform in numbers">
                 {[
                   [`${stats.services}`, "Services"],
                   [`${stats.verifiedPros}`, "Verified pros"],

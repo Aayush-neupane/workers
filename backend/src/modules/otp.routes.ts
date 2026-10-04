@@ -8,6 +8,7 @@ import { calcCommission } from "../utils/money.js";
 import { generateOtp, hashOtp, otpExpiry, OTP_MAX_ATTEMPTS } from "../utils/otp.js";
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
+import { resolveBookingId } from "../utils/booking.js";
 
 const router = Router();
 
@@ -21,9 +22,11 @@ router.post("/bookings/:id/otp/issue", requireAuth, ah(async (req, res) => {
   const uid = req.user!.id;
   const roles = req.user!.roles;
   const isAdmin = roles.includes("ADMIN");
+  const bookingId = await resolveBookingId({ query }, id);
+  if (!bookingId) return res.status(404).json({ error: "Not found" });
   const r = await query<{
     id: string; status: string; customer_id: string; worker_id: string | null;
-  }>(`SELECT id, status, customer_id, worker_id FROM bookings WHERE id = $1 OR booking_no = $1`, [id]);
+  }>(`SELECT id, status, customer_id, worker_id FROM bookings WHERE id = $1`, [bookingId]);
   if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
   const b = r.rows[0];
   const isWorker = b.worker_id === uid && roles.includes("WORKER");
@@ -72,10 +75,12 @@ router.post(
     const uid = req.user!.id;
     const roles = req.user!.roles;
     const isAdmin = roles.includes("ADMIN");
-    const r = await query<{
-      id: string; status: string; customer_id: string; worker_id: string | null;
-      estimate_paisa: string; commission_bps: number;
-    }>(`SELECT * FROM bookings WHERE id = $1 OR booking_no = $1`, [id]);
+  const bookingId = await resolveBookingId({ query }, id);
+  if (!bookingId) return res.status(404).json({ error: "Not found" });
+  const r = await query<{
+    id: string; status: string; customer_id: string; worker_id: string | null;
+    estimate_paisa: string; commission_bps: number;
+  }>(`SELECT * FROM bookings WHERE id = $1`, [bookingId]);
     if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const b = r.rows[0];
     const isWorker = b.worker_id === uid && roles.includes("WORKER");

@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth.js";
 import {
   OUTSIDE_DAMAK, closedWardMessage, isDamakCity, parseWard,
 } from "../utils/coverage.js";
+import { resolveBookingId } from "../utils/booking.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -60,8 +61,10 @@ router.post(
   })),
   ah(async (req, res) => {
     const f = req.body as { bookingId: string; rating: number; text: string };
+    const bookingId = await resolveBookingId({ query }, f.bookingId);
+    if (!bookingId) return res.status(404).json({ error: "Not found" });
     const b = await query<{ id: string; customer_id: string; worker_id: string | null; status: string }>(
-      `SELECT id, customer_id, worker_id, status FROM bookings WHERE id = $1 OR booking_no = $1`, [f.bookingId]);
+      `SELECT id, customer_id, worker_id, status FROM bookings WHERE id = $1`, [bookingId]);
     if (b.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const booking = b.rows[0];
     if (booking.customer_id !== req.user!.id) return res.status(403).json({ error: "Forbidden" });

@@ -1,5 +1,4 @@
 import type { PoolClient, QueryResultRow } from "pg";
-import { query } from "../db/pool.js";
 import { referralCodeFor, normalizeReferral } from "../utils/referral.js";
 
 type Run = Pick<PoolClient, "query">;
@@ -37,17 +36,20 @@ export async function redeemReferralCode(run: Run, rawCode: string, refereeEmail
 /**
  * After a customer's FIRST completed booking, pay the referral bonus to both
  * sides (amounts from platform settings, default 50 pts). Idempotent.
+ * NOTE: all reads use the caller's transaction client — the completion itself
+ * is uncommitted at this point, so pool reads would miss it.
  */
 export async function maybeRewardReferral(client: Run, customerId: string): Promise<void> {
-  const use = await query(
+  const use = await client.query(
     `SELECT code FROM referral_uses WHERE referee_user_id = $1 AND rewarded = false`, [customerId]);
   if ((use.rowCount ?? 0) === 0) return;
-  const done = await query<{ n: number }>(
+  const done = await client.query(
     `SELECT COUNT(*)::int AS n FROM bookings WHERE customer_id = $1 AND status = 'completed'`, [customerId]);
-  if (done.rows[0].n !== 1) return; // qualifying event = first completion only
-  const settings = await query<{ value: Record<string, number> }>(`SELECT value FROM settings WHERE id = 'platform'`);
-  const bonus = settings.rows[0]?.value.referralBonus ?? 50;
-  const owner = await query<{ owner_user_id: string }>(
+  if ((done.rows[0] as { n: number }).n !== 1) return; // qualifying event = first completion only
+  const settings = await client.query(
+    `SELECT value FROM settings WHERE id = 'platform'`);
+  const bonus = ((settings.rows[0] as { value: Record<string, number> } | undefined)?.value.referralBonus) ?? 50;
+  const owner = await client.query(
     `SELECT owner_user_id FROM referral_codes WHERE code = $1`, [(use.rows[0] as { code: string }).code]);
   if ((owner.rowCount ?? 0) === 0) return;
   const ownerId = (owner.rows[0] as { owner_user_id: string }).owner_user_id;
