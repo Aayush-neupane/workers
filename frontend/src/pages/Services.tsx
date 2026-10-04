@@ -65,7 +65,7 @@ export default function Services() {
                   <p className="mt-1 line-clamp-2 text-sm text-on-surface-variant">{s.description}</p>
                   <p className="mt-3">
                     {s.pricing_model === "custom-quote" || s.pricing_model === "inspection-quote"
-                      ? <span className="text-sm font-bold text-secondary">Custom quote</span>
+                      ? <span className="text-sm font-bold text-marigold-700">Custom quote</span>
                       : <Price paisa={s.base_price_paisa} />}
                   </p>
                   <span className="mt-3 inline-block"><Button variant="outline">View & book</Button></span>

@@ -291,6 +291,23 @@ export function Shell({ children }: { children: ReactNode }) {
             <Link to="/cookies" className="mt-2 inline-block text-sm font-bold text-marigold-300 hover:underline">Cookie preferences</Link>
           </div>
         </div>
+        <div className="border-t border-white/10">
+          <div className="wrap flex flex-col items-center justify-between gap-3 py-4 text-xs text-white/70 sm:flex-row">
+            <p>© 2026 Sajilo Damak · Damak, Jhapa</p>
+            <a
+              href="https://dynamic-aayush38.netlify.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Aayush Neupane — portfolio"
+              className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1.5 font-semibold text-white/85 transition hover:border-marigold-300 hover:text-marigold-300"
+            >
+              <span aria-hidden="true" className="grid size-5 place-items-center rounded-full bg-marigold-300 font-display text-[10px] font-bold text-pine-950">
+                A
+              </span>
+              Developed by <span className="font-extrabold text-white">Aayush Neupane</span>
+            </a>
+          </div>
+        </div>
       </footer>
     </div>
   );

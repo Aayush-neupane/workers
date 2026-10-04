@@ -62,7 +62,7 @@ function CoverContent({ mode }: { mode: "signin" | "signup" }) {
           )}
         </Link>
       </div>
-      <p className="text-xs leading-relaxed text-white/55">
+      <p className="text-xs leading-relaxed text-white/70">
         Damak-5, Himal Chowk · Sun–Sat · Cash, eSewa & Khalti where configured
       </p>
     </div>
@@ -142,7 +142,29 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
                 {busy && !signup ? "Please wait…" : "Sign in"}
               </Button>
             </form>
-            <ul className="mt-5 space-y-2 border-t border-outline pt-4 text-[13px] text-on-surface-variant">
+            <div className="mt-4 rounded-md border border-dashed border-outline bg-surface-container/50 p-3">
+              <p className="text-[11px] font-extrabold tracking-widest text-on-surface-variant uppercase">Quick demo access — tap to fill</p>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                {[
+                  { label: "Client", email: "gita@demo.local", password: "Demo1234!" },
+                  { label: "Pro", email: "bijay@demo.local", password: "Demo1234!" },
+                  { label: "Admin", email: "admin@sajilo.local", password: "ChangeMe123!" },
+                ].map((a) => (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={() => {
+                      loginForm.setValue("email", a.email);
+                      loginForm.setValue("password", a.password);
+                    }}
+                    className="rounded-md border border-outline bg-white px-2 py-2 text-xs font-extrabold transition hover:border-primary active:scale-[0.97]"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ul className="mt-4 space-y-2 border-t border-outline pt-4 text-[13px] text-on-surface-variant">
               {[
                 "Live tracking from request to completion code",
                 "OTP-secured closing — no code, no completion",
