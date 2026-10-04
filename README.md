@@ -28,8 +28,11 @@ by role. Role enforcement always happens server-side; the host split is UX.
 ## Quick start
 
 ```bash
-# 1. Database (local Postgres)
-createdb sajilo && npm --prefix backend run db:migrate && npm --prefix backend run db:seed
+# 1. Database (local Postgres 16)
+createdb sajilo
+npm --prefix backend run db:migrate   # schema + migrations
+npm --prefix backend run db:seed       # roles, settings, catalog, admin
+npm --prefix backend run db:seed-demo  # demo customers, pros, bookings, quotes (local only)
 
 # 2. Backend (new terminal)
 cp .env.example backend/.env   # then edit secrets
