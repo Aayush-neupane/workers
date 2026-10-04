@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, ArrowRight, ShieldCheck, MapPin } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
 import { MapPicker } from "../components/MapPicker";
+import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
 import type { Pin } from "../lib/geo";
@@ -160,13 +161,20 @@ export default function Book() {
                 <Button onClick={saveQuickAddress}>Save & continue</Button>
               </div>
             ) : step === 0 ? (
-              <Field label="Service address (Damak only)" error={errors.addressId?.message}>
-                <Select {...register("addressId")}>
-                  {addresses.map((a) => (
-                    <option key={a.id} value={a.id}>{a.label} — {a.line}, {a.city}{a.ward ? ` (Ward ${a.ward})` : ""}</option>
-                  ))}
-                </Select>
-              </Field>
+              <>
+                <Field label="Service address (Damak only)" error={errors.addressId?.message}>
+                  <Select {...register("addressId")}>
+                    {addresses.map((a) => (
+                      <option key={a.id} value={a.id}>{a.label} — {a.line}, {a.city}{a.ward ? ` (Ward ${a.ward})` : ""}</option>
+                    ))}
+                  </Select>
+                </Field>
+                {address?.lat != null && address?.lng != null && (
+                  <div className="mt-3">
+                    <MiniMap pin={{ lat: address.lat, lng: address.lng }} height={150} />
+                  </div>
+                )}
+              </>
             ) : null}
             {step === 1 && (
               <fieldset>

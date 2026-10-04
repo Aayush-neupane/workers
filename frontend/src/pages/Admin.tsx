@@ -217,6 +217,21 @@ function Overview({ go }: { go: (t: Tab) => void }) {
 
 const STATUSES = ["", "pending", "awaiting-worker", "confirmed", "en-route", "in-progress", "awaiting-confirmation", "disputed", "completed", "cancelled"];
 
+/** How long an unassigned booking has waited — aging work gets flagged. */
+function AgeBadge({ createdAt, status, assigned }: { createdAt: string; status: string; assigned: boolean }) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(createdAt).getTime()) / 60000));
+  const label = mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  const aging = !assigned && ["pending", "awaiting-worker"].includes(status) && mins >= 120;
+  const stale = !assigned && ["pending", "awaiting-worker"].includes(status) && mins >= 30;
+  return (
+    <span title={new Date(createdAt).toLocaleString()}>
+      {aging ? <Badge tone="error">Aging · {label}</Badge>
+        : stale ? <Badge tone="warning">{label}</Badge>
+        : <span className="text-on-surface-variant">{label}</span>}
+    </span>
+  );
+}
+
 function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
   const [status, setStatus] = useState("");
   const [list, setList] = useState<Record<string, string>[]>([]);
@@ -238,10 +253,13 @@ function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
           </button>
         ))}
       </div>
-      <Table head={["Booking", "Slot", "Service", "Customer", "Pro", "Status", ""]}>
+      <Table head={["Booking", "Waiting", "Slot", "Service", "Customer", "Pro", "Status", ""]}>
         {list.map((b) => (
           <tr key={b.id} className="border-t border-outline/60">
             <td className="px-4 py-2.5 font-mono text-xs">{b.booking_no}</td>
+            <td className="px-4 py-2.5 text-xs">
+              <AgeBadge createdAt={b.created_at} status={b.status} assigned={Boolean(b.worker_id)} />
+            </td>
             <td className="px-4 py-2.5 text-xs">{formatSlot(b.slot)}</td>
             <td className="px-4 py-2.5">{b.service_name}</td>
             <td className="px-4 py-2.5">{b.customer_name}</td>
@@ -309,8 +327,13 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
             </dl>
             <p className="mt-2 rounded-md bg-surface-container p-2.5 text-xs">{String(b.instructions || "No instructions")}</p>
             {typeof b.lat === "number" && typeof b.lng === "number" && (
-              <div className="mt-2">
+              <div className="mt-2 space-y-1.5">
                 <MiniMap pin={{ lat: b.lat as number, lng: b.lng as number }} height={160} />
+                <a href={`https://www.openstreetmap.org/directions?to=${b.lat}%2C${b.lng}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="inline-block text-sm font-bold text-primary hover:underline">
+                  Get directions <span aria-hidden="true">↗</span>
+                </a>
               </div>
             )}
           </Card>

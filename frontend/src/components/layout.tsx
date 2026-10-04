@@ -3,6 +3,7 @@ import { Menu, X, MapPin, Phone, House, LayoutGrid, CalendarCheck, CircleUser, C
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../lib/auth";
 import { homeFor } from "../lib/auth";
+import { NoticeBell } from "./NoticeBell";
 import type { Role } from "../lib/types";
 
 /** Primary links per audience — pros and admins get portal nav, never the public marketing set. */
@@ -245,7 +246,10 @@ export function Shell({ children }: { children: ReactNode }) {
           </nav>
           <div className="hidden items-center gap-2 md:flex">
             {user ? (
-              <AccountMenu />
+              <>
+                <NoticeBell />
+                <AccountMenu />
+              </>
             ) : (
               <>
                 <Link to="/signin" className="rounded-md px-3 py-2 text-sm font-bold hover:bg-surface-container">Sign in</Link>
@@ -253,9 +257,12 @@ export function Shell({ children }: { children: ReactNode }) {
               </>
             )}
           </div>
-          <button className="rounded-md p-2 md:hidden" onClick={() => setMenuOpen(true)} aria-label="Open menu" aria-expanded={menuOpen}>
-            <Menu size={22} />
-          </button>
+          <div className="flex items-center gap-1 md:hidden">
+            {user && <NoticeBell />}
+            <button className="rounded-md p-2" onClick={() => setMenuOpen(true)} aria-label="Open menu" aria-expanded={menuOpen}>
+              <Menu size={22} />
+            </button>
+          </div>
         </div>
       </header>
       {menuOpen && <MobileMenu links={links} onNavigate={() => setMenuOpen(false)} />}

@@ -35,15 +35,18 @@ export function createApp() {
     rateLimit({ windowMs: 60_000, max: 60 }),
     authRoutes,
   );
+  // Mount order matters: public and self-guarded routers first. Routers with
+  // router-level guards (account, worker) must come last so they never
+  // swallow routes that carry their own auth.
   app.use("/api", rateLimit({ windowMs: 60_000, max: 600 }), publicRoutes);
+  app.use("/api", paymentRoutes);
+  app.use("/api", pushRoutes);
   app.use("/api", accountRoutes);
   app.use("/api", bookingRoutes);
   app.use("/api", otpRoutes);
   app.use("/api", quoteRoutes);
   app.use("/api", workerRoutes);
   app.use("/api", adminRoutes);
-  app.use("/api", paymentRoutes);
-  app.use("/api", pushRoutes);
 
   app.get("/health", (_req, res) => res.json({ ok: true, zone: "Damak" }));
 

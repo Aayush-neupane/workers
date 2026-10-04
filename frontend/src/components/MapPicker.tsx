@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Search, Satellite, Map as MapIcon, X, Check } from "lucide-react";
+import { Search, Satellite, Map as MapIcon, X, Check, Crosshair } from "lucide-react";
 import { Button } from "./ui";
-import { DAMAK_CENTER, roundPin, searchPlaces, reverseLabel, type Pin, type SearchHit } from "../lib/geo";
+import { DAMAK_CENTER, roundPin, searchPlaces, reverseLabel, pinInNepal, type Pin, type SearchHit } from "../lib/geo";
 
 function pineIcon(): L.DivIcon {
   return L.divIcon({
@@ -55,6 +55,8 @@ export function MapPicker({ initial, onConfirm, onClose }: {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [label, setLabel] = useState("");
+  const [locating, setLocating] = useState(false);
+  const [locError, setLocError] = useState("");
 
   // Live reverse label, debounced.
   useEffect(() => {
@@ -102,6 +104,31 @@ export function MapPicker({ initial, onConfirm, onClose }: {
     setQ("");
   }
 
+  function locateMe() {
+    setLocError("");
+    if (!("geolocation" in navigator)) {
+      setLocError("This device has no location service.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (g) => {
+        setLocating(false);
+        const p = roundPin({ lat: g.coords.latitude, lng: g.coords.longitude });
+        if (!pinInNepal(p)) {
+          setLocError("You seem to be outside Nepal — drag the pin to the Damak job site.");
+          return;
+        }
+        setPos(p);
+      },
+      () => {
+        setLocating(false);
+        setLocError("Location blocked — allow access or drag the pin instead.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-3 sm:p-6" role="dialog" aria-label="Pick location on map" aria-modal="true">
       <div className="absolute inset-0 bg-pine-950/70" onClick={onClose} aria-hidden="true" />
@@ -134,7 +161,12 @@ export function MapPicker({ initial, onConfirm, onClose }: {
               <Satellite size={13} aria-hidden="true" /> Satellite
             </button>
           </div>
+          <button onClick={locateMe} disabled={locating}
+            className="flex items-center gap-1.5 rounded-md border border-outline px-3 py-2 text-xs font-extrabold transition hover:border-primary disabled:opacity-50">
+            <Crosshair size={14} aria-hidden="true" /> {locating ? "Locating…" : "Locate me"}
+          </button>
         </div>
+        {locError && <p role="alert" className="px-4 pt-2 text-xs font-medium text-error">{locError}</p>}
         {hits.length > 0 && (
           <ul className="mx-4 mt-2 overflow-hidden rounded-md border border-outline" aria-label="Search results">
             {hits.map((h) => (

@@ -277,7 +277,14 @@ function JobCard({ job, onDone, onMsg }: {
           </div>
           <p className="rounded-md bg-white p-3"><strong>Instructions:</strong> {job.instructions || "—"}</p>
           {job.lat != null && job.lng != null && (
-            <MiniMap pin={{ lat: job.lat, lng: job.lng }} height={160} />
+            <>
+              <MiniMap pin={{ lat: job.lat, lng: job.lng }} height={160} />
+              <a href={`https://www.openstreetmap.org/directions?to=${job.lat}%2C${job.lng}`}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex w-fit items-center gap-1 text-sm font-bold text-primary hover:underline">
+                Get directions <span aria-hidden="true">↗</span>
+              </a>
+            </>
           )}
           <div className="flex flex-wrap gap-2">
             {next && <Button onClick={() => move(job.id, next.to, onDone, onMsg)}>{next.label}</Button>}
