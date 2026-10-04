@@ -19,7 +19,16 @@ const Track = lazy(() => import("./pages/Track"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Rewards = lazy(() => import("./pages/Rewards"));
 const Worker = lazy(() => import("./pages/Worker"));
-const Admin = lazy(() => import("./pages/Admin"));
+const AdminOverview = lazy(() => import("./pages/admin/Overview"));
+const AdminBookings = lazy(() => import("./pages/admin/Bookings"));
+const AdminVerify = lazy(() => import("./pages/admin/Verify"));
+const AdminPeople = lazy(() => import("./pages/admin/People"));
+const AdminServices = lazy(() => import("./pages/admin/Services"));
+const AdminFinance = lazy(() => import("./pages/admin/Finance"));
+const AdminRewards = lazy(() => import("./pages/admin/Rewards"));
+const AdminSupport = lazy(() => import("./pages/admin/Support"));
+const AdminAudit = lazy(() => import("./pages/admin/Audit"));
+const AdminShell = lazy(() => import("./components/AdminNav").then((m) => ({ default: m.AdminShell })));
 const Support = lazy(() => import("./pages/Support"));
 const LegalTerms = lazy(() => import("./pages/Legal").then((m) => ({ default: m.Terms })));
 const LegalPrivacy = lazy(() => import("./pages/Legal").then((m) => ({ default: m.Privacy })));
@@ -84,7 +93,39 @@ export default function App() {
                 />
                 <Route
                   path="/admin"
-                  element={<Protected roles={["admin"]}><Admin /></Protected>}
+                  element={<Protected roles={["admin"]}><AdminShell><AdminOverview /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/bookings"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminBookings /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/verify"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminVerify /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/people"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminPeople /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/services"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminServices /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/finance"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminFinance /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/rewards"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminRewards /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/support"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminSupport /></AdminShell></Protected>}
+                />
+                <Route
+                  path="/admin/audit"
+                  element={<Protected roles={["admin"]}><AdminShell><AdminAudit /></AdminShell></Protected>}
                 />
                 <Route path="*" element={<NotFound />} />
               </Routes>
