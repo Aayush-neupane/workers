@@ -1,8 +1,39 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Menu, X, MapPin, Phone } from "lucide-react";
+import { Menu, X, MapPin, Phone, House, LayoutGrid, CalendarCheck, CircleUser } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useAuth } from "../lib/auth";
 import { homeFor } from "../lib/auth";
+
+/** Mobile bottom tab bar — Home, Services, My Jobs, Account. */
+function BottomNav() {
+  const { user, role } = useAuth();
+  const jobsTo = role === "admin" ? "/admin" : role === "worker" ? "/worker" : "/dashboard";
+  const accountTo = user ? "/profile" : "/signin";
+  const tabs = [
+    { to: "/", label: "Home", Icon: House, end: true },
+    { to: "/services", label: "Services", Icon: LayoutGrid, end: false },
+    { to: jobsTo, label: role === "worker" ? "My Jobs" : role === "admin" ? "Admin" : "Bookings", Icon: CalendarCheck, end: false },
+    { to: accountTo, label: "Account", Icon: CircleUser, end: false },
+  ];
+  return (
+    <nav aria-label="Bottom"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-outline bg-surface/95 backdrop-blur md:hidden"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <div className="grid grid-cols-4">
+        {tabs.map(({ to, label, Icon, end }) => (
+          <NavLink key={label} to={to} end={end}
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 py-2 text-[11px] font-bold transition active:scale-95 ${
+                isActive ? "text-primary" : "text-on-surface-variant"
+              }`}>
+            <Icon size={21} aria-hidden="true" />
+            {label}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  );
+}
 
 export function Shell({ children }: { children: ReactNode }) {
   const { user, role, signOut } = useAuth();
@@ -77,7 +108,8 @@ export function Shell({ children }: { children: ReactNode }) {
           </nav>
         )}
       </header>
-      <main id="content" className="flex-1">{children}</main>
+      <main id="content" className="flex-1 pb-20 md:pb-0">{children}</main>
+      <BottomNav />
       <footer className="mt-12 border-t border-outline/60 bg-pine-950 text-white">
         <div className="wrap grid gap-8 py-10 md:grid-cols-4">
           <div>

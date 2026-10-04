@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Star } from "lucide-react";
+import { Star, WifiOff } from "lucide-react";
 import { Badge, Button, Card, EmptyState, PageHero, Price, TextField, Select } from "../components/ui";
 import { api } from "../lib/api";
 import type { Category, Service } from "../lib/types";
@@ -12,22 +12,29 @@ export default function Services() {
   const [q, setQ] = useState(params.get("q") ?? "");
   const category = params.get("category") ?? "";
   const [sort, setSort] = useState("popular");
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    api<{ categories: Category[] }>("/api/categories").then((d) => setCats(d.categories)).catch(() => {});
+    api<{ categories: Category[] }>("/api/categories").then((d) => setCats(d.categories)).catch(() => setLoadError(true));
   }, []);
 
   useEffect(() => {
     const qs = new URLSearchParams({ sort });
     if (q) qs.set("q", q);
     if (category) qs.set("category", category);
-    api<{ services: Service[] }>(`/api/services?${qs}`).then((d) => setServices(d.services)).catch(() => {});
+    api<{ services: Service[] }>(`/api/services?${qs}`).then((d) => { setServices(d.services); setLoadError(false); }).catch(() => setLoadError(true));
   }, [q, category, sort]);
 
   return (
     <div className="fade-up">
       <PageHero eyebrow="Damak only" title="Services" body="Every listing is configured and priced by our team. Estimates are marked; confirmed prices are agreed before work closes." />
       <div className="wrap py-8">
+        {loadError && (
+          <p role="alert" className="mb-4 flex items-center gap-2 rounded-md bg-error-container p-3.5 text-sm font-medium text-error">
+            <WifiOff size={16} aria-hidden="true" />
+            Couldn't reach the server — is the API running on :4001 with the database migrated and seeded?
+          </p>
+        )}
         <div className="flex flex-col gap-3 md:flex-row">
           <TextField value={q} onChange={(e) => { setQ(e.target.value); setParams((p) => { e.target.value ? p.set("q", e.target.value) : p.delete("q"); return p; }); }} placeholder="Search services…" aria-label="Search services" />
           <div className="flex gap-3">

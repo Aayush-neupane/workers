@@ -206,15 +206,13 @@ for (const b of bookings) {
     );
   }
 }
-await query(
-  `INSERT INTO reward_ledger(user_id, points, kind, reason) VALUES ($1, -100, 'redeem', 'Discount used')`,
-  [gita],
-);
+// Note: no redeem entry here — redemptions happen at real checkouts
+// (gita's earned balance must stay non-negative for the demo).
 
 // ---------- Quote request (Mode B) + proposal ----------
 const paintCat = (await query<{ id: string }>(`SELECT id FROM categories WHERE slug = 'painting'`)).rows[0].id;
 const qr = await query<{ id: string }>(
-  `INSERT INTO quote_requests(customer_id, category_id, title, description, window_start, window_end, ward, landmark, status)
+  `INSERT INTO quote_requests(customer_id, category_id, title, description, window_start, window_end, ward, landmark)
    VALUES ($1, $2, 'Repaint two bedrooms', 'Two 12x14 rooms, ceiling cracks in one, paint not on site.',
      now() + interval '3 days', now() + interval '5 days', 5, 'Damak-5, near Himal Chowk')
    RETURNING id`,

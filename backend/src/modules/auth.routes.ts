@@ -19,7 +19,7 @@ const registerSchema = z.object({
 
 /** Public registration creates CUSTOMERs only — roles are never client-assignable. */
 router.post(
-  "/auth/register",
+  "/register",
   validate(registerSchema),
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof registerSchema>;
@@ -54,7 +54,7 @@ router.post(
 );
 
 router.post(
-  "/auth/login",
+  "/login",
   validate(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1) })),
   ah(async (req, res) => {
     const f = req.body as { email: string; password: string };
@@ -73,17 +73,17 @@ router.post(
   }),
 );
 
-router.post("/auth/logout", ah(async (_req, res) => {
+router.post("/logout", ah(async (_req, res) => {
   clearSession(res);
   return res.json({ ok: true });
 }));
 
-router.get("/auth/me", requireAuth, ah(async (req, res) => {
+router.get("/me", requireAuth, ah(async (req, res) => {
   return res.json({ user: req.user });
 }));
 
 router.patch(
-  "/auth/me",
+  "/me",
   requireAuth,
   validate(z.object({ name: z.string().trim().min(2).max(80), phone: z.string().trim().min(10).max(20) })),
   ah(async (req, res) => {

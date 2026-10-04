@@ -59,6 +59,29 @@ body {
 .elev-1 { box-shadow: 0 1px 2px rgb(23 33 27 / 0.07), 0 3px 12px rgb(23 33 27 / 0.06); }
 .elev-2 { box-shadow: 0 2px 6px rgb(23 33 27 / 0.08), 0 10px 30px rgb(23 33 27 / 0.1); }
 
+.elev-lift { transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease; }
+.elev-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 10px rgb(23 33 27 / 0.1), 0 18px 44px rgb(23 33 27 / 0.14);
+}
+
+.dotgrid {
+  background-image: radial-gradient(rgb(14 59 38 / 0.14) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+}
+
+.dotgrid-light {
+  background-image: radial-gradient(rgb(255 255 255 / 0.16) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+}
+
+.ring-band {
+  background:
+    radial-gradient(1100px 380px at 85% -10%, rgb(233 163 25 / 0.22), transparent 60%),
+    radial-gradient(900px 420px at 8% 110%, rgb(215 242 226 / 0.14), transparent 55%),
+    var(--color-pine-950);
+}
+
 .fade-up { animation: fade-up 0.45s ease both; }
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(10px); }

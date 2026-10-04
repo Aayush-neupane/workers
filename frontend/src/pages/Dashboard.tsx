@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, PageHero, Price } from "../components/ui";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
-import type { Address, Booking, QuoteRequest } from "../lib/types";
+import type { Booking, QuoteRequest } from "../lib/types";
 
 export default function Dashboard() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -121,4 +121,3 @@ export default function Dashboard() {
   );
 }
 
-export type { Address };
