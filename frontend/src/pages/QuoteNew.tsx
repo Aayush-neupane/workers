@@ -1,0 +1,85 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Button, Card, Field, PageHero, Select, TextArea, TextField } from "../components/ui";
+import { api, post } from "../lib/api";
+import type { Category } from "../lib/types";
+
+const schema = z.object({
+  categoryId: z.string().optional(),
+  title: z.string().trim().min(8, "Give the job a clear title"),
+  description: z.string().trim().min(20, "Describe the job in detail (20+ characters)"),
+  landmark: z.string().trim().min(5, "Enter ward and landmark"),
+  windowStart: z.string().min(1, "Pick a start"),
+  windowEnd: z.string().min(1, "Pick an end"),
+});
+
+export default function QuoteNew() {
+  const navigate = useNavigate();
+  const [cats, setCats] = useState<Category[]>([]);
+  const [error, setError] = useState("");
+  const form = useForm<z.infer<typeof schema>>({
+    resolver: zodResolver(schema),
+    defaultValues: { title: "", description: "", landmark: "", windowStart: "", windowEnd: "" },
+  });
+
+  useEffect(() => {
+    api<{ categories: Category[] }>("/api/categories").then((d) => setCats(d.categories)).catch(() => {});
+  }, []);
+
+  async function submit(f: z.infer<typeof schema>) {
+    setError("");
+    try {
+      await post("/api/quotes/requests", {
+        ...f,
+        categoryId: f.categoryId || undefined,
+        windowStart: new Date(f.windowStart).toISOString(),
+        windowEnd: new Date(f.windowEnd).toISOString(),
+        photos: [],
+      });
+      navigate("/dashboard");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not submit request");
+    }
+  }
+
+  return (
+    <div className="fade-up">
+      <PageHero eyebrow="Mode B · Complex jobs" title="Request a quote"
+        body="Describe the job, verified pros propose fixed prices, you compare and pick. Your exact address stays hidden until you accept." />
+      <div className="wrap py-8">
+        <Card className="mx-auto max-w-2xl p-6 md:p-8">
+          <form className="space-y-4" onSubmit={form.handleSubmit(submit)}>
+            <Field label="Category" hint="Pick the closest trade.">
+              <Select {...form.register("categoryId")}>
+                <option value="">General / unsure</option>
+                {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Job title" error={form.formState.errors.title?.message}>
+              <TextField {...form.register("title")} placeholder="e.g. Repaint two bedrooms and repair ceiling cracks" />
+            </Field>
+            <Field label="Details" error={form.formState.errors.description?.message} hint="Scope, sizes, materials on site, access constraints.">
+              <TextArea {...form.register("description")} placeholder="Room sizes, paint condition, parking for the team…" />
+            </Field>
+            <Field label="Ward & landmark (Damak only)" error={form.formState.errors.landmark?.message} hint="Pros see the ward, not your exact address, until you accept.">
+              <TextField {...form.register("landmark")} placeholder="Damak-5, near Himal Chowk" />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Preferred window start" error={form.formState.errors.windowStart?.message}>
+                <TextField {...form.register("windowStart")} type="datetime-local" />
+              </Field>
+              <Field label="Preferred window end" error={form.formState.errors.windowEnd?.message}>
+                <TextField {...form.register("windowEnd")} type="datetime-local" />
+              </Field>
+            </div>
+            {error && <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{error}</p>}
+            <Button type="submit" className="w-full">Submit request</Button>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}

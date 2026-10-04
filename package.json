@@ -1,0 +1,21 @@
+{
+  "name": "sajilo-damak",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Damak-only service marketplace — Ramro Sewa, Sajilo Jeevan.",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace backend run dev",
+    "dev:frontend": "npm --workspace frontend run dev",
+    "build": "npm --workspace backend run build && npm --workspace frontend run build",
+    "typecheck": "npm --workspace backend run typecheck && npm --workspace frontend run typecheck",
+    "test": "npm --workspace backend run test",
+    "lint": "npm --workspace frontend run lint"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
