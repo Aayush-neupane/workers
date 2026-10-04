@@ -5,6 +5,12 @@ import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth } from "../middleware/auth.js";
 import { bookingKey } from "../utils/lookup.js";
+import {
+  OUTSIDE_DAMAK,
+  closedWardMessage,
+  isDamakCity,
+  parseWard,
+} from "../utils/coverage.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -24,6 +30,7 @@ const addressSchema = z.object({
   label: z.string().trim().min(2).max(40),
   line: z.string().trim().min(5).max(300),
   city: z.string().trim().max(60).default("Damak"),
+  ward: z.number().int().min(1).max(10).nullable().optional(),
   phone: z.string().trim().min(10).max(20),
 });
 
@@ -32,6 +39,20 @@ router.post(
   validate(addressSchema),
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof addressSchema>;
+    // Strict Damak-only gate: never trust the client city at face value.
+    if (!isDamakCity(f.city)) {
+      return res.status(400).json({ error: OUTSIDE_DAMAK });
+    }
+    const ward = f.ward ?? parseWard(f.line);
+    if (ward !== null) {
+      const open = await query<{ is_open: boolean }>(
+        `SELECT is_open FROM coverage_wards WHERE ward = $1`,
+        [ward],
+      );
+      if (open.rowCount === 0 || open.rows[0].is_open === false) {
+        return res.status(400).json({ error: closedWardMessage(ward) });
+      }
+    }
     const n = await query(`SELECT COUNT(*)::int AS n FROM addresses WHERE user_id = $1`, [
       req.user!.id,
     ]);
@@ -39,8 +60,8 @@ router.post(
       return res.status(400).json({ error: "Maximum 5 addresses" });
     }
     const r = await query(
-      `INSERT INTO addresses(user_id, label, line, city, phone) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [req.user!.id, f.label, f.line, f.city, f.phone],
+      `INSERT INTO addresses(user_id, label, line, city, ward, phone) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [req.user!.id, f.label, f.line, "Damak", ward, f.phone],
     );
     return res.status(201).json({ address: r.rows[0] });
   }),
