@@ -28,21 +28,16 @@ function ClickToMove({ onPick }: { onPick: (p: Pin) => void }) {
 
 function Recenter({ pos }: { pos: Pin }) {
   const map = useMap();
-  const first = useRef(true);
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
     map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 15));
   }, [map, pos]);
   return null;
 }
 
 /**
- * Damak pin picker in a dialog: tap or drag the pin, or search a place
- * (biased to Damak). Confirm hands the pin back — the address text stays
- * the source of truth, the pin is a dispatch aid.
+ * Damak pin picker: search a place, tap the map, or drag the pin —
+ * streets and satellite layers, live address label, confirm hands the pin
+ * back. The address text stays the source of truth; the pin is a dispatch aid.
  */
 export function MapPicker({ initial, onConfirm, onClose }: {
   initial: Pin | null;
@@ -57,15 +52,24 @@ export function MapPicker({ initial, onConfirm, onClose }: {
   const [label, setLabel] = useState("");
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState("");
+  const coords = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  // Live reverse label, debounced.
+  // Live address label for the pin (debounced reverse-geocode).
   useEffect(() => {
     const ctrl = new AbortController();
     const t = window.setTimeout(async () => {
       try {
-        setLabel(await reverseLabel(pos, ctrl.signal));
+        const text = await reverseLabel(pos, ctrl.signal);
+        if (mounted.current) setLabel(text);
       } catch {
-        setLabel("");
+        if (mounted.current) setLabel("");
       }
     }, 600);
     return () => {
@@ -74,7 +78,7 @@ export function MapPicker({ initial, onConfirm, onClose }: {
     };
   }, [pos]);
 
-  // Debounced Damak-biased search.
+  // Place search (debounced, Damak-biased, Nepal-only).
   useEffect(() => {
     const term = q.trim();
     if (term.length < 3) {
@@ -85,11 +89,12 @@ export function MapPicker({ initial, onConfirm, onClose }: {
     setSearching(true);
     const t = window.setTimeout(async () => {
       try {
-        setHits(await searchPlaces(term, ctrl.signal));
+        const found = await searchPlaces(term, ctrl.signal);
+        if (mounted.current) setHits(found);
       } catch {
-        setHits([]);
+        if (mounted.current) setHits([]);
       } finally {
-        setSearching(false);
+        if (mounted.current) setSearching(false);
       }
     }, 500);
     return () => {
@@ -98,21 +103,16 @@ export function MapPicker({ initial, onConfirm, onClose }: {
     };
   }, [q]);
 
-  function pickHit(h: SearchHit) {
-    setPos(roundPin({ lat: Number(h.lat), lng: Number(h.lon) }));
-    setHits([]);
-    setQ("");
-  }
-
   function locateMe() {
     setLocError("");
     if (!("geolocation" in navigator)) {
-      setLocError("This device has no location service.");
+      setLocError("This device has no location service — drag the pin instead.");
       return;
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (g) => {
+        if (!mounted.current) return;
         setLocating(false);
         const p = roundPin({ lat: g.coords.latitude, lng: g.coords.longitude });
         if (!pinInNepal(p)) {
@@ -122,6 +122,7 @@ export function MapPicker({ initial, onConfirm, onClose }: {
         setPos(p);
       },
       () => {
+        if (!mounted.current) return;
         setLocating(false);
         setLocError("Location blocked — allow access or drag the pin instead.");
       },
@@ -130,31 +131,31 @@ export function MapPicker({ initial, onConfirm, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center p-3 sm:p-6" role="dialog" aria-label="Pick location on map" aria-modal="true">
-      <div className="absolute inset-0 bg-pine-950/70" onClick={onClose} aria-hidden="true" />
-      <div className="relative flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between gap-2 border-b border-outline/60 px-4 py-3">
-          <p className="font-extrabold">Pin your location — Damak</p>
-          <button onClick={onClose} aria-label="Close map" className="rounded-md p-1.5 hover:bg-surface-container">
-            <X size={20} />
-          </button>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-pine-950/60 p-3 sm:p-4" role="dialog" aria-label="Pick location on map" aria-modal="true">
+      <div className="flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-outline/60 px-5 py-3.5">
+          <div>
+            <p className="font-display text-xl font-semibold">Pin the job spot</p>
+            <p className="text-xs text-on-surface-variant">Search, tap, or drag — Damak wards 1–10.</p>
+          </div>
+          <button onClick={onClose} aria-label="Close map" className="rounded-md p-1.5 text-xl leading-none hover:bg-surface-container">×</button>
         </div>
-        <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
-          <div className="flex flex-1 items-center gap-2 rounded-md border border-outline px-3 py-2">
+
+        <div className="flex flex-wrap gap-2 border-b border-outline/60 px-5 py-2.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-outline px-3 py-2">
             <Search size={16} aria-hidden="true" className="shrink-0 text-on-surface-variant" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search a place in Damak…"
+              placeholder="Search places in Damak…"
               aria-label="Search places"
-              className="w-full bg-transparent text-sm outline-none"
+              className="w-full min-w-0 bg-transparent text-sm outline-none"
             />
-            {searching && <span className="text-xs text-on-surface-variant">…</span>}
           </div>
-          <div className="flex rounded-md border border-outline p-0.5 text-xs font-bold" role="group" aria-label="Map layer">
+          <div className="flex shrink-0 rounded-md border border-outline p-0.5 text-xs font-bold" role="group" aria-label="Map layer">
             <button onClick={() => setLayer("streets")}
               className={`flex items-center gap-1 rounded px-2.5 py-1.5 ${layer === "streets" ? "bg-pine-950 text-white" : "text-on-surface-variant"}`}>
-              <MapIcon size={13} aria-hidden="true" /> Streets
+              <MapIcon size={13} aria-hidden="true" /> Map
             </button>
             <button onClick={() => setLayer("satellite")}
               className={`flex items-center gap-1 rounded px-2.5 py-1.5 ${layer === "satellite" ? "bg-pine-950 text-white" : "text-on-surface-variant"}`}>
@@ -162,51 +163,62 @@ export function MapPicker({ initial, onConfirm, onClose }: {
             </button>
           </div>
           <button onClick={locateMe} disabled={locating}
-            className="flex items-center gap-1.5 rounded-md border border-outline px-3 py-2 text-xs font-extrabold transition hover:border-primary disabled:opacity-50">
+            className="flex shrink-0 items-center gap-1.5 rounded-md border border-outline px-3 py-2 text-xs font-extrabold transition hover:border-primary disabled:opacity-50">
             <Crosshair size={14} aria-hidden="true" /> {locating ? "Locating…" : "Locate me"}
           </button>
         </div>
-        {locError && <p role="alert" className="px-4 pt-2 text-xs font-medium text-error">{locError}</p>}
-        {hits.length > 0 && (
-          <ul className="mx-4 mt-2 overflow-hidden rounded-md border border-outline" aria-label="Search results">
+        {locError && <p role="alert" className="border-b border-outline/60 px-5 py-1.5 text-xs font-medium text-error">{locError}</p>}
+
+        {searching ? (
+          <p className="border-b border-outline/60 px-5 py-1.5 text-[11px] font-bold tracking-[0.14em] text-on-surface-variant uppercase">Searching…</p>
+        ) : hits.length > 0 ? (
+          <ul className="max-h-36 divide-y divide-outline/60 overflow-y-auto border-b border-outline/60" aria-label="Search results">
             {hits.map((h) => (
               <li key={h.place_id}>
-                <button onClick={() => pickHit(h)} className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-surface-container">
-                  {h.display_name}
+                <button
+                  onClick={() => {
+                    setPos(roundPin({ lat: Number(h.lat), lng: Number(h.lon) }));
+                    setHits([]);
+                    setQ("");
+                  }}
+                  className="block w-full truncate px-5 py-2.5 text-left text-sm hover:bg-surface-container"
+                >
+                  {h.display_name.split(",").slice(0, 3).join(",")}
                 </button>
               </li>
             ))}
           </ul>
-        )}
-        <div className="m-4 overflow-hidden rounded-lg border border-outline" style={{ height: 320 }}>
-          <MapContainer center={[pos.lat, pos.lng]} zoom={15} style={{ height: "100%", width: "100%" }} scrollWheelZoom={false}>
-            {layer === "streets" ? (
-              <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            ) : (
-              <TileLayer attribution="Imagery &copy; Esri"
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
-            )}
-            <Marker position={[pos.lat, pos.lng]} icon={ICON} draggable
-              eventHandlers={{ dragend: (e) => {
-                const m = e.target as L.Marker;
-                const ll = m.getLatLng();
-                setPos(roundPin({ lat: ll.lat, lng: ll.lng }));
-              } }} />
-            <ClickToMove onPick={setPos} />
-            <Recenter pos={pos} />
-          </MapContainer>
+        ) : null}
+
+        <MapContainer center={[pos.lat, pos.lng]} zoom={15} scrollWheelZoom style={{ height: 320, width: "100%", zIndex: 0 }}>
+          {layer === "streets" ? (
+            <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          ) : (
+            <TileLayer attribution="Imagery &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics"
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
+          )}
+          <ClickToMove onPick={setPos} />
+          <Recenter pos={pos} />
+          <Marker
+            position={[pos.lat, pos.lng]}
+            icon={ICON}
+            draggable
+            eventHandlers={{ dragend: (e) => {
+              const m = e.target as L.Marker;
+              const ll = m.getLatLng();
+              setPos(roundPin({ lat: ll.lat, lng: ll.lng }));
+            } }}
+          />
+        </MapContainer>
+
+        <div className="border-t border-outline/60 px-5 py-2.5">
+          <p className="font-mono text-xs tabular-nums">{coords}</p>
+          {label ? <p className="mt-0.5 truncate text-xs text-on-surface-variant">{label.split(",").slice(0, 3).join(",")}</p> : null}
         </div>
-        <div className="border-t border-outline/60 px-4 py-3">
-          <p className="truncate text-xs text-on-surface-variant" aria-live="polite">
-            {label || `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`} · tap or drag the pin
-          </p>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={() => onConfirm(pos, label)}>
-              <Check size={15} aria-hidden="true" /> Use this pin
-            </Button>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-outline/60 px-5 py-3.5">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => onConfirm(pos, label)}>Use this spot</Button>
         </div>
       </div>
     </div>

@@ -25,13 +25,18 @@ export function MiniMap({ pin, center, zoom, height = 180, marker = true }: {
 }) {
   const at = center ?? pin;
   return (
-    <div className="overflow-hidden rounded-lg border border-outline/60" style={{ height }}>
-      <MapContainer key={`${at.lat.toFixed(5)},${at.lng.toFixed(5)}`} center={[at.lat, at.lng]} zoom={zoom ?? 16} style={{ height: "100%", width: "100%" }}
-        dragging={false} scrollWheelZoom={false} doubleClickZoom={false}
-        zoomControl={false} attributionControl={false} keyboard={false}>
-        <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        {marker && <Marker position={[pin.lat, pin.lng]} icon={ICON} interactive={false} />}
-      </MapContainer>
-    </div>
+    <figure className="overflow-hidden rounded-lg border border-outline/60">
+      <div style={{ height }}>
+        <MapContainer key={`${at.lat.toFixed(5)},${at.lng.toFixed(5)}`} center={[at.lat, at.lng]} zoom={zoom ?? 16} style={{ height: "100%", width: "100%" }}
+          dragging={false} scrollWheelZoom={false} doubleClickZoom={false}
+          zoomControl={false} attributionControl={false} keyboard={false}>
+          <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          {marker && <Marker position={[pin.lat, pin.lng]} icon={ICON} interactive={false} />}
+        </MapContainer>
+      </div>
+      <figcaption className="bg-white px-2 py-1 text-right text-[10px] text-on-surface-variant">
+        © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="hover:underline">OpenStreetMap</a> contributors
+      </figcaption>
+    </figure>
   );
 }

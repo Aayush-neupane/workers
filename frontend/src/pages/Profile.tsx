@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { MapPin } from "lucide-react";
+import { Crosshair, MapPin } from "lucide-react";
 import { Button, Card, Field, PageHero, Select, TextField } from "../components/ui";
 import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import type { Pin } from "../lib/geo";
+import { pinInNepal, roundPin, type Pin } from "../lib/geo";
 import type { Address } from "../lib/types";
 
 const addressSchema = z.object({
@@ -26,6 +26,7 @@ export default function Profile() {
   const [saved, setSaved] = useState("");
   const [pin, setPin] = useState<Pin | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   function reload() {
     api<{ addresses: Address[] }>("/api/addresses").then((d) => setAddresses(d.addresses)).catch(() => {});
@@ -62,6 +63,31 @@ export default function Profile() {
   async function remove(id: string) {
     await api(`/api/addresses/${id}`, { method: "DELETE" }).catch(() => {});
     reload();
+  }
+
+  function locateMe() {
+    setAddrError("");
+    if (!("geolocation" in navigator)) {
+      setAddrError("This device has no location service — pin on the map instead.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (g) => {
+        setLocating(false);
+        const p = roundPin({ lat: g.coords.latitude, lng: g.coords.longitude });
+        if (!pinInNepal(p)) {
+          setAddrError("You seem to be outside Nepal — pin your Damak address on the map.");
+          return;
+        }
+        setPin(p);
+      },
+      () => {
+        setLocating(false);
+        setAddrError("Location blocked — allow access or pin on the map instead.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
   }
 
   return (
@@ -103,9 +129,15 @@ export default function Profile() {
             </Field>
             <div>
               <span className="mb-1.5 block text-sm font-semibold">Map pin (optional)</span>
-              <Button type="button" variant="outline" onClick={() => setMapOpen(true)}>
-                <MapPin size={15} aria-hidden="true" /> {pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Pin on map"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => setMapOpen(true)}>
+                  <MapPin size={15} aria-hidden="true" /> {pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Pin on map"}
+                </Button>
+                <Button type="button" variant="outline" onClick={locateMe} disabled={locating}>
+                  <Crosshair size={15} aria-hidden="true" /> {locating ? "Locating…" : pin ? "Re-locate me" : "Locate me"}
+                </Button>
+                {pin && <Button type="button" variant="ghost" onClick={() => setPin(null)}>Clear pin</Button>}
+              </div>
               <p className="mt-1 text-xs text-on-surface-variant">Helps the pro find you. The ward above still decides coverage.</p>
             </div>
             {addrError && <p role="alert" className="text-sm font-medium text-error">{addrError}</p>}
