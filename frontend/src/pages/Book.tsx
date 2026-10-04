@@ -192,6 +192,7 @@ export default function Book() {
                     pin={bookingPin ?? (address?.lat != null && address?.lng != null
                       ? { lat: address.lat, lng: address.lng }
                       : DAMAK_CENTER)}
+                    marker={bookingPin != null || address?.lat != null}
                     height={170}
                   />
                 </div>
@@ -268,6 +269,7 @@ export default function Book() {
                     pin={bookingPin ?? (address?.lat != null && address?.lng != null
                       ? { lat: address.lat, lng: address.lng }
                       : DAMAK_CENTER)}
+                    marker={bookingPin != null || address?.lat != null}
                     height={150}
                   />
                   <p className="mt-1 text-xs text-on-surface-variant">

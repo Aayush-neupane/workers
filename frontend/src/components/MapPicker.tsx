@@ -130,7 +130,7 @@ export function MapPicker({ initial, onConfirm, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-3 sm:p-6" role="dialog" aria-label="Pick location on map" aria-modal="true">
+    <div className="fixed inset-0 z-[60] grid place-items-center p-3 sm:p-6" role="dialog" aria-label="Pick location on map" aria-modal="true">
       <div className="absolute inset-0 bg-pine-950/70" onClick={onClose} aria-hidden="true" />
       <div className="relative flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between gap-2 border-b border-outline/60 px-4 py-3">
