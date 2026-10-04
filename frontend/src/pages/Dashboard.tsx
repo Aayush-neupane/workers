@@ -1,24 +1,45 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { BadgeCheck } from "lucide-react";
 import { Badge, Button, Card, EmptyState, PageHero, Price } from "../components/ui";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
 import type { Booking, QuoteRequest } from "../lib/types";
 
+interface Invite {
+  id: string;
+  name: string;
+  email: string;
+  expires_at: string;
+  created_at: string;
+}
+
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [quotes, setQuotes] = useState<QuoteRequest[]>([]);
   const [balance, setBalance] = useState(0);
   const [notes, setNotes] = useState<{ id: string; title: string; body: string; is_read: boolean }[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
 
   function reload() {
     api<{ bookings: Booking[] }>("/api/bookings/mine").then((d) => setBookings(d.bookings)).catch(() => {});
     api<{ requests: QuoteRequest[] }>("/api/quotes/requests/mine").then((d) => setQuotes(d.requests)).catch(() => {});
     api<{ balance: number }>("/api/rewards/mine").then((d) => setBalance(d.balance)).catch(() => {});
     api<{ notifications: typeof notes }>("/api/notifications").then((d) => setNotes(d.notifications)).catch(() => {});
+    api<{ invites: Invite[] }>("/api/worker/invites/mine").then((d) => setInvites(d.invites)).catch(() => {});
   }
 
   useEffect(reload, []);
+
+  async function acceptInvite(id: string) {
+    try {
+      await post(`/api/worker/invites/${id}/accept`, {});
+      navigate("/worker", { replace: true });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not accept");
+    }
+  }
 
   async function acceptProposal(proposalId: string) {
     try {
@@ -37,6 +58,23 @@ export default function Dashboard() {
       <PageHero eyebrow="Customer portal" title="Your bookings" body="Track jobs live, compare quote proposals, and spend loyalty points." />
       <div className="wrap grid items-start gap-5 py-8 lg:grid-cols-[1fr_300px]">
         <div className="space-y-8">
+          {invites.length > 0 && (
+            <section aria-label="Professional invitations">
+              {invites.map((inv) => (
+                <Card key={inv.id} className="border-l-4 border-l-success p-5">
+                  <p className="flex items-center gap-1.5 font-bold">
+                    <BadgeCheck size={18} aria-hidden="true" className="text-success" />
+                    Invited as a professional
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-on-surface-variant">
+                    Our office verified your application. Accept to open the pro portal —
+                    verification decides when you start receiving jobs. Expires {new Date(inv.expires_at).toLocaleDateString()}.
+                  </p>
+                  <Button className="mt-3" onClick={() => acceptInvite(inv.id)}>Accept & open pro portal</Button>
+                </Card>
+              ))}
+            </section>
+          )}
           <section>
             <h2 className="font-display text-xl font-semibold">Upcoming ({upcoming.length})</h2>
             {upcoming.length === 0 ? (
@@ -97,12 +135,12 @@ export default function Dashboard() {
           </section>
         </div>
         <aside className="space-y-4">
-          <Card className="bg-pine-950 p-5 text-white">
+          <div className="rounded-lg bg-pine-950 p-5 text-white">
             <p className="text-xs font-extrabold tracking-widest text-marigold-300 uppercase">Loyalty</p>
             <p className="font-display mt-1 text-4xl font-semibold">{balance} <span className="text-lg">pts</span></p>
             <p className="mt-1 text-xs text-white/70">100 pts = Rs 50 off at checkout. Earned only on completed jobs.</p>
             <Link to="/rewards" className="mt-3 inline-block rounded-md bg-marigold-300 px-3 py-1.5 text-xs font-extrabold text-pine-950">View rewards</Link>
-          </Card>
+          </div>
           <Card className="p-5">
             <p className="font-bold">Notifications</p>
             <ul className="mt-2 space-y-2 text-sm">

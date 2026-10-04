@@ -376,6 +376,8 @@ function Workers({ onMsg }: { onMsg: (m: string) => void }) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteToken, setInviteToken] = useState("");
+  const [custQ, setCustQ] = useState("");
+  const [custResults, setCustResults] = useState<{ id: string; name: string; email: string }[]>([]);
 
   function load() {
     api<{ workers: Record<string, string | number>[] }>(`/api/admin/workers${state ? `?state=${state}` : ""}`)
@@ -388,6 +390,26 @@ function Workers({ onMsg }: { onMsg: (m: string) => void }) {
       const out = await post<{ token: string }>("/api/admin/workers/invite", { email: inviteEmail, name: inviteName });
       setInviteToken(out.token);
       onMsg("Invite created — share the link securely (7-day expiry).");
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Invite failed");
+    }
+  }
+
+  async function searchCustomers() {
+    try {
+      const d = await api<{ customers: typeof custResults }>(`/api/admin/customers?q=${encodeURIComponent(custQ)}`);
+      setCustResults(d.customers);
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Search failed");
+    }
+  }
+
+  async function inviteUser(userId: string, name: string) {
+    try {
+      await post("/api/admin/workers/invite-user", { userId });
+      onMsg(`Invitation sent to ${name}'s profile — they accept from their dashboard.`);
+      setCustResults([]);
+      setCustQ("");
     } catch (e) {
       onMsg(e instanceof Error ? e.message : "Invite failed");
     }
@@ -407,6 +429,24 @@ function Workers({ onMsg }: { onMsg: (m: string) => void }) {
           <p className="mt-2 rounded-md bg-warning-container p-3 font-mono text-xs break-all">
             {window.location.origin}/invite?token={inviteToken} — shown once.
           </p>
+        )}
+      </Card>
+      <Card className="p-4">
+        <p className="font-bold">Invite an existing customer (office flow)</p>
+        <p className="text-xs text-on-surface-variant">They signed up, submitted certificates at the office, you verified — send the invite to their profile. They accept from their dashboard.</p>
+        <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); searchCustomers(); }}>
+          <TextField value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder="Search name or email…" aria-label="Search customers to invite" />
+          <Button type="submit"><Search size={15} /> Find</Button>
+        </form>
+        {custResults.length > 0 && (
+          <ul className="mt-2 space-y-1.5">
+            {custResults.map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-2 rounded-md bg-surface-container px-3 py-2 text-sm">
+                <span><strong>{c.name}</strong> · <span className="text-on-surface-variant">{c.email}</span></span>
+                <Button variant="outline" onClick={() => inviteUser(c.id, c.name)}>Send invite</Button>
+              </li>
+            ))}
+          </ul>
         )}
       </Card>
       <div className="flex flex-wrap gap-2">

@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
-type Variant = "primary" | "outline" | "ghost" | "danger";
+type Variant = "primary" | "outline" | "outline-light" | "gold" | "ghost" | "danger";
 
 export function Button({
   variant = "primary",
@@ -12,9 +12,16 @@ export function Button({
   const styles: Record<Variant, string> = {
     primary: "bg-pine-950 text-white hover:bg-pine-800",
     outline: "border border-outline bg-white hover:border-pine-800",
+    // For dark surfaces only: transparent background, no bg fight possible.
+    "outline-light": "border border-white/40 text-white hover:bg-white/10",
+    // Solid marigold action for dark surfaces.
+    gold: "bg-marigold-300 text-pine-950 hover:brightness-105",
     ghost: "text-primary hover:bg-primary-container",
     danger: "bg-error text-white hover:brightness-110",
   };
+  // NOTE: never pass bg-*, text-* or border-* colors via className — same-property
+  // utilities fight the variant in cascade order and text can go invisible.
+  // If a new surface needs a button, add a variant here instead.
   return <button className={`${base} ${styles[variant]} ${className}`} {...rest} />;
 }
 

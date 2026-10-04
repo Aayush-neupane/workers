@@ -76,6 +76,56 @@ router.post(
   }),
 );
 
+/**
+ * Invite an EXISTING user (the office flow): customer signs up, submits
+ * certificates physically, admin verifies and sends the invite to their
+ * profile. They accept in-app from their dashboard — no email link needed.
+ */
+router.post(
+  "/admin/workers/invite-user",
+  requirePermission("worker.invite"),
+  validate(z.object({ userId: z.string().uuid() })),
+  ah(async (req, res) => {
+    const f = req.body as { userId: string };
+    const u = await query<{ id: string; email: string; name: string }>(
+      `SELECT id, email, name FROM users WHERE id = $1 AND is_active = true`, [f.userId]);
+    if (u.rowCount === 0) return res.status(404).json({ error: "User not found" });
+    const already = await query(
+      `SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = $1 AND r.name = 'WORKER'`, [f.userId]);
+    if ((already.rowCount ?? 0) > 0) {
+      return res.status(400).json({ error: "User is already a professional" });
+    }
+    const pending = await query(
+      `SELECT id FROM worker_invites
+       WHERE (user_id = $1 OR email = $2) AND accepted_at IS NULL AND expires_at > now()`,
+      [f.userId, u.rows[0].email]);
+    if ((pending.rowCount ?? 0) > 0) {
+      return res.status(409).json({ error: "An active invite already exists for this user" });
+    }
+    const token = randomBytes(24).toString("hex");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const inv = await query<{ id: string }>(
+      `INSERT INTO worker_invites(email, name, token_hash, expires_at, created_by, user_id)
+       VALUES ($1, $2, $3, now() + interval '7 days', $4, $5) RETURNING id`,
+      [u.rows[0].email, u.rows[0].name, tokenHash, req.user!.id, f.userId]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await notify(client, f.userId, "Invited as a professional",
+        "Our team verified your application. Accept the invitation in your dashboard to open the pro portal.");
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+    await adminAudit(req.user!.id, "worker-invite-user", `${u.rows[0].email} (${f.userId})`);
+    return res.status(201).json({ ok: true, id: inv.rows[0].id });
+  }),
+);
+
 router.post(
   "/admin/workers/:id/verify",
   requirePermission("worker.verify"),

@@ -50,7 +50,7 @@ export default function Rewards() {
     <div className="fade-up">
       <PageHero eyebrow="Loyalty" title="Rewards that respect you" body="Earned only on completed jobs. No tiers, no expiry surprises — points in, discounts out." />
       <div className="wrap grid items-start gap-5 py-8 lg:grid-cols-[320px_1fr]">
-        <Card className="ring-band dotgrid-light border-0 p-6 text-white lg:sticky lg:top-24">
+        <div className="ring-band dotgrid-light rounded-lg p-6 text-white lg:sticky lg:top-24">
           <p className="flex items-center gap-1.5 text-xs font-extrabold tracking-[0.14em] text-marigold-300 uppercase">
             <Gift size={14} aria-hidden="true" /> Balance
           </p>
@@ -64,8 +64,8 @@ export default function Rewards() {
               ? `Reward unlocked — redeem ${rules.redeemPoints} pts for Rs ${rules.redeemDiscountPaisa / 100} off at checkout`
               : `${rules.redeemPoints - progress} points to your next Rs ${rules.redeemDiscountPaisa / 100} reward`}
           </p>
-          <Link to="/services" className="mt-4 inline-block"><Button className="bg-marigold-300 text-pine-950 hover:brightness-105">Earn more</Button></Link>
-        </Card>
+          <Link to="/services" className="mt-4 inline-block"><Button variant="gold">Earn more</Button></Link>
+        </div>
         <div className="space-y-5">
           <Card className="p-5">
             <p className="font-bold">How it works</p>

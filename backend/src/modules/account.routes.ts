@@ -152,6 +152,53 @@ router.post("/notifications/:id/read", ah(async (req, res) => {
   return res.json({ ok: true });
 }));
 
+// ---------- Professional invitations (in-app accept) ----------
+router.get("/worker/invites/mine", ah(async (req, res) => {
+  const r = await query(
+    `SELECT id, name, email, expires_at, accepted_at, created_at FROM worker_invites
+     WHERE (user_id = $1 OR email = $2) AND accepted_at IS NULL AND expires_at > now()
+     ORDER BY created_at DESC`,
+    [req.user!.id, req.user!.email]);
+  return res.json({ invites: r.rows });
+}));
+
+router.post("/worker/invites/:id/accept", ah(async (req, res) => {
+  const inv = await query<{ id: string; email: string; expires_at: string; accepted_at: string | null; user_id: string | null }>(
+    `SELECT * FROM worker_invites WHERE id = $1`, [req.params.id]);
+  if (inv.rowCount === 0) return res.status(404).json({ error: "Invitation not found" });
+  const invite = inv.rows[0];
+  const mine = invite.user_id === req.user!.id || invite.email.toLowerCase() === req.user!.email.toLowerCase();
+  if (!mine) return res.status(403).json({ error: "This invitation is not for you" });
+  if (invite.accepted_at) return res.status(400).json({ error: "Invitation already used" });
+  if (new Date(invite.expires_at).getTime() < Date.now()) {
+    return res.status(400).json({ error: "Invitation expired — ask the office for a fresh one" });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const role = await client.query<{ id: string }>(`SELECT id FROM roles WHERE name = 'WORKER'`);
+    await client.query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [req.user!.id, role.rows[0].id]);
+    await client.query(
+      `INSERT INTO worker_profiles(user_id, verification_state) VALUES ($1, 'awaiting-documents')
+       ON CONFLICT (user_id) DO NOTHING`, [req.user!.id]);
+    await client.query(`UPDATE worker_invites SET accepted_at = now() WHERE id = $1`, [invite.id]);
+    await client.query(
+      `INSERT INTO notifications(user_id, title, body) VALUES ($1, 'Welcome aboard',
+       'Invitation accepted. Submit any remaining documents — verification decides activation.')`,
+      [req.user!.id]);
+    await client.query("COMMIT");
+    const { audit } = await import("../services/notify.js");
+    await audit(req.user!.id, "WORKER", "invite-accepted-inapp", invite.email);
+    return res.json({ ok: true });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}));
+
 // ---------- Cookie consent records ----------
 const consentSchema = z.object({
   preferences: z.boolean().default(false),

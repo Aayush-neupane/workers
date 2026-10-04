@@ -37,9 +37,13 @@ Admin capabilities are permission rows (`worker.verify`, `finance.settle`,
 
 ## Business workflows
 
-- **Pro onboarding:** admin invite (token) → account → documents →
-  `under-review` → `verified` → activated. Only `verified + active` pros
-  match assignments.
+- **Pro onboarding (two doors, one gate):** (a) email invite for new people —
+  token link → account → documents → `under-review` → `verified` → activated;
+  (b) office flow for existing customers — they sign up normally, submit
+  certificates physically, admin verifies and sends the invite *to their
+  profile* (`POST /api/admin/workers/invite-user`), they accept in-app from
+  their dashboard (`POST /api/worker/invites/:id/accept`) and land in the pro
+  portal. Only `verified + active` pros match assignments either way.
 - **Direct booking:** service → Damak address (server-gated) → slot →
   review → pay (cash now, eSewa/Khalti when configured) → assign →
   `pending → awaiting-worker → confirmed → en-route → in-progress →

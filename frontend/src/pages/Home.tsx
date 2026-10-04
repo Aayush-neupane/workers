@@ -345,7 +345,7 @@ export default function Home() {
             </div>
           </div>
           <div className="space-y-4 lg:sticky lg:top-24">
-            <Card className="ring-band dotgrid-light border-0 p-6 text-white md:p-8">
+            <div className="ring-band dotgrid-light rounded-lg p-6 text-white md:p-8">
               <p className="text-xs font-extrabold tracking-[0.14em] text-marigold-300 uppercase">Are you a skilled pro?</p>
               <p className="font-display mt-2 text-2xl font-semibold">Good work deserves good work.</p>
               <p className="mt-2 text-sm leading-relaxed text-white/80">
@@ -353,10 +353,10 @@ export default function Home() {
                 There is no public signup — introduce yourself and our team starts your verification.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
-                <Link to="/support"><Button className="bg-marigold-300 text-pine-950 hover:brightness-105">Talk to our team</Button></Link>
-                <Link to="/services"><Button variant="outline" className="border-white/30 text-white hover:bg-white/10">See the trades</Button></Link>
+                <Link to="/support"><Button variant="gold">Talk to our team</Button></Link>
+                <Link to="/services"><Button variant="outline-light">See the trades</Button></Link>
               </div>
-            </Card>
+            </div>
             <Card className="flex items-start gap-3 border-l-4 border-l-success p-5">
               <BadgeCheck size={22} className="mt-0.5 shrink-0 text-success" aria-hidden="true" />
               <p className="text-sm leading-relaxed">
@@ -412,8 +412,8 @@ export default function Home() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row md:flex-col">
-              <Link to="/services"><Button className="bg-marigold-300 px-8 py-3 text-pine-950 hover:brightness-105">Book a service</Button></Link>
-              <Link to="/quotes/new"><Button variant="outline" className="border-white/30 px-8 py-3 text-white hover:bg-white/10">Request a quote</Button></Link>
+              <Link to="/services"><Button variant="gold" className="px-8 py-3">Book a service</Button></Link>
+              <Link to="/quotes/new"><Button variant="outline-light" className="px-8 py-3">Request a quote</Button></Link>
             </div>
           </div>
         </section>
