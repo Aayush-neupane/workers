@@ -16,6 +16,7 @@ import {
 } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
+import { pushToAudience, pushToUser } from "../services/push.js";
 
 const router = Router();
 
@@ -269,6 +270,11 @@ router.post(
       await client.query("COMMIT");
       const { audit } = await import("../services/notify.js");
       await audit(req.user!.id, "ADMIN", "booking-assign", `${booking.id} -> ${f.workerId}: ${f.reason}`);
+      void pushToUser(f.workerId, {
+        title: "New assignment",
+        body: "A Damak booking was assigned to you — open your jobs.",
+        url: "/worker",
+      });
       return res.json({ ok: true, reassigned: Boolean(booking.worker_id) });
     } catch (e) {
       await client.query("ROLLBACK");
@@ -419,6 +425,25 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
          WHERE r.name = 'ADMIN'`);
     }
     await client.query("COMMIT");
+    // Push the counterpart (in-app rows were written above). Fire-and-forget.
+    if (to === "awaiting-worker" && !f.workerId) {
+      void pushToAudience("ADMIN", { title: "Dispatch needed", body: "An unassigned booking is waiting.", url: "/admin" });
+    } else if (to === "confirmed" && byRole === "worker") {
+      void pushToUser(b.customer_id, { title: "Pro confirmed", body: "Your pro accepted the job — track it live.", url: `/track/${b.id}` });
+    } else if (to === "en-route") {
+      void pushToUser(b.customer_id, { title: "Pro is on the way", body: "Your pro marked en route.", url: `/track/${b.id}` });
+    } else if (to === "cancelled") {
+      if (byRole === "customer" && b.worker_id) {
+        void pushToUser(b.worker_id, { title: "Booking cancelled", body: "The customer cancelled a booking.", url: "/worker" });
+      } else if (b.worker_id) {
+        void pushToUser(b.worker_id, { title: "Booking cancelled", body: "A booking was cancelled.", url: "/worker" });
+      }
+      void pushToUser(b.customer_id, { title: "Booking cancelled", body: "Your booking was cancelled.", url: `/track/${b.id}` });
+    } else if (to === "disputed") {
+      if (b.worker_id) void pushToUser(b.worker_id, { title: "Dispute raised", body: "A customer flagged an issue — support will review.", url: "/worker" });
+    } else if (to === "completed") {
+      if (b.worker_id) void pushToUser(b.worker_id, { title: "Job completed", body: "Booking marked complete. Earnings updated.", url: "/worker" });
+    }
     return res.json({ ok: true, from, to });
   } catch (e) {
     await client.query("ROLLBACK");

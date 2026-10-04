@@ -5,6 +5,7 @@ import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
 import { requireAuth, requireRole, requirePermission } from "../middleware/auth.js";
 import { notify, audit } from "../services/notify.js";
+import { pushToAudience, pushToUser } from "../services/push.js";
 import { resolveBookingId } from "../utils/booking.js";
 import { createHash, randomBytes } from "node:crypto";
 
@@ -122,6 +123,11 @@ router.post(
       client.release();
     }
     await adminAudit(req.user!.id, "worker-invite-user", `${u.rows[0].email} (${f.userId})`);
+    void pushToUser(f.userId, {
+      title: "Invited as a professional",
+      body: "Our team verified your application — accept it in your dashboard.",
+      url: "/dashboard",
+    });
     return res.status(201).json({ ok: true, id: inv.rows[0].id });
   }),
 );
@@ -532,6 +538,15 @@ router.post(
            JOIN roles r ON r.id = ur.role_id WHERE r.name = $1 AND u.is_active = true RETURNING 1`,
       f.audience === "ALL" ? [f.title, f.body] : [f.audience, f.title, f.body]);
     await adminAudit(req.user!.id, "broadcast", `${f.audience}: ${f.title} (${r.rowCount ?? 0})`);
+    if (f.audience === "ALL") {
+      void pushToAudience("ALL", { title: f.title, body: f.body, url: "/dashboard" });
+    } else {
+      void pushToAudience(f.audience as "CUSTOMER" | "WORKER" | "ADMIN", {
+        title: f.title,
+        body: f.body,
+        url: f.audience === "WORKER" ? "/worker" : f.audience === "ADMIN" ? "/admin" : "/dashboard",
+      });
+    }
     return res.json({ ok: true, recipients: r.rowCount ?? 0 });
   }),
 );

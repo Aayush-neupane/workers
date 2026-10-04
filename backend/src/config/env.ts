@@ -14,6 +14,9 @@ const envSchema = z.object({
   ESEWA_SECRET_KEY: z.string().default(""),
   KHALTI_PUBLIC_KEY: z.string().default(""),
   KHALTI_SECRET_KEY: z.string().default(""),
+  VAPID_PUBLIC_KEY: z.string().default(""),
+  VAPID_PRIVATE_KEY: z.string().default(""),
+  VAPID_SUBJECT: z.string().default("mailto:support@sajilodamak.com"),
 });
 
 export const env = envSchema.parse(process.env);

@@ -8,6 +8,7 @@ import { closedWardMessage } from "../utils/coverage.js";
 import { parseWard, mentionsDamak, OUTSIDE_DAMAK } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
 import { audit } from "../services/notify.js";
+import { pushToUser } from "../services/push.js";
 
 const router = Router();
 
@@ -122,6 +123,15 @@ router.post(
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
       [q.rows[0].id, workerId, f.pricePaisa, f.scope, f.availability, !needApproval, !needApproval ? uid : null]);
     await query(`UPDATE quote_requests SET status = 'quoted' WHERE id = $1`, [q.rows[0].id]);
+    const cust = await query<{ customer_id: string }>(
+      `SELECT customer_id FROM quote_requests WHERE id = $1`, [q.rows[0].id]);
+    if ((cust.rowCount ?? 0) > 0) {
+      void pushToUser(cust.rows[0].customer_id, {
+        title: "New proposal",
+        body: "A pro proposed a price — compare it in your dashboard.",
+        url: "/dashboard",
+      });
+    }
     return res.status(201).json({ ok: true, id: r.rows[0].id, needsApproval: needApproval });
   }),
 );
@@ -191,6 +201,11 @@ router.post("/quotes/proposals/:id/accept", requireAuth, ah(async (req, res) => 
     await client.query(`UPDATE quote_requests SET status = 'accepted', booking_id = $1 WHERE id = $2`, [bookingId, prop.request_id]);
     await notify(client, prop.worker_user_id, "Quote accepted", "A customer accepted your proposal.");
     await client.query("COMMIT");
+    void pushToUser(prop.worker_user_id, {
+      title: "Quote accepted",
+      body: "A customer accepted your proposal — open your jobs.",
+      url: "/worker",
+    });
     return res.status(201).json({ ok: true, bookingNo: no, id: bookingId });
   } catch (e) {
     await client.query("ROLLBACK");

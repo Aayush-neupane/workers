@@ -8,6 +8,7 @@ import { calcCommission } from "../utils/money.js";
 import { generateOtp, hashOtp, otpExpiry, OTP_MAX_ATTEMPTS } from "../utils/otp.js";
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
+import { pushToUser } from "../services/push.js";
 import { resolveBookingId } from "../utils/booking.js";
 
 const router = Router();
@@ -52,6 +53,12 @@ router.post("/bookings/:id/otp/issue", requireAuth, ah(async (req, res) => {
     await notify(client, b.customer_id, "Completion code",
       `Share this code with your pro only when the work is done: ${code}. Valid 10 minutes. (Demo delivery — SMS when configured.)`);
     await client.query("COMMIT");
+    // The code itself stays in-app (lock-screen safe) — push only nudges.
+    void pushToUser(b.customer_id, {
+      title: "Completion code ready",
+      body: "Your pro finished the work — open the app to see your code.",
+      url: `/track/${b.id}`,
+    });
     return res.json({ ok: true, delivered: true, attemptsAllowed: OTP_MAX_ATTEMPTS });
   } catch (e) {
     await client.query("ROLLBACK");
@@ -136,6 +143,18 @@ router.post(
       await notify(client, b.customer_id, "Job completed", "Verified complete — please rate the job.");
       if (b.worker_id) await notify(client, b.worker_id, "Job completed", "Code accepted. Earnings updated.");
       await client.query("COMMIT");
+      void pushToUser(b.customer_id, {
+        title: "Job completed",
+        body: "Verified complete — please rate the job.",
+        url: `/track/${b.id}`,
+      });
+      if (b.worker_id) {
+        void pushToUser(b.worker_id, {
+          title: "Job completed",
+          body: "Code accepted. Earnings updated.",
+          url: "/worker",
+        });
+      }
       return res.json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK");

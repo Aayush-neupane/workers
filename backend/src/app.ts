@@ -14,6 +14,7 @@ import quoteRoutes from "./modules/quotes.routes.js";
 import workerRoutes from "./modules/worker.routes.js";
 import adminRoutes from "./modules/admin.routes.js";
 import paymentRoutes from "./modules/payments.routes.js";
+import pushRoutes from "./modules/push.routes.js";
 
 export function createApp() {
   const app = express();
@@ -42,6 +43,7 @@ export function createApp() {
   app.use("/api", workerRoutes);
   app.use("/api", adminRoutes);
   app.use("/api", paymentRoutes);
+  app.use("/api", pushRoutes);
 
   app.get("/health", (_req, res) => res.json({ ok: true, zone: "Damak" }));
 

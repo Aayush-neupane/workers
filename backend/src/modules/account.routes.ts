@@ -152,6 +152,11 @@ router.post("/notifications/:id/read", ah(async (req, res) => {
   return res.json({ ok: true });
 }));
 
+router.post("/notifications/read-all", ah(async (req, res) => {
+  await query(`UPDATE notifications SET is_read = true WHERE user_id = $1`, [req.user!.id]);
+  return res.json({ ok: true });
+}));
+
 // ---------- Professional invitations (in-app accept) ----------
 router.get("/worker/invites/mine", ah(async (req, res) => {
   const r = await query(
