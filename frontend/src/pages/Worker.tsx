@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BadgeCheck, ChevronDown, FileUp, Phone, Star } from "lucide-react";
 import { Badge, Button, Card, EmptyState, PageHero, Price, TextField } from "../components/ui";
+import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot, formatNPR } from "../lib/format";
 import type { Booking } from "../lib/types";
@@ -275,6 +276,9 @@ function JobCard({ job, onDone, onMsg }: {
             <p><strong>Estimate:</strong> {formatNPR(job.estimate_paisa)}</p>
           </div>
           <p className="rounded-md bg-white p-3"><strong>Instructions:</strong> {job.instructions || "—"}</p>
+          {job.lat != null && job.lng != null && (
+            <MiniMap pin={{ lat: job.lat, lng: job.lng }} height={160} />
+          )}
           <div className="flex flex-wrap gap-2">
             {next && <Button onClick={() => move(job.id, next.to, onDone, onMsg)}>{next.label}</Button>}
             {job.status === "in-progress" && <Button onClick={issue} disabled={busy}>Finish — send code to customer</Button>}

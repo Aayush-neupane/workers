@@ -68,15 +68,19 @@ router.post(
     // Strict Damak-only gate — re-validated server-side on every booking.
     let addressText = (f.addressText ?? "").trim();
     let ward: number | null = null;
+    let addressLat: number | null = null;
+    let addressLng: number | null = null;
     if (f.addressId) {
-      const a = await query<{ line: string; city: string; ward: number | null }>(
-        `SELECT line, city, ward FROM addresses WHERE id = $1 AND user_id = $2`,
+      const a = await query<{ line: string; city: string; ward: number | null; lat: number | null; lng: number | null }>(
+        `SELECT line, city, ward, lat, lng FROM addresses WHERE id = $1 AND user_id = $2`,
         [f.addressId, userId],
       );
       if (a.rowCount === 0) return res.status(400).json({ error: "Unknown address" });
       if (!isDamakCity(a.rows[0].city)) return res.status(400).json({ error: OUTSIDE_DAMAK });
       ward = a.rows[0].ward ?? parseWard(a.rows[0].line);
       addressText = `${a.rows[0].line}, Damak`;
+      addressLat = a.rows[0].lat;
+      addressLng = a.rows[0].lng;
     } else {
       if (!addressText) return res.status(400).json({ error: "Address is required" });
       if (!mentionsDamak(addressText)) return res.status(400).json({ error: OUTSIDE_DAMAK });
@@ -111,10 +115,10 @@ router.post(
       }
       let no = await bookingNo();
       let b;
-      const insertSql = `INSERT INTO bookings(booking_no, customer_id, service_id, status, address_id, address_text, ward,
+      const insertSql = `INSERT INTO bookings(booking_no, customer_id, service_id, status, address_id, address_text, ward, lat, lng,
         slot, instructions, estimate_paisa, discount_paisa, payment_method, payment_status, commission_bps)
-        VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, booking_no`;
-      const params = [no, userId, f.serviceId, f.addressId ?? null, addressText, ward, f.slot,
+        VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, booking_no`;
+      const params = [no, userId, f.serviceId, f.addressId ?? null, addressText, ward, addressLat, addressLng, f.slot,
         f.instructions, estimate, Math.min(discount, estimate), f.paymentMethod,
         f.paymentMethod === "cash" ? "unpaid" : "pending-verification", service.commission_bps];
       try {

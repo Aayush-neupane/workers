@@ -8,6 +8,7 @@ import {
   OUTSIDE_DAMAK, closedWardMessage, isDamakCity, parseWard,
 } from "../utils/coverage.js";
 import { resolveBookingId } from "../utils/booking.js";
+import { validPin } from "../utils/geo.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -24,11 +25,16 @@ const addressSchema = z.object({
   city: z.string().trim().max(60).default("Damak"),
   ward: z.number().int().min(1).max(10).nullable().optional(),
   phone: z.string().trim().min(10).max(20),
+  lat: z.number().min(26).max(31).nullable().optional(),
+  lng: z.number().min(80).max(89).nullable().optional(),
 });
 
 router.post("/addresses", validate(addressSchema), ah(async (req, res) => {
   const f = req.body as z.infer<typeof addressSchema>;
   if (!isDamakCity(f.city)) return res.status(400).json({ error: OUTSIDE_DAMAK });
+  if (!validPin(f.lat ?? null, f.lng ?? null)) {
+    return res.status(400).json({ error: "Map pin is outside Nepal — pick a Damak location" });
+  }
   const ward = f.ward ?? parseWard(f.line);
   if (ward !== null) {
     const open = await query<{ is_open: boolean }>(`SELECT is_open FROM coverage_wards WHERE ward = $1`, [ward]);
@@ -40,8 +46,9 @@ router.post("/addresses", validate(addressSchema), ah(async (req, res) => {
     `SELECT COUNT(*)::int AS n FROM addresses WHERE user_id = $1`, [req.user!.id]);
   if (n.rows[0].n >= 5) return res.status(400).json({ error: "Maximum 5 addresses" });
   const r = await query(
-    `INSERT INTO addresses(user_id, label, line, city, ward, phone) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [req.user!.id, f.label, f.line, "Damak", ward, f.phone]);
+    `INSERT INTO addresses(user_id, label, line, city, ward, phone, lat, lng)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [req.user!.id, f.label, f.line, "Damak", ward, f.phone, f.lat ?? null, f.lng ?? null]);
   return res.status(201).json({ address: r.rows[0] });
 }));
 

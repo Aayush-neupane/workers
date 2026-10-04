@@ -3,8 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { MapPin } from "lucide-react";
 import { Button, Card, Field, PageHero, Select, TextArea, TextField } from "../components/ui";
+import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
+import type { Pin } from "../lib/geo";
 import type { Category } from "../lib/types";
 
 const schema = z.object({
@@ -20,6 +23,8 @@ export default function QuoteNew() {
   const navigate = useNavigate();
   const [cats, setCats] = useState<Category[]>([]);
   const [error, setError] = useState("");
+  const [pin, setPin] = useState<Pin | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
     defaultValues: { title: "", description: "", landmark: "", windowStart: "", windowEnd: "" },
@@ -38,6 +43,8 @@ export default function QuoteNew() {
         windowStart: new Date(f.windowStart).toISOString(),
         windowEnd: new Date(f.windowEnd).toISOString(),
         photos: [],
+        lat: pin?.lat ?? null,
+        lng: pin?.lng ?? null,
       });
       navigate("/dashboard");
     } catch (e) {
@@ -67,6 +74,19 @@ export default function QuoteNew() {
             <Field label="Ward & landmark (Damak only)" error={form.formState.errors.landmark?.message} hint="Pros see the ward, not your exact address, until you accept.">
               <TextField {...form.register("landmark")} placeholder="Damak-5, near Himal Chowk" />
             </Field>
+            <div>
+              <span className="mb-1.5 block text-sm font-semibold">Map pin (optional)</span>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setMapOpen(true)}>
+                  <MapPin size={15} aria-hidden="true" /> {pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Pin job location"}
+                </Button>
+                {pin && <Button type="button" variant="ghost" onClick={() => setPin(null)}>Clear</Button>}
+              </div>
+            </div>
+            {mapOpen && (
+              <MapPicker initial={pin} onClose={() => setMapOpen(false)}
+                onConfirm={(p) => { setPin(p); setMapOpen(false); }} />
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Preferred window start" error={form.formState.errors.windowStart?.message}>
                 <TextField {...form.register("windowStart")} type="datetime-local" />

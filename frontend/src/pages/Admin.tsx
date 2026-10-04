@@ -5,6 +5,7 @@ import {
   Star, Trash2, UserCheck, UserX, X,
 } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
+import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot, formatNPR } from "../lib/format";
 
@@ -307,6 +308,11 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
               <div className="flex justify-between"><dt className="text-on-surface-variant">Payment</dt><dd className="font-semibold">{String(b.payment_method)} · {String(b.payment_status)}</dd></div>
             </dl>
             <p className="mt-2 rounded-md bg-surface-container p-2.5 text-xs">{String(b.instructions || "No instructions")}</p>
+            {typeof b.lat === "number" && typeof b.lng === "number" && (
+              <div className="mt-2">
+                <MiniMap pin={{ lat: b.lat as number, lng: b.lng as number }} height={160} />
+              </div>
+            )}
           </Card>
 
           <div className="rounded-lg border border-outline/60 bg-white p-4">

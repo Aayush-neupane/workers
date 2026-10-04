@@ -20,6 +20,8 @@ const requestSchema = z.object({
   windowEnd: z.string().datetime({ offset: true }),
   ward: z.number().int().min(1).max(10).nullable().optional(),
   landmark: z.string().trim().min(5).max(300),
+  lat: z.number().min(26).max(31).nullable().optional(),
+  lng: z.number().min(80).max(89).nullable().optional(),
 });
 
 /** Mode B: customer describes a complex job; address stays masked from pros. */
@@ -44,10 +46,10 @@ router.post(
       }
     }
     const r = await query<{ id: string }>(
-      `INSERT INTO quote_requests(customer_id, category_id, title, description, photos, window_start, window_end, ward, landmark)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+      `INSERT INTO quote_requests(customer_id, category_id, title, description, photos, window_start, window_end, ward, landmark, lat, lng)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
       [req.user!.id, f.categoryId ?? null, f.title, f.description, f.photos,
-        f.windowStart, f.windowEnd, ward, f.landmark]);
+        f.windowStart, f.windowEnd, ward, f.landmark, f.lat ?? null, f.lng ?? null]);
     await query(
       `INSERT INTO notifications(user_id, title, body)
        SELECT u.id, 'New quote request', 'A complex job needs proposals.'

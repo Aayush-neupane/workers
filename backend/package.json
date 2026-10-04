@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/utils/coverage.test.ts src/utils/money.test.ts src/utils/transitions.test.ts src/utils/otp.test.ts src/utils/referral.test.ts",
+    "test": "tsx --test src/utils/coverage.test.ts src/utils/money.test.ts src/utils/transitions.test.ts src/utils/otp.test.ts src/utils/referral.test.ts src/utils/geo.test.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:seed-demo": "tsx src/db/seed-demo.ts",

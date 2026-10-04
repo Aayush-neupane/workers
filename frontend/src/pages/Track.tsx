@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, Price } from "../components/ui";
+import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
 import type { Booking } from "../lib/types";
@@ -167,6 +168,12 @@ export default function Track() {
                 Share it only when the work is actually done. Problems after completion go through
                 a support ticket linked to this booking.
               </p>
+              {booking.lat != null && booking.lng != null && (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-xs font-bold text-on-surface-variant uppercase">Job location</p>
+                  <MiniMap pin={{ lat: booking.lat, lng: booking.lng }} />
+                </div>
+              )}
             </Card>
           </aside>
         </div>

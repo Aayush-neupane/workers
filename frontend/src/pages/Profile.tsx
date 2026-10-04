@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { MapPin } from "lucide-react";
 import { Button, Card, Field, PageHero, Select, TextField } from "../components/ui";
+import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import type { Pin } from "../lib/geo";
 import type { Address } from "../lib/types";
 
 const addressSchema = z.object({
@@ -21,6 +24,8 @@ export default function Profile() {
   const [name, setName] = useState(user?.name ?? "");
   const [phone, setPhone] = useState("");
   const [saved, setSaved] = useState("");
+  const [pin, setPin] = useState<Pin | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
 
   function reload() {
     api<{ addresses: Address[] }>("/api/addresses").then((d) => setAddresses(d.addresses)).catch(() => {});
@@ -35,8 +40,9 @@ export default function Profile() {
   async function addAddress(f: z.output<typeof addressSchema>) {
     setAddrError("");
     try {
-      await post("/api/addresses", { ...f, city: "Damak", phone: f.phone ?? "" });
+      await post("/api/addresses", { ...f, city: "Damak", phone: f.phone ?? "", lat: pin?.lat ?? null, lng: pin?.lng ?? null });
       addr.reset({ label: "Home", line: "", phone: "" });
+      setPin(null);
       reload();
     } catch (e) {
       setAddrError(e instanceof Error ? e.message : "Could not add address");
@@ -95,9 +101,20 @@ export default function Profile() {
             <Field label="Phone" error={addr.formState.errors.phone?.message}>
               <TextField {...addr.register("phone")} inputMode="tel" placeholder="9852600000" />
             </Field>
+            <div>
+              <span className="mb-1.5 block text-sm font-semibold">Map pin (optional)</span>
+              <Button type="button" variant="outline" onClick={() => setMapOpen(true)}>
+                <MapPin size={15} aria-hidden="true" /> {pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Pin on map"}
+              </Button>
+              <p className="mt-1 text-xs text-on-surface-variant">Helps the pro find you. The ward above still decides coverage.</p>
+            </div>
             {addrError && <p role="alert" className="text-sm font-medium text-error">{addrError}</p>}
             <Button type="submit">Add address</Button>
           </form>
+          {mapOpen && (
+            <MapPicker initial={pin} onClose={() => setMapOpen(false)}
+              onConfirm={(p) => { setPin(p); setMapOpen(false); }} />
+          )}
         </Card>
       </div>
     </div>

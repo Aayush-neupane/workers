@@ -37,6 +37,8 @@ export interface Address {
   city: string;
   ward: number | null;
   phone: string;
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface Booking {
@@ -49,6 +51,8 @@ export interface Booking {
   status: BookingStatus;
   address_text?: string;
   ward?: number | null;
+  lat?: number | null;
+  lng?: number | null;
   slot: string;
   instructions: string;
   estimate_paisa: number;

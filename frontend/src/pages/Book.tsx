@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, ShieldCheck, MapPin } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
+import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
 import { formatSlot } from "../lib/format";
+import type { Pin } from "../lib/geo";
 import type { Address, Service } from "../lib/types";
 
 const schema = z.object({
@@ -49,6 +51,8 @@ export default function Book() {
   const [line, setLine] = useState("");
   const [phone, setPhone] = useState("");
   const [addrError, setAddrError] = useState("");
+  const [pin, setPin] = useState<Pin | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
   const slots = useMemo(buildSlots, []);
 
   function reloadAddresses() {
@@ -79,7 +83,10 @@ export default function Book() {
     if (line.trim().length < 5) { setAddrError("Enter ward, street and house (e.g. Damak-5, Himal Chowk)."); return; }
     if (phone.trim().length < 10) { setAddrError("Enter a valid phone number."); return; }
     try {
-      const out = await post<{ address: Address }>("/api/addresses", { label: "Home", line: line.trim(), city: "Damak", phone: phone.trim() });
+      const out = await post<{ address: Address }>("/api/addresses", {
+        label: "Home", line: line.trim(), city: "Damak", phone: phone.trim(),
+        lat: pin?.lat ?? null, lng: pin?.lng ?? null,
+      });
       setAddresses((a) => [...a, out.address]);
       setValue("addressId", out.address.id);
       setStep(1);
@@ -139,6 +146,16 @@ export default function Book() {
                 <Field label="Phone">
                   <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" />
                 </Field>
+                <div>
+                  <span className="mb-1.5 block text-sm font-semibold">Map pin (optional)</span>
+                  <Button type="button" variant="outline" onClick={() => setMapOpen(true)}>
+                    <MapPin size={15} aria-hidden="true" /> {pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "Pin on map"}
+                  </Button>
+                </div>
+                {mapOpen && (
+                  <MapPicker initial={pin} onClose={() => setMapOpen(false)}
+                    onConfirm={(p) => { setPin(p); setMapOpen(false); }} />
+                )}
                 {addrError && <p role="alert" className="text-sm font-medium text-error">{addrError}</p>}
                 <Button onClick={saveQuickAddress}>Save & continue</Button>
               </div>
