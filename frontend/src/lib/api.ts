@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4001";
+const BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:4001" : (()=>{throw new Error("VITE_API_URL missing")})());
 
 let unauthorizedHook: (() => void) | null = null;
 export function onUnauthorized(fn: (() => void) | null) {
@@ -6,17 +6,21 @@ export function onUnauthorized(fn: (() => void) | null) {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const hasBody = init?.body !== undefined && init?.body !== null;
   const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: {
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      ...((init?.headers as Record<string, string> | undefined) ?? {}),
+    },
   });
   if (res.status === 401) {
     unauthorizedHook?.();
     throw new Error("Sign in required");
   }
   const body = (await res.json().catch(() => ({}))) as { error?: string } & T;
-  if (!res.ok) throw new Error(body.error ?? "Request failed");
+  if (!res.ok) throw new Error(body.error ? body.error + " (#"+res.status+")" : "Request failed (#"+res.status+")");
   return body as T;
 }
 

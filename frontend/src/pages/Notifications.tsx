@@ -14,27 +14,34 @@ interface Note {
 /** Full notification centre for every role: history, mark-all, push opt-in. */
 export default function Notifications() {
   const [notes, setNotes] = useState<Note[]>([]);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   function reload() {
-    api<{ notifications: Note[] }>("/api/notifications").then((d) => setNotes(d.notifications)).catch(() => {});
+    setLoadError("");
+    api<{ notifications: Note[] }>("/api/notifications").then((d) => setNotes(d.notifications)).catch(() => setLoadError("Couldn't load notifications."));
   }
   useEffect(reload, []);
 
   async function markAll() {
+    setActionError("");
     try {
       await post("/api/notifications/read-all", {});
       reload();
-    } catch {
-      /* keep list */
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not mark all read.");
     }
   }
 
   async function markOne(id: string) {
+    setActionError("");
+    const prev = notes;
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
     try {
       await post(`/api/notifications/${id}/read`, {});
-      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-    } catch {
-      /* keep list */
+    } catch (e) {
+      setNotes(prev);
+      setActionError(e instanceof Error ? e.message : "Could not mark as read.");
     }
   }
 
@@ -53,7 +60,16 @@ export default function Notifications() {
           {unread > 0 && <Button variant="outline" className="mt-3 w-full" onClick={markAll}>Mark all read ({unread})</Button>}
         </Card>
         <div className="space-y-3">
-          {notes.length === 0 && <EmptyState title="No notifications" body="Assignment updates, codes and rewards land here." />}
+          {loadError && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 rounded-md bg-error-container p-3.5 text-sm font-medium text-error">
+              {loadError}
+              <Button variant="outline" onClick={reload}>Retry</Button>
+            </p>
+          )}
+          {actionError && (
+            <p role="alert" className="rounded-md bg-error-container p-3.5 text-sm font-medium text-error">{actionError}</p>
+          )}
+          {notes.length === 0 && !loadError && <EmptyState title="No notifications" body="Assignment updates, codes and rewards land here." />}
           {notes.map((n) => (
             <button key={n.id} onClick={() => markOne(n.id)}
               className={`block w-full rounded-lg border p-4 text-left transition hover:border-pine-800 ${

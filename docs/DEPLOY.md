@@ -24,11 +24,22 @@ pm2 restart sajilo-api
 
 - Nginx: `api.sajilodamak.com → 127.0.0.1:4001`, TLS via certbot.
 - `DATABASE_URL` points at the VPS Postgres; `AUTH_SECRET` 32+ random chars.
-- CORS allows exactly `APP_URL` (+ portal aliases when live).
+  The server refuses to start misconfigured: missing `DATABASE_URL` throws;
+  add a prod guard before launch that rejects dev/placeholder secrets.
+- CORS allows `APP_URL` plus `ADDITIONAL_ORIGINS` (comma-separated portal
+  aliases, e.g. `https://clients.sajilodamak.com,https://pros.sajilodamak.com,https://admin.sajilodamak.com`).
+- Same-domain frontend+API keeps default cookies; split domains need
+  `COOKIE_SAMESITE=none` + `COOKIE_DOMAIN=.sajilodamak.com` (+ `TRUST_PROXY`
+  matching your proxy hops).
 - Backups: nightly `pg_dump` + off-site copy; document restore before launch.
+  (No backup script ships yet — add `backend/scripts/backup.sh` + cron.)
 
 ## Payments & notifications
 
 - eSewa/Khalti: fill `ESEWA_*` / `KHALTI_*` from merchant onboarding, test the
   sandbox initiate → callback → verify path end to end before claiming live.
-- SMS/push attach at `services/notify.ts` — do not claim they work until tested.
+  Callbacks only transition payments whose refs this server issued, and live
+  traffic additionally needs server-to-server verification with the merchant
+  secret (marked TODO in `payments.routes.ts`).
+- Web-push is operational when VAPID keys are configured; SMS is still TODO
+  (attaches at `services/notify.ts`).

@@ -26,12 +26,16 @@ export default function Rewards() {
   const [rules, setRules] = useState<Rules>({ rewardPerNpr100: 1, redeemPoints: 100, redeemDiscountPaisa: 5000, milestoneBookings: 5, milestoneBonus: 100 });
   const [referral, setReferral] = useState<{ code: string; bonus: number; uses: { referee: string; rewarded: boolean; created_at: string }[] } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
-  useEffect(() => {
-    api<{ txs: Tx[]; balance: number }>("/api/rewards/mine").then((d) => { setTxs(d.txs); setBalance(d.balance); }).catch(() => {});
+  function load() {
+    setLoadError("");
+    api<{ txs: Tx[]; balance: number }>("/api/rewards/mine").then((d) => { setTxs(d.txs); setBalance(d.balance); }).catch(() => setLoadError("Couldn't load your rewards."));
     api<Rules>("/api/settings").then(setRules).catch(() => {});
     api<typeof referral>("/api/referrals/mine").then(setReferral).catch(() => {});
-  }, []);
+  }
+
+  useEffect(load, []);
 
   async function copyCode() {
     if (!referral) return;
@@ -45,6 +49,7 @@ export default function Rewards() {
   }
 
   const progress = Math.min(Math.max(balance, 0), rules.redeemPoints);
+  const progressPct = rules.redeemPoints > 0 ? (progress / rules.redeemPoints) * 100 : 0;
 
   return (
     <div className="fade-up">
@@ -57,7 +62,7 @@ export default function Rewards() {
           <p className="font-display mt-1 text-5xl font-semibold">{balance} <span className="text-2xl">pts</span></p>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/25" role="progressbar"
             aria-valuenow={progress} aria-valuemin={0} aria-valuemax={rules.redeemPoints} aria-label="Progress to next reward">
-            <div className="h-full rounded-full bg-marigold-300" style={{ width: `${(progress / rules.redeemPoints) * 100}%` }} />
+            <div className="h-full rounded-full bg-marigold-300" style={{ width: `${progressPct}%` }} />
           </div>
           <p className="mt-2 text-xs text-white/75">
             {balance >= rules.redeemPoints
@@ -67,6 +72,12 @@ export default function Rewards() {
           <Link to="/services" className="mt-4 inline-block"><Button variant="gold">Earn more</Button></Link>
         </div>
         <div className="space-y-5">
+          {loadError && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 rounded-md bg-error-container p-3.5 text-sm font-medium text-error">
+              {loadError}
+              <Button variant="outline" onClick={load}>Retry</Button>
+            </p>
+          )}
           <Card className="p-5">
             <p className="font-bold">How it works</p>
             <ul className="mt-2 grid gap-2 text-sm text-on-surface-variant sm:grid-cols-3">

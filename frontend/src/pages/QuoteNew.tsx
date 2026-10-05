@@ -17,6 +17,19 @@ const schema = z.object({
   landmark: z.string().trim().min(5, "Enter ward and landmark"),
   windowStart: z.string().min(1, "Pick a start"),
   windowEnd: z.string().min(1, "Pick an end"),
+}).superRefine((d, ctx) => {
+  const start = new Date(d.windowStart).getTime();
+  const end = new Date(d.windowEnd).getTime();
+  const now = Date.now();
+  if (d.windowStart && Number.isFinite(start) && start <= now) {
+    ctx.addIssue({ code: "custom", message: "Start must be in the future", path: ["windowStart"] });
+  }
+  if (d.windowEnd && Number.isFinite(end) && end <= now) {
+    ctx.addIssue({ code: "custom", message: "End must be in the future", path: ["windowEnd"] });
+  }
+  if (d.windowStart && d.windowEnd && Number.isFinite(start) && Number.isFinite(end) && end <= start) {
+    ctx.addIssue({ code: "custom", message: "End must be after start", path: ["windowEnd"] });
+  }
 });
 
 export default function QuoteNew() {

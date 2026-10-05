@@ -12,7 +12,7 @@ export function Protected({ roles, children }: { roles?: Role[]; children: React
     return <p role="status" className="wrap py-16 text-center text-on-surface-variant">Loading…</p>;
   }
   if (!user || !role) {
-    return <Navigate to="/signin" state={{ from: location.pathname }} replace />;
+    return <Navigate to="/signin" state={{ from: location.pathname + location.search + location.hash }} replace />;
   }
   if (roles && !roles.includes(role)) {
     const home = role === "admin" ? "/admin" : role === "worker" ? "/worker" : "/dashboard";

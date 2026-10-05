@@ -28,7 +28,7 @@ router.get("/services", ah(async (req, res) => {
   const conds = ["s.is_active = true", "'Damak' = ANY (s.areas)"];
   const params: unknown[] = [];
   if (q) {
-    params.push(`%${q}%`);
+    params.push(`%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
     conds.push(`(s.name ILIKE $${params.length} OR s.description ILIKE $${params.length})`);
   }
   if (category) {
@@ -98,7 +98,8 @@ router.get("/services/:id", ah(async (req, res) => {
 
 // Only genuine reviews from completed jobs — never fabricated.
 router.get("/reviews", ah(async (req, res) => {
-  const limit = Math.min(Number(req.query.limit ?? 20), 50);
+  const parsed = z.coerce.number().int().min(1).max(50).default(20).safeParse(req.query.limit);
+  const limit = parsed.success ? parsed.data : 20;
   const r = await query(
     `SELECT r.id, r.rating, r.text, r.created_at, b.booking_no, u.name AS worker_name
      FROM reviews r JOIN bookings b ON b.id = r.booking_id

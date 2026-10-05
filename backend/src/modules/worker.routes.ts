@@ -6,7 +6,11 @@ import { ah } from "../middleware/async.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
-router.use(requireAuth, requireRole("WORKER", "ADMIN"));
+// NOTE: auth only at router level — the role gate is per-route below.
+// A router-level role gate would 403 every /api/* request from other roles
+// (routers mounted earlier see all traffic), breaking staff/customer access
+// to endpoints mounted later (e.g. /api/admin/*).
+router.use(requireAuth);
 
 function eligible(req: { user?: { id: string } }) {
   return query(
@@ -16,7 +20,7 @@ function eligible(req: { user?: { id: string } }) {
 }
 
 /** Own profile summary + lifetime stats for the portal header. */
-router.get("/worker/me", ah(async (req, res) => {
+router.get("/worker/me", requireRole("WORKER", "ADMIN"), ah(async (req, res) => {
   const p = await query(
     `SELECT verification_state, is_active, bio, years_exp FROM worker_profiles WHERE user_id = $1`,
     [req.user!.id]);
@@ -37,7 +41,7 @@ router.get("/worker/me", ah(async (req, res) => {
 }));
 
 /** Own verification documents. */
-router.get("/worker/documents/mine", ah(async (req, res) => {
+router.get("/worker/documents/mine", requireRole("WORKER", "ADMIN"), ah(async (req, res) => {
   const r = await query(
     `SELECT id, kind, uploaded_at FROM verification_documents WHERE worker_user_id = $1 ORDER BY uploaded_at`,
     [req.user!.id]);
@@ -45,7 +49,7 @@ router.get("/worker/documents/mine", ah(async (req, res) => {
 }));
 
 /** Today's schedule + new assignment requests + upcoming — the pro's four questions. */
-router.get("/worker/jobs", ah(async (req, res) => {
+router.get("/worker/jobs", requireRole("WORKER", "ADMIN"), ah(async (req, res) => {
   const e = await eligible(req);
   if (!e.rows[0]?.ok && !req.user!.roles.includes("ADMIN")) {
     return res.status(403).json({ error: "Only verified, active pros" });
@@ -65,7 +69,7 @@ router.get("/worker/jobs", ah(async (req, res) => {
 }));
 
 /** The pro's own customer feedback + average. */
-router.get("/worker/reviews", ah(async (req, res) => {
+router.get("/worker/reviews", requireRole("WORKER", "ADMIN"), ah(async (req, res) => {
   const r = await query(
     `SELECT r.id, r.rating, r.text, r.created_at, b.booking_no
      FROM reviews r JOIN bookings b ON b.id = r.booking_id
@@ -76,7 +80,7 @@ router.get("/worker/reviews", ah(async (req, res) => {
   return res.json({ reviews: r.rows, count: avg.rows[0].n, avg: Math.round(avg.rows[0].avg * 10) / 10 });
 }));
 
-router.get("/worker/earnings", ah(async (req, res) => {  const r = await query(
+router.get("/worker/earnings", requireRole("WORKER", "ADMIN"), ah(async (req, res) => {  const r = await query(
     `SELECT cl.*, b.booking_no FROM commission_ledger cl JOIN bookings b ON b.id = cl.booking_id
      WHERE b.worker_id = $1 ORDER BY cl.created_at DESC`, [req.user!.id]);
   const rows = r.rows as { worker_paisa: string; commission_paisa: string; is_settled: boolean }[];
@@ -86,13 +90,14 @@ router.get("/worker/earnings", ah(async (req, res) => {  const r = await query(
   return res.json({ ledger: r.rows, netPaisa: net, owedPaisa: owed, settlements: s.rows });
 }));
 
-router.get("/worker/availability", ah(async (req, res) => {
+router.get("/worker/availability", requireRole("WORKER", "ADMIN"), ah(async (req, res) => {
   const r = await query(`SELECT dow, is_open FROM worker_availability WHERE user_id = $1 ORDER BY dow`, [req.user!.id]);
   return res.json({ days: r.rows });
 }));
 
 router.put(
   "/worker/availability",
+  requireRole("WORKER", "ADMIN"),
   validate(z.object({ days: z.array(z.object({ dow: z.number().int().min(0).max(6), open: z.boolean() })).length(7) })),
   ah(async (req, res) => {
     const { days } = req.body as { days: { dow: number; open: boolean }[] };
@@ -109,6 +114,7 @@ router.put(
 /** Verification document metadata (private-storage upload wiring lands here later). */
 router.post(
   "/worker/documents",
+  requireRole("WORKER", "ADMIN"),
   validate(z.object({ kind: z.string().trim().min(2).max(60), storagePath: z.string().trim().min(3).max(500) })),
   ah(async (req, res) => {
     const f = req.body as { kind: string; storagePath: string };

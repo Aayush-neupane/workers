@@ -21,10 +21,14 @@ export default function Dashboard() {
   const [balance, setBalance] = useState(0);
   const [notes, setNotes] = useState<{ id: string; title: string; body: string; is_read: boolean }[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
 
   function reload() {
-    api<{ bookings: Booking[] }>("/api/bookings/mine").then((d) => setBookings(d.bookings)).catch(() => {});
-    api<{ requests: QuoteRequest[] }>("/api/quotes/requests/mine").then((d) => setQuotes(d.requests)).catch(() => {});
+    setLoadError("");
+    api<{ bookings: Booking[] }>("/api/bookings/mine").then((d) => setBookings(d.bookings)).catch(() => setLoadError("Couldn't load your bookings."));
+    api<{ requests: QuoteRequest[] }>("/api/quotes/requests/mine").then((d) => setQuotes(d.requests)).catch(() => setLoadError("Couldn't load your quote requests."));
     api<{ balance: number }>("/api/rewards/mine").then((d) => setBalance(d.balance)).catch(() => {});
     api<{ notifications: typeof notes }>("/api/notifications").then((d) => setNotes(d.notifications)).catch(() => {});
     api<{ invites: Invite[] }>("/api/worker/invites/mine").then((d) => setInvites(d.invites)).catch(() => {});
@@ -33,31 +37,51 @@ export default function Dashboard() {
   useEffect(reload, []);
 
   async function acceptInvite(id: string) {
+    setActionError("");
+    setRetryAction(null);
     try {
       await post(`/api/worker/invites/${id}/accept`, {});
       navigate("/worker", { replace: true });
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Could not accept");
+      setActionError(e instanceof Error ? e.message : "Could not accept");
+      setRetryAction(() => () => acceptInvite(id));
     }
   }
 
   async function acceptProposal(proposalId: string) {
+    setActionError("");
+    setRetryAction(null);
     try {
       const out = await post<{ bookingNo: string }>("/api/quotes/proposals/" + proposalId + "/accept", {});
-      window.location.href = `/track/${out.bookingNo}`;
+      navigate(`/track/${out.bookingNo}`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Could not accept");
+      setActionError(e instanceof Error ? e.message : "Could not accept");
+      setRetryAction(() => () => acceptProposal(proposalId));
     }
   }
 
   const upcoming = bookings.filter((b) => !["completed", "cancelled"].includes(b.status));
   const done = bookings.filter((b) => ["completed", "cancelled"].includes(b.status));
+  const activeQuotes = quotes.filter((q) => q.status !== "accepted" && q.status !== "cancelled");
+  const pastQuotes = quotes.filter((q) => q.status === "accepted" || q.status === "cancelled");
 
   return (
     <div className="fade-up">
       <PageHero eyebrow="Customer portal" title="Your bookings" body="Track jobs live, compare quote proposals, and spend loyalty points." />
       <div className="wrap grid items-start gap-5 py-8 lg:grid-cols-[1fr_300px]">
         <div className="space-y-8">
+          {loadError && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 rounded-md bg-error-container p-3.5 text-sm font-medium text-error">
+              {loadError}
+              <Button variant="outline" onClick={reload}>Retry</Button>
+            </p>
+          )}
+          {actionError && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 rounded-md bg-error-container p-3.5 text-sm font-medium text-error">
+              {actionError}
+              {retryAction && <Button variant="outline" onClick={() => retryAction()}>Retry</Button>}
+            </p>
+          )}
           {invites.length > 0 && (
             <section aria-label="Professional invitations">
               {invites.map((inv) => (
@@ -96,7 +120,7 @@ export default function Dashboard() {
               </div>
             )}
           </section>
-          {quotes.filter((q) => q.status !== "accepted" && q.status !== "cancelled").map((q) => (
+          {activeQuotes.map((q) => (
             <section key={q.id}>
               <h2 className="font-display text-xl font-semibold">Quote: {q.title}</h2>
               <div className="mt-3 space-y-3">
@@ -119,6 +143,22 @@ export default function Dashboard() {
               </div>
             </section>
           ))}
+          {pastQuotes.length > 0 && (
+            <details>
+              <summary className="cursor-pointer font-display text-xl font-semibold">Past quotes ({pastQuotes.length})</summary>
+              <div className="mt-3 space-y-3">
+                {pastQuotes.map((q) => (
+                  <Card key={q.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div>
+                      <p className="font-bold">{q.title}</p>
+                      <p className="text-xs text-on-surface-variant">{(q.proposals ?? []).length} proposal(s)</p>
+                    </div>
+                    <Badge tone={q.status === "accepted" ? "success" : "warning"}>{q.status}</Badge>
+                  </Card>
+                ))}
+              </div>
+            </details>
+          )}
           <section>
             <h2 className="font-display text-xl font-semibold">History ({done.length})</h2>
             <div className="mt-3 space-y-3">

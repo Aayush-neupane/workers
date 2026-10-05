@@ -7,8 +7,11 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string;
+  phone?: string;
   roles: string[];
   onboarded: boolean;
+  permissions?: string[];
+  isSuperAdmin?: boolean;
 }
 
 interface AuthValue {
@@ -16,6 +19,9 @@ interface AuthValue {
   role: Role | null;
   ready: boolean;
   authError: string;
+  permissions: string[];
+  isSuperAdmin: boolean;
+  can: (perm: string) => boolean;
   signIn: (email: string, password: string) => Promise<SessionUser | null>;
   signUp: (name: string, phone: string, email: string, password: string, referralCode?: string) => Promise<SessionUser | null>;
   signOut: () => Promise<void>;
@@ -26,6 +32,7 @@ const AuthCtx = createContext<AuthValue | null>(null);
 
 export function toRole(roles: string[]): Role | null {
   if (roles.includes("ADMIN")) return "admin";
+  if (roles.includes("SUB_ADMIN")) return "admin"; // staff use the admin portal, gated by permissions
   if (roles.includes("WORKER")) return "worker";
   if (roles.includes("CUSTOMER")) return "customer";
   return null;
@@ -95,8 +102,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const value = useMemo<AuthValue>(
-    () => ({ user, role: user ? toRole(user.roles) : null, ready, authError, signIn, signUp, signOut, refresh }),
+  const value = useMemo<AuthValue>(() => {
+    const permissions = user?.permissions ?? [];
+    const superAdmin = user?.isSuperAdmin ?? user?.roles.includes("ADMIN") ?? false;
+    const can = (perm: string) => superAdmin || permissions.includes(perm);
+    return {
+      user, role: user ? toRole(user.roles) : null, ready, authError,
+      permissions, isSuperAdmin: superAdmin, can,
+      signIn, signUp, signOut, refresh,
+    };
+  },
     [user, ready, authError, signIn, signUp, signOut, refresh],
   );
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

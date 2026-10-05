@@ -134,7 +134,7 @@ export default function Worker() {
             {todays.map((j) => <JobCard key={j.id} job={j} onDone={reload} onMsg={setMsg} />)}
             {upcoming.length > 0 && (
               <>
-                <h3 className="pt-4 font-display text-lg font-semibold">Upcoming</h3>
+                <h2 className="pt-4 font-display text-lg font-semibold">Upcoming</h2>
                 {upcoming.map((j) => <JobCard key={j.id} job={j} onDone={reload} onMsg={setMsg} />)}
               </>
             )}

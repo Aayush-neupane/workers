@@ -295,7 +295,16 @@ export function Shell({ children }: { children: ReactNode }) {
           <div>
             <p className="text-xs font-extrabold tracking-widest text-marigold-300 uppercase">Coverage</p>
             <p className="mt-2 text-sm text-white/80">Damak Municipality, wards 1–10. New areas open only by admin announcement — never silently.</p>
-            <Link to="/cookies" className="mt-2 inline-block text-sm font-bold text-marigold-300 hover:underline">Cookie preferences</Link>
+            <span className="mt-2 inline-flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event("sajilo-open-cookie-preferences"))}
+                className="text-sm font-bold text-marigold-300 hover:underline"
+              >
+                Cookie preferences
+              </button>
+              <Link to="/cookies" className="text-sm text-white/70 hover:underline">Cookie Policy</Link>
+            </span>
           </div>
         </div>
         <div className="border-t border-white/10">

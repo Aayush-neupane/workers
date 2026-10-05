@@ -9,18 +9,18 @@ export function normalizeArea(s: string): string {
 /** True when a city value means Damak ("Damak", "Damak Municipality", "Damak, Jhapa"). */
 export function isDamakCity(city: string): boolean {
   const n = normalizeArea(city);
-  return n === "damak" || n.startsWith("damak");
+  return n === "damak" || /^damak(municipality|jhapa|koshi|nepal|ward\d{1,2})?$/.test(n);
 }
 
-/** True when free text names Damak anywhere (bare landmarks never qualify). */
+/** True when free text names Damak as its own word (bare landmarks never qualify). */
 export function mentionsDamak(text: string): boolean {
-  return normalizeArea(text).includes("damak");
+  return /(^|[^a-z])damak([^a-z]|$)/.test((text ?? "").toLowerCase());
 }
 
 /** Parse ward 1–10 from free text ("Damak-5", "ward 3", "W-5"). Null = no ward mentioned. */
 export function parseWard(line: string): number | null {
   if (!line) return null;
-  const m = line.match(/(?:damak\s*[-\s]?\s*|ward\s*(?:no\.?\s*)?|w\s*[-\s]?)\s*(\d{1,2})/i);
+  const m = line.match(/(?:damak\s*[-\s]?\s*|ward\s*(?:no\.?\s*)?|(?:^|[\s,\-])w\s*[-\s]?)\s*(\d{1,2})/i);
   if (!m) return null;
   const w = Number(m[1]);
   return Number.isInteger(w) && w >= 1 && w <= 10 ? w : null;
@@ -38,6 +38,6 @@ export function serviceServesDamak(areas: string[] | null | undefined): boolean 
   if (!areas || areas.length === 0) return true;
   return areas.some((a) => {
     const n = normalizeArea(a);
-    return n === "damak" || n.startsWith("damak");
+    return n === "damak" || /^damak(municipality|jhapa|koshi|nepal|ward\d{1,2})?$/.test(n);
   });
 }

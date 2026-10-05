@@ -3,13 +3,14 @@ import { z } from "zod";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireRole, requirePermission } from "../middleware/auth.js";
 import { closedWardMessage } from "../utils/coverage.js";
 import { parseWard, mentionsDamak, OUTSIDE_DAMAK } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
 import { audit } from "../services/notify.js";
 import { pushToUser } from "../services/push.js";
-import { inDamakPin, OUTSIDE_PIN } from "../utils/geo.js";
+import { inDamakPin, OUTSIDE_PIN, validPin } from "../utils/geo.js";
+import { randomInt } from "node:crypto";
 
 const router = Router();
 
@@ -38,7 +39,8 @@ router.post(
       return res.status(400).json({ error: "Window end must be after start" });
     }
     const ward = f.ward ?? parseWard(f.landmark);
-    if (ward === null && !mentionsDamak(f.landmark)) {
+    // Landmark must always mention Damak — a supplied ward alone is not proof.
+    if (!mentionsDamak(f.landmark)) {
       return res.status(400).json({ error: OUTSIDE_DAMAK });
     }
     if (ward !== null) {
@@ -46,6 +48,9 @@ router.post(
       if (open.rowCount === 0 || !open.rows[0].is_open) {
         return res.status(400).json({ error: closedWardMessage(ward) });
       }
+    }
+    if ((f.lat != null || f.lng != null) && !validPin(f.lat ?? null, f.lng ?? null)) {
+      return res.status(400).json({ error: "Map pin is outside Nepal — pick a Damak location" });
     }
     if (!inDamakPin(f.lat ?? null, f.lng ?? null)) {
       return res.status(400).json({ error: OUTSIDE_PIN });
@@ -59,7 +64,13 @@ router.post(
       `INSERT INTO notifications(user_id, title, body)
        SELECT u.id, 'New quote request', 'A complex job needs proposals.'
        FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-       WHERE r.name = 'ADMIN'`);
+       WHERE r.name = 'ADMIN' AND u.is_active = true
+       UNION
+       SELECT up.user_id, 'New quote request', 'A complex job needs proposals.'
+       FROM user_permissions up JOIN permissions p ON p.id = up.permission_id
+       JOIN users u ON u.id = up.user_id
+       WHERE p.name = 'quotes.view' AND u.is_active = true`,
+    );
     return res.status(201).json({ ok: true, id: r.rows[0].id });
   }),
 );
@@ -144,9 +155,25 @@ router.post(
 router.post(
   "/quotes/proposals/:id/approve",
   requireAuth,
-  requireRole("ADMIN"),
+  requireRole("ADMIN", "SUB_ADMIN"),
+  requirePermission("quotes.approve"),
   ah(async (req, res) => {
-    await query(`UPDATE quote_proposals SET approved = true, approved_by = $1 WHERE id = $2`, [req.user!.id, req.params.id]);
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid proposal id" });
+    const prop = await query<{ worker_user_id: string | null; approved: boolean; req_status: string }>(
+      `SELECT p.worker_user_id, p.approved, q.status AS req_status
+       FROM quote_proposals p JOIN quote_requests q ON q.id = p.request_id WHERE p.id = $1`,
+      [req.params.id]);
+    if ((prop.rowCount ?? 0) === 0) return res.status(404).json({ error: "Proposal not found" });
+    if (prop.rows[0].approved) return res.status(409).json({ error: "Already approved" });
+    if (!["open", "quoted"].includes(prop.rows[0].req_status)) {
+      return res.status(409).json({ error: "Request no longer open" });
+    }
+    // Nobody approves their own proposal — not even staff.
+    if (prop.rows[0].worker_user_id === req.user!.id) {
+      return res.status(400).json({ error: "You cannot approve your own proposal" });
+    }
+    await query(`UPDATE quote_proposals SET approved = true, approved_by = $1 WHERE id = $2 AND approved = false`,
+      [req.user!.id, req.params.id]);
     await audit(req.user!.id, "ADMIN", "quote-approve", req.params.id);
     return res.json({ ok: true });
   }),
@@ -155,25 +182,56 @@ router.post(
 /** Customer accepts an approved proposal → a confirmed booking with the pro assigned. */
 router.post("/quotes/proposals/:id/accept", requireAuth, ah(async (req, res) => {
   const uid = req.user!.id;
-  const p = await query<{
-    id: string; request_id: string; worker_user_id: string | null; price_paisa: number; approved: boolean;
-    customer_id: string; req_status: string; title: string; description: string; ward: number | null; landmark: string;
-  }>(
-    `SELECT p.*, q.customer_id, q.status AS req_status, q.title, q.description, q.ward, q.landmark
-     FROM quote_proposals p JOIN quote_requests q ON q.id = p.request_id WHERE p.id = $1`, [req.params.id]);
-  if (p.rowCount === 0) return res.status(404).json({ error: "Not found" });
-  const prop = p.rows[0];
-  if (prop.customer_id !== uid && !req.user!.roles.includes("ADMIN")) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-  if (!prop.approved) return res.status(400).json({ error: "Proposal needs admin approval first" });
-  if (prop.req_status !== "quoted" && prop.req_status !== "open") {
-    return res.status(409).json({ error: "Request already handled" });
-  }
-  if (!prop.worker_user_id) return res.status(400).json({ error: "Admin-authored proposal needs a pro assigned first" });
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Lock the proposal row: two concurrent accepts must not create two bookings.
+    const p = await client.query<{
+      id: string; request_id: string; worker_user_id: string | null; price_paisa: number; approved: boolean;
+      customer_id: string; req_status: string; title: string; description: string; ward: number | null; landmark: string;
+      window_start: string;
+    }>(
+      `SELECT p.*, q.customer_id, q.status AS req_status, q.title, q.description, q.ward, q.landmark, q.window_start
+       FROM quote_proposals p JOIN quote_requests q ON q.id = p.request_id WHERE p.id = $1 FOR UPDATE OF p`,
+      [req.params.id]);
+    if ((p.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Not found" });
+    }
+    const prop = p.rows[0];
+    if (prop.customer_id !== uid && !req.user!.roles.includes("ADMIN")) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (!prop.approved) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Proposal needs admin approval first" });
+    }
+    if (!prop.worker_user_id) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Admin-authored proposal needs a pro assigned first" });
+    }
+    // Re-validate the pro at accept time — suspended/unverified pros keep
+    // neither bookings nor payouts.
+    const elig = await client.query(
+      `SELECT u.id FROM users u JOIN worker_profiles wp ON wp.user_id = u.id
+       JOIN worker_services ws ON ws.worker_user_id = u.id
+       JOIN services s ON s.id = ws.service_id
+       WHERE u.id = $1 AND u.is_active = true AND wp.verification_state = 'verified'
+         AND wp.is_active = true AND s.is_active = true LIMIT 1`,
+      [prop.worker_user_id]);
+    if ((elig.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "This pro is no longer eligible — pick another proposal" });
+    }
+    // Claim the request exactly once: concurrent accepts lose here.
+    const claimed = await client.query(
+      `UPDATE quote_requests SET status = 'accepted' WHERE id = $1 AND status IN ('open', 'quoted')`,
+      [prop.request_id]);
+    if ((claimed.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Request already handled" });
+    }
     // Quote services resolve to a generic inspection service if none matches.
     const svc = await client.query<{ id: string; commission_bps: number }>(
       `SELECT s.id, c.commission_bps FROM services s JOIN categories c ON c.id = s.category_id
@@ -182,15 +240,29 @@ router.post("/quotes/proposals/:id/accept", requireAuth, ah(async (req, res) => 
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "No active Damak service to attach" });
     }
-    const no = `BK-${Math.floor(1000 + Math.random() * 9000)}`;
-    const b = await client.query<{ id: string }>(
-      `INSERT INTO bookings(booking_no, customer_id, service_id, worker_id, status, address_text, ward,
-        slot, instructions, estimate_paisa, final_paisa, payment_method, payment_status, commission_bps)
-       VALUES ($1, $2, $3, $4, 'confirmed', $5, $6, now() + interval '2 days', $7, $8, $8, 'cash', 'unpaid', $9)
-       RETURNING id`,
-      [no, prop.customer_id, svc.rows[0].id, prop.worker_user_id,
-        `${prop.landmark}, Damak`, prop.ward, `${prop.title} — ${prop.description}`.slice(0, 2000),
-        prop.price_paisa, svc.rows[0].commission_bps]);
+    let no = "";
+    let b;
+    for (let i = 0; i < 20; i++) {
+      no = `BK-${String(randomInt(100000, 1000000))}`;
+      try {
+        b = await client.query<{ id: string }>(
+          `INSERT INTO bookings(booking_no, customer_id, service_id, worker_id, status, address_text, ward,
+           slot, instructions, estimate_paisa, final_paisa, payment_method, payment_status, commission_bps)
+          VALUES ($1, $2, $3, $4, 'confirmed', $5, $6, $7, $8, $9, $9, 'cash', 'unpaid', $10)
+          RETURNING id`,
+          [no, prop.customer_id, svc.rows[0].id, prop.worker_user_id,
+            `${prop.landmark}, Damak`, prop.ward, prop.window_start,
+            `${prop.title} — ${prop.description}`.slice(0, 2000),
+            prop.price_paisa, svc.rows[0].commission_bps]);
+        break;
+      } catch (e) {
+        if ((e as { code?: string }).code !== "23505") throw e;
+      }
+    }
+    if (!b) {
+      await client.query("ROLLBACK");
+      return res.status(500).json({ error: "Could not create booking — try again" });
+    }
     const bookingId = b.rows[0].id;
     await client.query(
       `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note) VALUES
@@ -202,7 +274,7 @@ router.post("/quotes/proposals/:id/accept", requireAuth, ah(async (req, res) => 
     await client.query(
       `INSERT INTO payments(booking_id, provider, amount_paisa, status) VALUES ($1, 'cash', $2, 'pending')`,
       [bookingId, prop.price_paisa]);
-    await client.query(`UPDATE quote_requests SET status = 'accepted', booking_id = $1 WHERE id = $2`, [bookingId, prop.request_id]);
+    await client.query(`UPDATE quote_requests SET booking_id = $1 WHERE id = $2`, [bookingId, prop.request_id]);
     await notify(client, prop.worker_user_id, "Quote accepted", "A customer accepted your proposal.");
     await client.query("COMMIT");
     void pushToUser(prop.worker_user_id, {

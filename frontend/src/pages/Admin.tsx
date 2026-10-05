@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle, ArrowRight, BadgeCheck, Ban, Check, Megaphone, Search,
@@ -9,10 +9,11 @@ import { LiveMap } from "../components/LiveMap";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { formatSlot, formatNPR } from "../lib/format";
+import { useAuth } from "../lib/auth";
 
 type Tab =
   | "overview" | "dispatch" | "workers" | "customers" | "quotes" | "catalog"
-  | "finance" | "rewards" | "reviews" | "support" | "broadcast" | "reports" | "audit" | "settings";
+  | "finance" | "rewards" | "reviews" | "support" | "broadcast" | "reports" | "audit" | "settings" | "staff";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -29,7 +30,27 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "reports", label: "Reports" },
   { id: "audit", label: "Audit" },
   { id: "settings", label: "Settings" },
+  { id: "staff", label: "Staff" },
 ];
+
+/** Tab → capabilities (any-of). Super-admins bypass and see everything. */
+const TAB_PERMS: Record<Tab, string[]> = {
+  overview: ["overview.view"],
+  dispatch: ["bookings.view"],
+  workers: ["workers.view", "worker.verify", "worker.invite", "worker.activate", "bookings.assign", "bookings.view"],
+  customers: ["customers.view"],
+  quotes: ["quotes.view", "quotes.approve"],
+  catalog: ["catalog.view", "catalog.edit"],
+  finance: ["finance.view"],
+  rewards: ["rewards.view", "settings.edit"],
+  reviews: ["reviews.view"],
+  support: ["support.reply"],
+  broadcast: ["broadcast.send"],
+  reports: ["reports.view"],
+  audit: ["audit.read"],
+  settings: ["settings.view", "settings.edit", "coverage.edit"],
+  staff: ["staff.manage"],
+};
 
 function useMsg(): [string, (m: string) => void] {
   const [msg, setMsg] = useState("");
@@ -42,10 +63,19 @@ function useMsg(): [string, (m: string) => void] {
 }
 
 function Stat({ label, value, sub, onClick }: { label: string; value: string; sub?: string; onClick?: () => void }) {
+  if (!onClick) {
+    return (
+      <div className="rounded-lg border border-outline/60 bg-white p-4 text-left">
+        <p className="text-[11px] font-extrabold tracking-[0.12em] text-on-surface-variant uppercase">{label}</p>
+        <p className="font-display mt-1 text-2xl font-semibold">{value}</p>
+        {sub && <p className="mt-0.5 text-xs text-on-surface-variant">{sub}</p>}
+      </div>
+    );
+  }
   return (
     <button
       onClick={onClick}
-      className={`rounded-lg border border-outline/60 bg-white p-4 text-left transition ${onClick ? "elev-lift cursor-pointer" : ""}`}
+      className="elev-lift cursor-pointer rounded-lg border border-outline/60 bg-white p-4 text-left transition"
     >
       <p className="text-[11px] font-extrabold tracking-[0.12em] text-on-surface-variant uppercase">{label}</p>
       <p className="font-display mt-1 text-2xl font-semibold">{value}</p>
@@ -70,13 +100,35 @@ function Table({ head, children, min = 640 }: { head: string[]; children: React.
 }
 
 function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-label={title} aria-modal="true">
       <div className="absolute inset-0 bg-pine-950/60" onClick={onClose} />
       <div className="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col bg-surface shadow-2xl">
         <div className="flex items-center justify-between border-b border-outline bg-white px-5 py-4">
           <p className="font-bold">{title}</p>
-          <button onClick={onClose} aria-label="Close panel" className="rounded-md p-1.5 hover:bg-surface-container">
+          <button ref={closeRef} onClick={onClose} aria-label="Close panel" className="rounded-md p-1.5 hover:bg-surface-container">
             <X size={20} />
           </button>
         </div>
@@ -89,6 +141,28 @@ function Drawer({ title, onClose, children }: { title: string; onClose: () => vo
 export default function Admin() {
   const [tab, setTab] = useState<Tab>("overview");
   const [msg, setMsg] = useMsg();
+  const { permissions, isSuperAdmin } = useAuth();
+
+  const visible = TABS.filter((t) =>
+    isSuperAdmin || TAB_PERMS[t.id].some((p) => permissions.includes(p)),
+  );
+  const canSee = (id: Tab) => visible.some((t) => t.id === id);
+
+  useEffect(() => {
+    if (!visible.some((t) => t.id === tab) && visible[0]) setTab(visible[0].id);
+  }, [permissions, isSuperAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (visible.length === 0) {
+    return (
+      <div className="fade-up">
+        <PageHero
+          eyebrow="Administration portal"
+          title="Control centre"
+          body="Your staff account has no panel access yet — ask a super-admin to grant permissions."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="fade-up">
@@ -99,7 +173,7 @@ export default function Admin() {
       />
       <div className="wrap grid items-start gap-5 py-8 lg:grid-cols-[220px_1fr]">
         <nav aria-label="Admin sections" className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-24 lg:flex-col lg:overflow-visible lg:pb-0">
-          {TABS.map((t) => (
+          {visible.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -114,7 +188,7 @@ export default function Admin() {
         </nav>
         <div className="min-w-0">
           {msg && <p role="status" className="mb-4 rounded-md bg-info-container p-3 text-sm font-medium text-info">{msg}</p>}
-          {tab === "overview" && <Overview go={setTab} />}
+          {tab === "overview" && <Overview go={setTab} canSee={canSee} />}
           {tab === "dispatch" && <Dispatch onMsg={setMsg} />}
           {tab === "workers" && <Workers onMsg={setMsg} />}
           {tab === "customers" && <Customers onMsg={setMsg} />}
@@ -128,6 +202,7 @@ export default function Admin() {
           {tab === "reports" && <Reports />}
           {tab === "audit" && <Audit />}
           {tab === "settings" && <Settings onMsg={setMsg} />}
+          {tab === "staff" && <Staff onMsg={setMsg} />}
         </div>
       </div>
     </div>
@@ -136,37 +211,55 @@ export default function Admin() {
 
 /* ================= OVERVIEW ================= */
 
-function Overview({ go }: { go: (t: Tab) => void }) {
+function Overview({ go, canSee }: { go: (t: Tab) => void; canSee: (t: Tab) => boolean }) {
   const [d, setD] = useState<Record<string, number | string>>({});
   const [unassigned, setUnassigned] = useState<Record<string, string>[]>([]);
   const [verifs, setVerifs] = useState<Record<string, string>[]>([]);
   const [disputes, setDisputes] = useState<Record<string, string>[]>([]);
   const [recent, setRecent] = useState<Record<string, string>[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function recordError(key: string, e: unknown) {
+    setErrors((prev) => ({ ...prev, [key]: e instanceof Error ? e.message : String(e) }));
+  }
+  function isRestricted(key: string) {
+    return /missing permission|403|forbidden/i.test(errors[key] ?? "");
+  }
 
   useEffect(() => {
-    api<Record<string, number | string>>("/api/admin/overview").then(setD).catch(() => {});
-    api<{ bookings: Record<string, string>[] }>("/api/admin/bookings?status=awaiting-worker").then((r) => setUnassigned(r.bookings)).catch(() => {});
-    api<{ workers: Record<string, string>[] }>("/api/admin/workers?state=under-review").then((r) => setVerifs(r.workers)).catch(() => {});
-    api<{ bookings: Record<string, string>[] }>("/api/admin/bookings?status=disputed").then((r) => setDisputes(r.bookings)).catch(() => {});
-    api<{ bookings: Record<string, string>[] }>("/api/admin/bookings").then((r) => setRecent(r.bookings.slice(0, 8))).catch(() => {});
+    api<Record<string, number | string>>("/api/admin/overview").then(setD).catch((e) => recordError("overview", e));
+    api<{ bookings: Record<string, string>[] }>("/api/admin/bookings?status=awaiting-worker").then((r) => setUnassigned(r.bookings)).catch((e) => recordError("unassigned", e));
+    api<{ workers: Record<string, string>[] }>("/api/admin/workers?state=under-review").then((r) => setVerifs(r.workers)).catch((e) => recordError("verifs", e));
+    api<{ bookings: Record<string, string>[] }>("/api/admin/bookings?status=disputed").then((r) => setDisputes(r.bookings)).catch((e) => recordError("disputes", e));
+    api<{ bookings: Record<string, string>[] }>("/api/admin/bookings").then((r) => setRecent(r.bookings.slice(0, 8))).catch((e) => recordError("recent", e));
   }, []);
 
   const rs = (v: unknown) => (v == null ? "—" : `Rs ${(Number(v) / 100).toLocaleString()}`);
+  const restrictedMsg = "Restricted — ask a super-admin for access";
+  const overviewRestricted = isRestricted("overview");
+
+  const statValue = (v: unknown, fallback = "—") =>
+    overviewRestricted ? "Restricted" : (v == null ? fallback : String(v));
+  const statSub = (s?: string) => (overviewRestricted ? "ask a super-admin for access" : s);
 
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Unassigned bookings" value={String(d.unassigned ?? "—")} sub="Need dispatch now" onClick={() => go("dispatch")} />
-        <Stat label="Pending verifications" value={String(d.pendingVerifications ?? "—")} sub="Pros in review queue" onClick={() => go("workers")} />
-        <Stat label="Open disputes" value={String(d.openDisputes ?? "—")} sub="Paused settlements" onClick={() => go("dispatch")} />
-        <Stat label="Gross service value" value={rs(d.grossPaisa)} sub="Ledger-backed totals" onClick={() => go("finance")} />
-        <Stat label="Earned commission" value={rs(d.commissionPaisa)} onClick={() => go("finance")} />
-        <Stat label="Cash collected" value={rs(d.cashCollectedPaisa)} sub="Awaiting reconciliation" onClick={() => go("finance")} />
-        <Stat label="Refunds" value={rs(d.refundsPaisa)} onClick={() => go("finance")} />
-        <Stat label="Bookings by status" value={(d.bookings as unknown as { status: string; n: string }[] | undefined)?.map((b) => `${b.status.split("-")[0]}:${b.n}`).join(" · ") ?? "—"} />
+        <Stat label="Unassigned bookings" value={statValue(d.unassigned)} sub={statSub("Need dispatch now")} onClick={canSee("dispatch") ? () => go("dispatch") : undefined} />
+        <Stat label="Pending verifications" value={statValue(d.pendingVerifications)} sub={statSub("Pros in review queue")} onClick={canSee("workers") ? () => go("workers") : undefined} />
+        <Stat label="Open disputes" value={statValue(d.openDisputes)} sub={statSub("Paused settlements")} onClick={canSee("dispatch") ? () => go("dispatch") : undefined} />
+        <Stat label="Gross service value" value={overviewRestricted ? "Restricted" : rs(d.grossPaisa === undefined ? undefined : d.grossPaisa)} sub={statSub("Ledger-backed totals")} onClick={canSee("finance") ? () => go("finance") : undefined} />
+        <Stat label="Earned commission" value={overviewRestricted ? "Restricted" : rs(d.commissionPaisa === undefined ? undefined : d.commissionPaisa)} onClick={canSee("finance") ? () => go("finance") : undefined} />
+        <Stat label="Cash collected" value={overviewRestricted ? "Restricted" : rs(d.cashCollectedPaisa === undefined ? undefined : d.cashCollectedPaisa)} sub={statSub("Awaiting reconciliation")} onClick={canSee("finance") ? () => go("finance") : undefined} />
+        <Stat label="Refunds" value={overviewRestricted ? "Restricted" : rs(d.refundsPaisa === undefined ? undefined : d.refundsPaisa)} onClick={canSee("finance") ? () => go("finance") : undefined} />
+        <Stat label="Bookings by status" value={overviewRestricted ? restrictedMsg : ((d.bookings as unknown as { status: string; n: string }[] | undefined)?.map((b) => `${b.status.split("-")[0]}:${b.n}`).join(" · ") ?? "—")} />
       </div>
 
-      {unassigned.length > 0 && (
+      {isRestricted("unassigned") ? (
+        <Card className="p-4">
+          <p className="text-sm text-on-surface-variant">{restrictedMsg} (unassigned bookings).</p>
+        </Card>
+      ) : unassigned.length > 0 && (
         <Card className="border-l-4 border-l-warning p-4">
           <p className="flex items-center gap-1.5 font-bold"><AlertTriangle size={16} aria-hidden="true" /> {unassigned.length} unassigned booking(s)</p>
           <ul className="mt-2 space-y-1 text-sm">
@@ -174,22 +267,24 @@ function Overview({ go }: { go: (t: Tab) => void }) {
               <li key={b.id}><span className="font-mono">{b.booking_no}</span> · {b.service_name} · {b.address_text}</li>
             ))}
           </ul>
-          <Button variant="outline" className="mt-3" onClick={() => go("dispatch")}>Open dispatch <ArrowRight size={14} /></Button>
+          {canSee("dispatch") && <Button variant="outline" className="mt-3" onClick={() => go("dispatch")}>Open dispatch <ArrowRight size={14} /></Button>}
         </Card>
       )}
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="p-4">
-          <p className="font-bold">Verification queue ({verifs.length})</p>
-          {verifs.length === 0 ? <p className="mt-1 text-sm text-on-surface-variant">Queue clear.</p> : (
+          <p className="font-bold">Verification queue ({isRestricted("verifs") ? "—" : verifs.length})</p>
+          {isRestricted("verifs") ? <p className="mt-1 text-sm text-on-surface-variant">{restrictedMsg}.</p>
+            : verifs.length === 0 ? <p className="mt-1 text-sm text-on-surface-variant">Queue clear.</p> : (
             <ul className="mt-2 space-y-1 text-sm">
               {verifs.slice(0, 5).map((w) => <li key={w.id}>{w.name} · {w.email}</li>)}
             </ul>
           )}
-          <Button variant="ghost" className="mt-2" onClick={() => go("workers")}>Review pros <ArrowRight size={14} /></Button>
+          {canSee("workers") && !isRestricted("verifs") && <Button variant="ghost" className="mt-2" onClick={() => go("workers")}>Review pros <ArrowRight size={14} /></Button>}
         </Card>
         <Card className="p-4">
-          <p className="font-bold">Open disputes ({disputes.length})</p>
-          {disputes.length === 0 ? <p className="mt-1 text-sm text-on-surface-variant">No disputes.</p> : (
+          <p className="font-bold">Open disputes ({isRestricted("disputes") ? "—" : disputes.length})</p>
+          {isRestricted("disputes") ? <p className="mt-1 text-sm text-on-surface-variant">{restrictedMsg}.</p>
+            : disputes.length === 0 ? <p className="mt-1 text-sm text-on-surface-variant">No disputes.</p> : (
             <ul className="mt-2 space-y-1 text-sm">
               {disputes.slice(0, 5).map((b) => <li key={b.id}><span className="font-mono">{b.booking_no}</span> · {b.service_name}</li>)}
             </ul>
@@ -198,6 +293,9 @@ function Overview({ go }: { go: (t: Tab) => void }) {
       </div>
       <div>
         <p className="mb-2 font-bold">Latest bookings</p>
+        {isRestricted("recent") ? (
+          <p className="text-sm text-on-surface-variant">{restrictedMsg}.</p>
+        ) : (
         <Table head={["Booking", "Service", "Customer", "Pro", "Status"]}>
           {recent.map((b) => (
             <tr key={b.id} className="border-t border-outline/60">
@@ -209,6 +307,7 @@ function Overview({ go }: { go: (t: Tab) => void }) {
             </tr>
           ))}
         </Table>
+        )}
       </div>
     </div>
   );
@@ -531,6 +630,7 @@ function WorkerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => void;
   }, [id]);
 
   async function verify(state: string) {
+    if (state === "suspended" && !window.confirm("Suspend this worker? They will stop receiving new jobs.")) return;
     try {
       await post(`/api/admin/workers/${id}/verify`, { state, notes: `Set to ${state} from control centre` });
       onMsg(`Worker ${state}. Verification history preserved.`);
@@ -540,6 +640,7 @@ function WorkerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => void;
   }
 
   async function activate(active: boolean) {
+    if (!active && !window.confirm("Deactivate this worker? They will stop receiving new jobs.")) return;
     try {
       await post(`/api/admin/workers/${id}/activate`, { active, serviceIds: picked });
       onMsg(active ? "Activated with selected skills." : "Deactivated.");
@@ -650,6 +751,7 @@ function CustomerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => voi
   useEffect(reload, [id]);
 
   async function restrict(active: boolean) {
+    if (!active && !window.confirm("Restrict this customer? They will not be able to book.")) return;
     try {
       await post(`/api/admin/customers/${id}/restrict`, { active });
       onMsg(active ? "Restriction lifted." : "Account restricted.");
@@ -785,6 +887,7 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
   }
 
   async function saveEdit(id: string) {
+    if (!active && !window.confirm("Deactivate this service? It will stop appearing for new bookings.")) return;
     try {
       await api(`/api/admin/services/${id}`, {
         method: "PUT",
@@ -911,6 +1014,14 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
   const [rAmount, setRAmount] = useState("");
   const [rReason, setRReason] = useState("");
   const [rPayment, setRPayment] = useState("");
+  const [sError, setSError] = useState("");
+  const [rError, setRError] = useState("");
+
+  function parsePositive(raw: string): number | null {
+    const n = Number(raw);
+    if (raw.trim() === "" || Number.isNaN(n) || n <= 0) return null;
+    return n;
+  }
 
   function load() {
     api<{ ledger: typeof ledger; cash: typeof cash; settlements: typeof settlements }>(
@@ -921,9 +1032,16 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
   useEffect(load, [filter]);
 
   async function settle() {
+    const amt = parsePositive(sAmount);
+    if (amt === null) {
+      setSError("Enter an amount greater than 0.");
+      return;
+    }
+    setSError("");
+    if (!window.confirm(`Record ${sKind} of Rs ${amt} for this pro?`)) return;
     try {
       await post("/api/admin/settlements", {
-        workerId: sWorker, amountPaisa: Math.round(Number(sAmount) * 100), kind: sKind, note: sNote,
+        workerId: sWorker, amountPaisa: Math.round(amt * 100), kind: sKind, note: sNote,
       });
       onMsg("Settlement recorded. Nothing was silently deducted — it's all in the ledger.");
       setSAmount(""); setSNote("");
@@ -944,9 +1062,16 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
   }
 
   async function refund() {
+    const amt = parsePositive(rAmount);
+    if (amt === null) {
+      setRError("Enter an amount greater than 0.");
+      return;
+    }
+    setRError("");
+    if (!window.confirm(`Issue a refund of Rs ${amt}?`)) return;
     try {
       const out = await post<{ partial: boolean }>("/api/admin/refunds", {
-        paymentId: rPayment, amountPaisa: Math.round(Number(rAmount) * 100), reason: rReason,
+        paymentId: rPayment, amountPaisa: Math.round(amt * 100), reason: rReason,
       });
       onMsg(out.partial ? "Partial refund recorded." : "Full refund recorded. Reward points reversed.");
       setRAmount(""); setRReason("");
@@ -1010,6 +1135,7 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
               <TextField value={sAmount} onChange={(e) => setSAmount(e.target.value)} placeholder="Rs" inputMode="decimal" aria-label="Amount in rupees" />
             </div>
             <TextField value={sNote} onChange={(e) => setSNote(e.target.value)} placeholder="Reference / note" aria-label="Note" />
+            {sError && <p role="alert" className="text-xs font-medium text-error">{sError}</p>}
             <Button onClick={settle} disabled={!sWorker || !sAmount}>Record</Button>
           </div>
           {settlements.length > 0 && (
@@ -1034,6 +1160,7 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
             )}
             <TextField value={rAmount} onChange={(e) => setRAmount(e.target.value)} placeholder="Refund Rs" inputMode="decimal" aria-label="Refund amount" />
             <TextField value={rReason} onChange={(e) => setRReason(e.target.value)} placeholder="Reason (audit-logged)" aria-label="Reason" />
+            {rError && <p role="alert" className="text-xs font-medium text-error">{rError}</p>}
             <Button onClick={refund} disabled={!rPayment || !rAmount}>Refund</Button>
           </div>
         </Card>
@@ -1045,6 +1172,8 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
 /* ================= REWARDS ADMIN ================= */
 
 function RewardsAdmin({ onMsg }: { onMsg: (m: string) => void }) {
+  const { can } = useAuth();
+  const canEdit = can("settings.edit");
   const [settings, setSettings] = useState<Record<string, number | boolean | string>>({});
   const [draft, setDraft] = useState("");
 
@@ -1076,7 +1205,8 @@ function RewardsAdmin({ onMsg }: { onMsg: (m: string) => void }) {
       <Card className="p-4">
         <p className="font-bold">Edit platform settings</p>
         <TextArea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} aria-label="Platform settings JSON" />
-        <Button className="mt-2" onClick={save}>Save settings</Button>
+        <Button className="mt-2" onClick={save} disabled={!canEdit}>Save settings</Button>
+        {!canEdit && <p className="mt-1 text-xs text-on-surface-variant">Needs settings.edit permission.</p>}
       </Card>
     </div>
   );
@@ -1182,34 +1312,59 @@ function Broadcast({ onMsg }: { onMsg: (m: string) => void }) {
   const [audience, setAudience] = useState("CUSTOMER");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [ackAll, setAckAll] = useState(false);
 
   async function send() {
     try {
       const out = await post<{ recipients: number }>("/api/admin/notifications/broadcast", { audience, title, body });
       onMsg(`Broadcast sent to ${out.recipients} user(s).`);
-      setTitle(""); setBody("");
+      setTitle(""); setBody(""); setConfirming(false); setAckAll(false);
     } catch (e) {
       onMsg(e instanceof Error ? e.message : "Broadcast failed");
     }
   }
 
+  const needsAck = audience === "ALL";
+
   return (
     <Card className="max-w-xl p-5">
       <p className="flex items-center gap-1.5 font-bold"><Megaphone size={16} aria-hidden="true" /> Notify an audience</p>
       <p className="text-xs text-on-surface-variant">In-app notifications. External channels attach at the notify service later.</p>
-      <div className="mt-3 space-y-3">
-        <Field label="Audience">
-          <Select value={audience} onChange={(e) => setAudience(e.target.value)}>
-            <option value="CUSTOMER">All customers</option>
-            <option value="WORKER">All pros</option>
-            <option value="ADMIN">Admins</option>
-            <option value="ALL">Everyone</option>
-          </Select>
-        </Field>
-        <Field label="Title"><TextField value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ward 7 reopened" /></Field>
-        <Field label="Message"><TextArea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Short, useful, no spam." /></Field>
-        <Button onClick={send} disabled={!title || !body}>Send broadcast</Button>
-      </div>
+      {!confirming ? (
+        <div className="mt-3 space-y-3">
+          <Field label="Audience">
+            <Select value={audience} onChange={(e) => setAudience(e.target.value)}>
+              <option value="CUSTOMER">All customers</option>
+              <option value="WORKER">All pros</option>
+              <option value="ADMIN">Admins</option>
+              <option value="ALL">Everyone</option>
+            </Select>
+          </Field>
+          <Field label="Title"><TextField value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ward 7 reopened" /></Field>
+          <Field label="Message"><TextArea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Short, useful, no spam." /></Field>
+          <Button onClick={() => setConfirming(true)} disabled={!title || !body}>Send broadcast</Button>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-3 rounded-md border border-outline bg-surface-container/50 p-4">
+          <p className="font-bold">Confirm broadcast</p>
+          <dl className="space-y-1.5 text-sm">
+            <div className="flex justify-between gap-3"><dt className="text-on-surface-variant">Audience</dt><dd className="font-bold">{audience}</dd></div>
+            <div><dt className="text-on-surface-variant">Title</dt><dd className="font-bold">{title}</dd></div>
+            <div><dt className="text-on-surface-variant">Message</dt><dd className="mt-0.5 rounded bg-white p-2">{body}</dd></div>
+          </dl>
+          {needsAck && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-outline bg-white p-3 text-sm">
+              <input type="checkbox" checked={ackAll} onChange={(e) => setAckAll(e.target.checked)} className="mt-0.5 size-4 accent-[#0f6b44]" />
+              <span className="font-semibold">I understand this notifies everyone</span>
+            </label>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={send} disabled={needsAck && !ackAll}>Confirm send</Button>
+            <Button variant="outline" onClick={() => setConfirming(false)}>Edit</Button>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
@@ -1262,6 +1417,14 @@ function Reports() {
                 ))}
                 {d.byDay.length === 0 && <p className="text-sm text-on-surface-variant">No data in range.</p>}
               </div>
+              <table className="sr-only">
+                <caption>Bookings per day</caption>
+                <tbody>
+                  {d.byDay.map((x) => (
+                    <tr key={x.day}><th scope="row">{x.day}</th><td>{x.bookings} bookings</td></tr>
+                  ))}
+                </tbody>
+              </table>
             </Card>
             <Card className="p-4">
               <p className="font-bold">Top services</p>
@@ -1312,12 +1475,18 @@ function Audit() {
 
 function Settings({ onMsg }: { onMsg: (m: string) => void }) {
   const [wards, setWards] = useState<{ ward: number; is_open: boolean }[]>([]);
+  const [wardsLoading, setWardsLoading] = useState(true);
+  const [wardsFailed, setWardsFailed] = useState(false);
 
   useEffect(() => {
-    api<{ wards: typeof wards }>("/api/wards").then((d) => setWards(d.wards)).catch(() => {});
+    api<{ wards: typeof wards }>("/api/wards")
+      .then((d) => { setWards(d.wards); setWardsFailed(false); })
+      .catch(() => setWardsFailed(true))
+      .finally(() => setWardsLoading(false));
   }, []);
 
   async function save() {
+    if (!window.confirm("Closing wards blocks new bookings there. Continue?")) return;
     try {
       await api("/api/admin/wards", {
         method: "PUT",
@@ -1346,13 +1515,226 @@ function Settings({ onMsg }: { onMsg: (m: string) => void }) {
             </label>
           ))}
         </div>
-        <Button className="mt-4" onClick={save}>Save coverage</Button>
+        <Button className="mt-4" onClick={save} disabled={wardsLoading || wardsFailed}>Save coverage</Button>
+        {wardsLoading && <p className="mt-2 text-xs text-on-surface-variant">Loading wards…</p>}
+        {wardsFailed && <p className="mt-2 text-xs text-error">Wards failed to load — coverage editing is disabled.</p>}
       </Card>
       <Card className="p-5">
         <p className="font-bold">Reward & platform rules</p>
         <p className="text-sm text-on-surface-variant">Edit earn rates, redemption, milestones and quote-approval policy in the Rewards tab.</p>
         <p className="mt-2 text-sm">Admin roles & permissions live in the database (<code className="rounded bg-surface-container px-1 font-mono text-xs">roles / permissions / role_permissions</code>) — grant capabilities, not blanket admin.</p>
       </Card>
+    </div>
+  );
+}
+
+/* ================= STAFF / SUB-ADMINS (super-admin only) ================= */
+
+const STAFF_PRESETS: { label: string; perms: string[]; hint: string }[] = [
+  { label: "Dispatcher", hint: "Dispatch + workers + customers view", perms: ["overview.view", "bookings.view", "bookings.assign", "workers.view", "customers.view"] },
+  { label: "Support agent", hint: "Customers + tickets + quotes view", perms: ["overview.view", "customers.view", "customers.manage", "support.reply", "quotes.view", "bookings.view"] },
+  { label: "Catalog manager", hint: "Services + coverage", perms: ["catalog.view", "catalog.edit", "coverage.edit", "overview.view"] },
+  { label: "Finance officer", hint: "Money + reports (no refunds)", perms: ["finance.view", "finance.settle", "reports.view", "overview.view"] },
+  { label: "Finance + refunds", hint: "Full money powers", perms: ["finance.view", "finance.settle", "finance.refund", "reports.view", "overview.view"] },
+  { label: "Auditor (read-only)", hint: "See everything, change nothing", perms: ["overview.view", "bookings.view", "customers.view", "finance.view", "reports.view", "audit.read", "reviews.view", "quotes.view"] },
+  { label: "Marketing", hint: "Broadcasts + rewards", perms: ["broadcast.send", "rewards.view", "rewards.edit", "overview.view"] },
+];
+
+interface StaffRow {
+  id: string; name: string; email: string; phone: string;
+  is_active: boolean; created_at: string; permissions: string[];
+}
+
+function Staff({ onMsg }: { onMsg: (m: string) => void }) {
+  const [list, setList] = useState<StaffRow[]>([]);
+  const [groups, setGroups] = useState<{ group: string; perms: string[] }[]>([]);
+  const [nName, setNName] = useState("");
+  const [nEmail, setNEmail] = useState("");
+  const [nPhone, setNPhone] = useState("");
+  const [nPass, setNPass] = useState("");
+  const [picked, setPicked] = useState<string[]>(["overview.view", "bookings.view"]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [ePerms, setEPerms] = useState<string[]>([]);
+  const [ePass, setEPass] = useState("");
+
+  function load() {
+    api<{ staff: StaffRow[] }>("/api/admin/staff").then((r) => setList(r.staff)).catch((e) => onMsg(e instanceof Error ? e.message : "Load failed"));
+    api<{ permissions: string[]; groups: typeof groups }>("/api/admin/permissions").then((r) => setGroups(r.groups)).catch(() => {});
+  }
+  useEffect(load, []);
+
+  function toggle(set: React.Dispatch<React.SetStateAction<string[]>>, p: string) {
+    set((cur) => cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]);
+  }
+
+  async function create() {
+    try {
+      const perms = picked.filter((p) => p !== "staff.manage");
+      await post("/api/admin/staff", { name: nName, email: nEmail, phone: nPhone, password: nPass, permissions: perms });
+      onMsg(`Sub-admin ${nEmail} created with ${perms.length} permission(s).`);
+      setNName(""); setNEmail(""); setNPhone(""); setNPass("");
+      load();
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Create failed");
+    }
+  }
+
+  function startEdit(s: StaffRow) {
+    setEditing(s.id);
+    setEPerms(s.permissions.filter((p) => p !== "staff.manage"));
+    setEPass("");
+    if (groups.length === 0) {
+      api<{ permissions: string[]; groups: typeof groups }>("/api/admin/permissions")
+        .then((r) => setGroups(r.groups))
+        .catch(() => {});
+    }
+  }
+
+  async function saveEdit(id: string) {
+    try {
+      await api(`/api/admin/staff/${id}`, { method: "PATCH", body: JSON.stringify({ permissions: ePerms.filter((p) => p !== "staff.manage") }) });
+      onMsg("Permissions updated — takes effect on their next request.");
+      setEditing(null);
+      load();
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Update failed");
+    }
+  }
+
+  async function setActive(id: string, active: boolean) {
+    try {
+      await api(`/api/admin/staff/${id}`, { method: "PATCH", body: JSON.stringify({ isActive: active }) });
+      onMsg(active ? "Access restored." : "Access suspended — sessions invalidated on next request.");
+      load();
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Update failed");
+    }
+  }
+
+  async function resetPass(id: string) {
+    if (!ePass || ePass.length < 8) {
+      onMsg("New password must be at least 8 characters.");
+      return;
+    }
+    try {
+      await api(`/api/admin/staff/${id}`, { method: "PATCH", body: JSON.stringify({ password: ePass }) });
+      onMsg("Password reset.");
+      setEPass("");
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Reset failed");
+    }
+  }
+
+  async function revoke(id: string, email: string) {
+    if (!window.confirm(`Revoke ${email}'s staff access? They go back to having no admin powers.`)) return;
+    try {
+      await api(`/api/admin/staff/${id}`, { method: "DELETE" });
+      onMsg("Access revoked.");
+      setEditing(null);
+      load();
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Revoke failed");
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card className="p-5">
+        <p className="font-bold">Create sub-admin</p>
+        <p className="text-xs text-on-surface-variant">Only super-admins see this tab. New staff get the SUB_ADMIN role plus exactly the permissions you tick — nothing more. They can never grant staff.manage or touch this tab.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <TextField value={nName} onChange={(e) => setNName(e.target.value)} placeholder="Full name" aria-label="Full name" />
+          <TextField value={nEmail} onChange={(e) => setNEmail(e.target.value)} placeholder="staff@example.com" aria-label="Email" />
+          <TextField value={nPhone} onChange={(e) => setNPhone(e.target.value)} placeholder="Phone (10+ digits)" aria-label="Phone" />
+          <TextField value={nPass} onChange={(e) => setNPass(e.target.value)} type="password" placeholder="Temp password (min 8)" aria-label="Temporary password" />
+        </div>
+        <p className="mt-3 text-xs font-extrabold tracking-wider text-on-surface-variant uppercase">Quick presets</p>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {STAFF_PRESETS.map((p) => (
+            <button key={p.label} onClick={() => setPicked(p.perms)} title={p.hint}
+              className="rounded-full border border-outline bg-surface-container/60 px-3.5 py-1.5 text-xs font-bold hover:border-primary">
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 space-y-3">
+          {(groups.length > 0 ? groups : [{ group: "Permissions", perms: picked }]).map((g) => (
+            <div key={g.group}>
+              <p className="text-xs font-extrabold tracking-wider text-on-surface-variant uppercase">{g.group}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {g.perms.filter((p) => p !== "staff.manage").map((p) => (
+                  <label key={p} className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-bold ${picked.includes(p) ? "border-primary bg-primary-container/60" : "border-outline bg-white"}`}>
+                    <input type="checkbox" checked={picked.includes(p)} onChange={() => toggle(setPicked, p)} className="size-3.5 accent-[#0f6b44]" />
+                    {p}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="text-xs text-on-surface-variant">staff.manage can&apos;t be granted — super-admin only.</p>
+        </div>
+        <Button className="mt-4" onClick={create} disabled={!nName || !nEmail || !nPhone || nPass.length < 8 || picked.length === 0}>
+          Create sub-admin ({picked.length})
+        </Button>
+      </Card>
+
+      <div>
+        <p className="mb-2 font-bold">Staff ({list.length})</p>
+        <Table head={["Staff", "Permissions", "Status", ""]}>
+          {list.map((s) => (
+            <tr key={s.id} className="border-t border-outline/60">
+              <td className="px-4 py-2.5"><strong>{s.name}</strong><br /><span className="text-xs text-on-surface-variant">{s.email} · {s.phone}</span></td>
+              <td className="px-4 py-2.5 text-xs">{s.permissions.length === 0 ? "—" : s.permissions.join(", ")}</td>
+              <td className="px-4 py-2.5">{s.is_active ? <Badge tone="success">Active</Badge> : <Badge tone="error">Suspended</Badge>}</td>
+              <td className="px-4 py-2.5">
+                <span className="flex gap-1.5">
+                  <Button variant="outline" onClick={() => (editing === s.id ? setEditing(null) : startEdit(s))}>
+                    {editing === s.id ? "Close" : "Manage"}
+                  </Button>
+                  {s.is_active
+                    ? <Button variant="ghost" onClick={() => setActive(s.id, false)}>Suspend</Button>
+                    : <Button variant="outline" onClick={() => setActive(s.id, true)}>Restore</Button>}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </Table>
+        {list.length === 0 && <EmptyState title="No sub-admins yet" body="Create your first dispatcher or support agent above." />}
+      </div>
+
+      {editing && (() => {
+        const s = list.find((x) => x.id === editing);
+        if (!s) return null;
+        return (
+          <Drawer title={`Manage ${s.name}`} onClose={() => setEditing(null)}>
+            <Card className="p-4">
+              <p className="font-bold">Permissions ({ePerms.length})</p>
+              <p className="text-xs text-on-surface-variant">Unticking removes panel tabs immediately on their next request. staff.manage can&apos;t be granted — super-admin only.</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(groups.flatMap((g) => g.perms).length > 0 ? [...new Set(groups.flatMap((g) => g.perms))].filter((p) => p !== "staff.manage") : ePerms.filter((p) => p !== "staff.manage")).map((p) => (
+                  <label key={p} className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-bold ${ePerms.includes(p) ? "border-primary bg-primary-container/60" : "border-outline bg-white"}`}>
+                    <input type="checkbox" checked={ePerms.includes(p)} onChange={() => toggle(setEPerms, p)} className="size-3.5 accent-[#0f6b44]" />
+                    {p}
+                  </label>
+                ))}
+              </div>
+              <Button className="mt-3" onClick={() => saveEdit(s.id)} disabled={ePerms.length === 0}>Save permissions</Button>
+            </Card>
+            <Card className="p-4">
+              <p className="font-bold">Reset password</p>
+              <div className="mt-2 flex gap-2">
+                <TextField value={ePass} onChange={(e) => setEPass(e.target.value)} type="password" placeholder="New password (min 8)" aria-label="New password" />
+                <Button variant="outline" onClick={() => resetPass(s.id)}>Reset</Button>
+              </div>
+            </Card>
+            <Card className="border-l-4 border-l-error p-4">
+              <p className="font-bold text-error">Revoke access</p>
+              <p className="text-xs text-on-surface-variant">Suspends the account and strips all staff permissions. Audit-logged.</p>
+              <Button variant="danger" className="mt-2" onClick={() => revoke(s.id, s.email)}>Revoke {s.email}</Button>
+            </Card>
+          </Drawer>
+        );
+      })()}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { pool, query } from "./pool.js";
+import { calcCommission, earnPoints } from "../utils/money.js";
 
 /**
  * Demo dataset for local development — Sajilo Damak.
@@ -172,13 +173,13 @@ for (const b of bookings) {
     [bid, b.method, price, b.status === "completed" && b.method !== "cash" ? "verified" : b.status === "completed" ? "verified" : "pending"],
   );
   if (b.status === "completed") {
-    const commission = Math.floor((price * bps) / 10000);
+    const commission = calcCommission(price, bps);
     await query(
       `INSERT INTO commission_ledger(booking_id, total_paisa, commission_paisa, worker_paisa, rate_bps)
        VALUES ($1, $2, $3, $4, $5) ON CONFLICT (booking_id) DO NOTHING`,
       [bid, price, commission, price - commission, bps],
     );
-    const pts = Math.floor(price / 10000);
+    const pts = earnPoints(price);
     await query(
       `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
        VALUES ($1, $2, 'earn', 'Booking completed', $3) ON CONFLICT DO NOTHING`,

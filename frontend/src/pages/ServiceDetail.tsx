@@ -28,15 +28,32 @@ export default function ServiceDetail() {
   const [pros, setPros] = useState<Pro[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [missing, setMissing] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
-  useEffect(() => {
+  function load() {
+    setMissing(false);
+    setLoadError("");
     api<{ service: Service; pros: Pro[]; reviews: Review[] }>(`/api/services/${id}`)
       .then((d) => { setService(d.service); setPros(d.pros); setReviews(d.reviews); })
-      .catch(() => setMissing(true));
-  }, [id]);
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : "Could not load service";
+        if (/\(#404\)/.test(msg)) setMissing(true);
+        else setLoadError(msg);
+      });
+  }
+
+  useEffect(load, [id]);
 
   if (missing) {
     return <div className="wrap py-12"><EmptyState title="Service not found" body="It may have been retired by our team." /></div>;
+  }
+  if (loadError) {
+    return (
+      <div className="wrap space-y-3 py-12 text-center">
+        <EmptyState title="Couldn't load this service" body={loadError} />
+        <Button onClick={load}>Retry</Button>
+      </div>
+    );
   }
   if (!service) return <p role="status" className="wrap py-12 text-center text-on-surface-variant">Loading…</p>;
 

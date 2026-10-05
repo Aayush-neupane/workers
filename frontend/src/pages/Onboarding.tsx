@@ -31,6 +31,7 @@ export default function Onboarding() {
   const [mapOpen, setMapOpen] = useState(false);
   // Rewards step
   const [code, setCode] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (user?.onboarded) navigate(homeFor(role ?? "customer"), { replace: true });
@@ -39,6 +40,10 @@ export default function Onboarding() {
   useEffect(() => {
     if (user) {
       setName((n) => n || user.name);
+      if (user.phone) {
+        const savedPhone = user.phone;
+        setPhone((p) => p || savedPhone);
+      }
     }
     api<{ code: string }>("/api/referrals/mine").then((d) => setCode(d.code)).catch(() => {});
   }, [user]);
@@ -116,7 +121,7 @@ export default function Onboarding() {
         <Card className="mx-auto max-w-2xl p-6 md:p-8">
           {step === 0 && (
             <div>
-              <p className="font-display text-2xl font-semibold">Ramro Sewa, Sajilo Jeevan.</p>
+              <h2 className="font-display text-2xl font-semibold">Ramro Sewa, Sajilo Jeevan.</h2>
               <div className="mt-4 space-y-3">
                 {[
                   ["Book in Damak", "Fixed-price services or quote requests — wards 1–10 only, checked server-side."],
@@ -129,7 +134,7 @@ export default function Onboarding() {
                   </div>
                 ))}
               </div>
-              <Button className="mt-6 w-full py-3" onClick={() => { setPhone((p) => p); setStep(1); }}>
+              <Button className="mt-6 w-full py-3" onClick={() => setStep(1)}>
                 Set up my account <ArrowRight size={15} aria-hidden="true" />
               </Button>
             </div>
@@ -137,7 +142,7 @@ export default function Onboarding() {
 
           {step === 1 && (
             <div>
-              <p className="flex items-center gap-2 font-display text-2xl font-semibold"><User size={22} aria-hidden="true" /> Who are you?</p>
+              <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><User size={22} aria-hidden="true" /> Who are you?</h2>
               <p className="mt-1 text-sm text-on-surface-variant">Pros see this name and number on job day.</p>
               <div className="mt-4 space-y-4">
                 <Field label="Full name">
@@ -157,7 +162,7 @@ export default function Onboarding() {
 
           {step === 2 && (
             <div>
-              <p className="flex items-center gap-2 font-display text-2xl font-semibold"><MapPin size={22} aria-hidden="true" /> Where do we come?</p>
+              <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><MapPin size={22} aria-hidden="true" /> Where do we come?</h2>
               <p className="mt-1 text-sm text-on-surface-variant">Save your Damak address once — every booking reuses it. Drop a pin so pros find you faster.</p>
               <div className="mt-4 space-y-4">
                 <Field label="Label">
@@ -199,7 +204,7 @@ export default function Onboarding() {
 
           {step === 3 && (
             <div>
-              <p className="flex items-center gap-2 font-display text-2xl font-semibold"><BellRing size={22} aria-hidden="true" /> Stay in the loop</p>
+              <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><BellRing size={22} aria-hidden="true" /> Stay in the loop</h2>
               <p className="mt-1 text-sm leading-relaxed text-on-surface-variant">
                 Assignments, pro-en-route pings, your completion codes and rewards arrive as in-app
                 notifications. Turn on push to get them with the app closed — the code itself always
@@ -215,18 +220,27 @@ export default function Onboarding() {
 
           {step === 4 && (
             <div>
-              <p className="flex items-center gap-2 font-display text-2xl font-semibold"><Gift size={22} aria-hidden="true" /> Get paid to return</p>
+              <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><Gift size={22} aria-hidden="true" /> Get paid to return</h2>
               <ul className="mt-3 space-y-2.5 text-sm">
                 <li className="rounded-md bg-surface-container/60 p-3"><strong>Points on every job</strong> <span className="text-on-surface-variant">— 100 pts becomes Rs 50 off at checkout.</span></li>
                 <li className="rounded-md bg-surface-container/60 p-3"><strong>Milestone bonuses</strong> <span className="text-on-surface-variant">— extra points every few completions.</span></li>
                 <li className="rounded-md bg-surface-container/60 p-3"><strong>Referrals</strong> <span className="text-on-surface-variant">— share your code, you both earn on their first job.</span></li>
               </ul>
               {code && (
-                <button onClick={() => { try { void navigator.clipboard.writeText(code); } catch { /* ignore */ } }}
-                  className="mt-3 w-full rounded-md border-2 border-dashed border-primary/50 bg-primary-container/50 px-4 py-3 font-mono text-lg font-extrabold tracking-widest transition active:scale-[0.99]"
-                  aria-label="Copy your referral code">
-                  {code}
-                </button>
+                <>
+                  <button onClick={() => {
+                    try { void navigator.clipboard.writeText(code); } catch { /* ignore */ }
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 2000);
+                  }}
+                    className="mt-3 w-full rounded-md border-2 border-dashed border-primary/50 bg-primary-container/50 px-4 py-3 font-mono text-lg font-extrabold tracking-widest transition active:scale-[0.99]"
+                    aria-label="Copy your referral code">
+                    {code}
+                  </button>
+                  <p aria-live="polite" className="mt-1.5 text-center text-sm font-bold text-success">
+                    {copied ? "Copied!" : ""}
+                  </p>
+                </>
               )}
               {error && <p role="alert" className="mt-3 text-sm font-medium text-error">{error}</p>}
               <div className="mt-6 flex justify-between gap-3">

@@ -33,8 +33,11 @@ export default function Track() {
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [reviewMsg, setReviewMsg] = useState("");
+  const [reviewOk, setReviewOk] = useState(false);
+  const [reviewDone, setReviewDone] = useState(false);
   const [newSlot, setNewSlot] = useState("");
   const [rescheduling, setRescheduling] = useState(false);
+  const [reschedBusy, setReschedBusy] = useState(false);
 
   function reload() {
     api<{ booking: Booking; history: History[] }>(`/api/bookings/${id}`)
@@ -43,6 +46,23 @@ export default function Track() {
   }
 
   useEffect(reload, [id]);
+
+  // Keep live bookings fresh: poll while active + refetch on focus.
+  const status = booking?.status;
+  useEffect(() => {
+    if (!status || ["completed", "cancelled"].includes(status)) return;
+    const t = window.setInterval(reload, 20000);
+    const onFocus = () => reload();
+    const onVisible = () => { if (document.visibilityState === "visible") reload(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, status]);
 
   async function transition(to: string, extra: Record<string, unknown> = {}) {
     setError("");
@@ -56,17 +76,28 @@ export default function Track() {
 
   async function submitReview() {
     setReviewMsg("");
+    setReviewOk(false);
     try {
       await post("/api/reviews", { bookingId: id, rating, text: reviewText });
+      setReviewOk(true);
+      setReviewDone(true);
       setReviewMsg("Thanks — your review is live.");
     } catch (e) {
+      setReviewOk(false);
       setReviewMsg(e instanceof Error ? e.message : "Could not submit review");
     }
   }
 
+  const minSlot = new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16);
+
   async function reschedule() {
     if (!newSlot) return;
+    if (new Date(newSlot).getTime() < Date.now() + 3600 * 1000) {
+      setError("Pick a slot at least an hour ahead.");
+      return;
+    }
     setError("");
+    setReschedBusy(true);
     try {
       await api(`/api/bookings/${id}/slot`, {
         method: "PUT",
@@ -77,6 +108,8 @@ export default function Track() {
       reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Reschedule failed");
+    } finally {
+      setReschedBusy(false);
     }
   }
 
@@ -114,11 +147,11 @@ export default function Track() {
               {["pending", "awaiting-worker", "confirmed"].includes(booking.status) && (
                 <>
                   <Button variant="outline" onClick={() => setRescheduling((r) => !r)}>Reschedule</Button>
-                  <Button variant="outline" onClick={() => transition("cancelled", { note: "cancelled by customer" })}>Cancel booking</Button>
+                  <Button variant="outline" onClick={() => { if (window.confirm("Cancel this booking?")) transition("cancelled", { note: "cancelled by customer" }); }}>Cancel booking</Button>
                 </>
               )}
               {["in-progress", "awaiting-confirmation"].includes(booking.status) && (
-                <Button variant="outline" onClick={() => transition("disputed", { note: "raised by customer" })}>Report a problem</Button>
+                <Button variant="outline" onClick={() => { if (window.confirm("Report a problem with this booking?")) transition("disputed", { note: "raised by customer" }); }}>Report a problem</Button>
               )}
               {["completed", "cancelled"].includes(booking.status) && (
                 <Link to={`/book/${booking.service_id}`}><Button>Book again</Button></Link>
@@ -128,10 +161,10 @@ export default function Track() {
               <Card className="mt-3 flex flex-col gap-2 p-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
                   <label htmlFor="new-slot" className="mb-1.5 block text-sm font-semibold">New slot (at least an hour ahead)</label>
-                  <input id="new-slot" type="datetime-local" value={newSlot} onChange={(e) => setNewSlot(e.target.value)}
+                  <input id="new-slot" type="datetime-local" value={newSlot} min={minSlot} onChange={(e) => setNewSlot(e.target.value)}
                     className="w-full rounded-md border border-outline bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
                 </div>
-                <Button onClick={reschedule} disabled={!newSlot}>Confirm move</Button>
+                <Button onClick={reschedule} disabled={!newSlot || reschedBusy}>{reschedBusy ? "Moving…" : "Confirm move"}</Button>
               </Card>
             )}
             {booking.status === "completed" && (
@@ -145,11 +178,12 @@ export default function Track() {
                     </button>
                   ))}
                 </div>
-                <textarea value={reviewText} onChange={(e) => setReviewText(e.target.value)}
+                <label htmlFor="review-text" className="mt-2 block text-sm font-semibold">Your review</label>
+                <textarea id="review-text" value={reviewText} onChange={(e) => setReviewText(e.target.value)}
                   placeholder="How was the work?" rows={3}
                   className="mt-2 w-full rounded-md border border-outline px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
-                <Button className="mt-2" onClick={submitReview}>Submit review</Button>
-                {reviewMsg && <p className="mt-2 text-sm font-medium">{reviewMsg}</p>}
+                <Button className="mt-2" onClick={submitReview} disabled={reviewDone}>{reviewDone ? "Review submitted" : "Submit review"}</Button>
+                {reviewMsg && <p role={reviewOk ? "status" : "alert"} className="mt-2 text-sm font-medium">{reviewMsg}</p>}
               </Card>
             )}
           </div>

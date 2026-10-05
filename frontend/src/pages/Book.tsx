@@ -57,14 +57,21 @@ export default function Book() {
   const [bookingMapOpen, setBookingMapOpen] = useState(false);
   const [approx, setApprox] = useState<Pin | null>(null);
   const [locating, setLocating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [showAllSlots, setShowAllSlots] = useState(false);
   const slots = useMemo(buildSlots, []);
 
-  function reloadAddresses() {
-    api<{ addresses: Address[] }>("/api/addresses").then((d) => {
-      setAddresses(d.addresses);
-      if (d.addresses.length > 0) setValue("addressId", d.addresses[0].id);
-    }).catch(() => {});
-  }
+  const groupedSlots = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const s of slots) {
+      const day = new Date(s).toDateString();
+      const list = map.get(day);
+      if (list) list.push(s);
+      else map.set(day, [s]);
+    }
+    return [...map.entries()];
+  }, [slots]);
+  const visibleDays = showAllSlots ? groupedSlots : groupedSlots.slice(0, 3);
 
   useEffect(() => {
     api<{ service: Service }>(`/api/services/${id}`)
@@ -77,10 +84,17 @@ export default function Book() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const { register, trigger, watch, setValue, handleSubmit, formState: { errors } } = useForm<Form>({
+  const { register, trigger, watch, setValue, getValues, handleSubmit, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: { addressId: "", slot: "", instructions: "", paymentMethod: "cash", useRewards: false },
   });
+
+  function reloadAddresses() {
+    api<{ addresses: Address[] }>("/api/addresses").then((d) => {
+      setAddresses(d.addresses);
+      if (d.addresses.length > 0 && !getValues("addressId")) setValue("addressId", d.addresses[0].id);
+    }).catch(() => {});
+  }
 
   const addressId = watch("addressId");
 
@@ -147,6 +161,7 @@ export default function Book() {
   }
 
   const submit = handleSubmit(async (f) => {
+    setSubmitting(true);
     setSubmitError("");
     try {
       const out = await post<{ bookingNo: string }>("/api/bookings", {
@@ -157,6 +172,8 @@ export default function Book() {
       navigate(`/track/${out.bookingNo}`);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Booking failed");
+    } finally {
+      setSubmitting(false);
     }
   });
 
@@ -211,7 +228,7 @@ export default function Book() {
                             ? "Locating your area…"
                             : "Showing Damak — drop a pin to pinpoint your exact spot."}
                 </p>
-                {bookingPin && addresses.length === 0 && (
+                {bookingPin && (
                   <p className="mt-2 rounded-md bg-success-container/60 p-2.5 text-xs font-semibold text-on-primary-container">
                     Pinned — address box filled from the map. Edit it freely above.
                   </p>
@@ -259,14 +276,33 @@ export default function Book() {
             {step === 1 && (
               <fieldset>
                 <legend className="mb-2.5 text-sm font-semibold">Available slots (next 7 days)</legend>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Time slots">
-                  {slots.slice(0, 12).map((s) => (
-                    <label key={s} className={`cursor-pointer rounded-lg border px-3 py-2.5 text-sm font-bold transition active:scale-95 ${slot === s ? "border-pine-950 bg-pine-950 text-white" : "border-outline hover:border-pine-800"}`}>
-                      <input type="radio" value={s} {...register("slot")} className="sr-only" />
-                      {formatSlot(s)}
-                    </label>
+                <div className="space-y-4">
+                  {visibleDays.map(([day, daySlots]) => (
+                    <div key={day}>
+                      <p className="mb-1.5 text-xs font-extrabold tracking-wide text-on-surface-variant uppercase">
+                        {new Date(daySlots[0]).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Time slots">
+                        {daySlots.map((s) => (
+                          <label key={s} className={`cursor-pointer rounded-lg border px-3 py-2.5 text-sm font-bold transition active:scale-95 ${slot === s ? "border-pine-950 bg-pine-950 text-white" : "border-outline hover:border-pine-800"}`}>
+                            <input type="radio" value={s} {...register("slot")} className="sr-only" />
+                            {formatSlot(s)}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
+                {groupedSlots.length > visibleDays.length && (
+                  <Button type="button" variant="ghost" className="mt-3" onClick={() => setShowAllSlots(true)}>
+                    Show all ({slots.length} slots)
+                  </Button>
+                )}
+                {showAllSlots && (
+                  <Button type="button" variant="ghost" className="mt-3" onClick={() => setShowAllSlots(false)}>
+                    Show fewer
+                  </Button>
+                )}
                 {errors.slot && <p role="alert" className="mt-2 text-sm font-medium text-error">{errors.slot.message}</p>}
               </fieldset>
             )}
@@ -325,9 +361,9 @@ export default function Book() {
                 <ArrowLeft size={15} aria-hidden="true" /> Back
               </Button>
               {step < 3 ? (
-                <Button onClick={next}>Continue <ArrowRight size={15} aria-hidden="true" /></Button>
+                <Button onClick={next} disabled={submitting} aria-busy={submitting}>Continue <ArrowRight size={15} aria-hidden="true" /></Button>
               ) : (
-                <Button onClick={submit}>Confirm booking</Button>
+                <Button onClick={submit} disabled={submitting} aria-busy={submitting}>{submitting ? "Booking…" : "Confirm booking"}</Button>
               )}
             </div>
           </Card>

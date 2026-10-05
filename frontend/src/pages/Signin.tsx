@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,16 +17,24 @@ const signinSchema = z.object({
 const signupSchema = signinSchema.extend({
   name: z.string().trim().min(2, "Enter your full name"),
   phone: z.string().trim().min(10, "Enter a valid phone number").max(20),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   terms: z.boolean(),
   referralCode: z.string().trim().max(20).optional(),
 });
 
 /** Demo logins — local seed data only, never shown in production builds. */
 const DEMO_ACCOUNTS = [
-  { label: "Client", email: "gita@demo.local", password: "Demo1234!", to: "/dashboard" },
-  { label: "Professional", email: "bijay@demo.local", password: "Demo1234!", to: "/worker" },
-  { label: "Admin", email: "admin@sajilo.local", password: "ChangeMe123!", to: "/admin" },
+  { label: "Client", email: "gita@demo.local", password: "Demo1234!" },
+  { label: "Professional", email: "bijay@demo.local", password: "Demo1234!" },
+  { label: "Admin", email: "admin@sajilo.local", password: "ChangeMe123!" },
 ];
+
+/** Open-redirect guard: only same-origin absolute paths are safe to resume. */
+function safeFrom(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (!value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
 
 function CoverContent({ mode }: { mode: "signin" | "signup" }) {
   return (
@@ -71,9 +79,81 @@ function CoverContent({ mode }: { mode: "signin" | "signup" }) {
   );
 }
 
-export default function Signin({ mode }: { mode: "signin" | "signup" }) {
-  const { signIn, signUp, authError } = useAuth();
+type SignupValues = z.infer<typeof signupSchema>;
+
+/**
+ * Isolated signup form instance.
+ * Each rendered copy (desktop column + mobile section) owns its own
+ * react-hook-form state — sharing one form across two <form> elements
+ * leaves hidden empty inputs registered and breaks validation/submission.
+ */
+function SignupForm() {
+  const { signUp, authError } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [busy, setBusy] = useState(false);
+  const form = useForm<SignupValues>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: { name: "", phone: "", email: "", password: "", terms: false, referralCode: "" },
+  });
+
+  async function doSignup(f: SignupValues) {
+    if (!f.terms) {
+      form.setError("terms", { message: "Please accept the Terms and Privacy Policy to continue." });
+      return;
+    }
+    setBusy(true);
+    const me = await signUp(f.name.trim(), f.phone.trim(), f.email, f.password, f.referralCode?.trim().toUpperCase() || undefined);
+    setBusy(false);
+    if (me) {
+      // Brand-new accounts start with the setup tutorial unless a safe
+      // resume target was captured by the route guard.
+      const from = safeFrom((location.state as { from?: unknown } | null)?.from);
+      navigate(from ?? "/welcome", { replace: true });
+    }
+  }
+
+  return (
+    <form className="mt-6 flex-1 space-y-4" onSubmit={form.handleSubmit(doSignup)}>
+      <Field label="Full name" error={form.formState.errors.name?.message}>
+        <TextField {...form.register("name")} placeholder="e.g. Gita Sharma" autoComplete="name" />
+      </Field>
+      <Field label="Phone" error={form.formState.errors.phone?.message}>
+        <TextField {...form.register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
+      </Field>
+      <Field label="Email" error={form.formState.errors.email?.message}>
+        <TextField {...form.register("email")} type="email" placeholder="you@example.com" autoComplete="email" />
+      </Field>
+      <Field label="Password" error={form.formState.errors.password?.message}>
+        <TextField {...form.register("password")} type="password" placeholder="Minimum 8 characters" autoComplete="new-password" />
+      </Field>
+      <Field label="Referral code (optional)" hint="Invited by a friend? You both earn bonus points on your first job.">
+        <TextField {...form.register("referralCode")} placeholder="e.g. GITA-4F8K2Q" className="uppercase" />
+      </Field>
+      <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-outline p-3 text-[13px] leading-relaxed">
+        <input type="checkbox" {...form.register("terms")} className="mt-0.5 size-4 shrink-0 accent-[#0f6b44]" />
+        <span>
+          I agree to the <Link to="/terms" className="font-bold text-primary hover:underline">Terms of Service</Link>{" "}
+          and <Link to="/privacy" className="font-bold text-primary hover:underline">Privacy Policy</Link>.
+        </span>
+      </label>
+      {form.formState.errors.terms && (
+        <p role="alert" className="text-xs font-medium text-error">{form.formState.errors.terms.message}</p>
+      )}
+      {authError && (
+        <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{authError}</p>
+      )}
+      <Button type="submit" className="w-full py-3" disabled={busy}>
+        {busy ? "Please wait…" : "Create account"}
+      </Button>
+    </form>
+  );
+}
+
+export default function Signin({ mode }: { mode: "signin" | "signup" }) {
+  const { signIn, authError, user, role } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [busy, setBusy] = useState(false);
   const signup = mode === "signup";
 
@@ -81,39 +161,26 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
     resolver: zodResolver(signinSchema),
     defaultValues: { email: "", password: "" },
   });
-  const joinForm = useForm<z.infer<typeof signupSchema>>({
-    resolver: zodResolver(signupSchema),
-    defaultValues: { name: "", phone: "", email: "", password: "", terms: false, referralCode: "" },
-  });
 
   async function doLogin(f: z.infer<typeof signinSchema>) {
     setBusy(true);
     const me = await signIn(f.email, f.password);
     setBusy(false);
     if (me) {
-      const role = toRole(me.roles);
-      if (!role) return;
-      navigate(me.onboarded ? homeFor(role) : "/welcome", { replace: true });
+      const r = toRole(me.roles);
+      if (!r) return;
+      const from = safeFrom((location.state as { from?: unknown } | null)?.from);
+      navigate(from ?? (me.onboarded ? homeFor(r) : "/welcome"), { replace: true });
     }
-  }
-
-  async function doSignup(f: z.infer<typeof signupSchema>) {
-    if (!f.terms) {
-      joinForm.setError("terms", { message: "Please accept the Terms and Privacy Policy to continue." });
-      return;
-    }
-    setBusy(true);
-    const me = await signUp(f.name.trim(), f.phone.trim(), f.email, f.password, f.referralCode?.trim() || undefined);
-    setBusy(false);
-    // Brand-new accounts always start with the setup tutorial.
-    if (me) navigate("/welcome", { replace: true });
   }
 
   function fillDemo(email: string, password: string) {
     loginForm.setValue("email", email);
     loginForm.setValue("password", password);
-    joinForm.setValue("email", email);
-    joinForm.setValue("password", password);
+  }
+
+  if (user && role) {
+    return <Navigate to={homeFor(role)} replace />;
   }
 
   return (
@@ -186,78 +253,14 @@ export default function Signin({ mode }: { mode: "signin" | "signup" }) {
           <div className="hidden flex-col p-7 md:flex md:p-10">
             <h1 className="font-display text-3xl font-semibold">Create account</h1>
             <p className="mt-1.5 text-sm text-on-surface-variant">Free forever. Book in under a minute.</p>
-            <form className="mt-6 flex-1 space-y-4" onSubmit={joinForm.handleSubmit(doSignup)}>
-              <Field label="Full name" error={joinForm.formState.errors.name?.message}>
-                <TextField {...joinForm.register("name")} placeholder="e.g. Gita Sharma" autoComplete="name" />
-              </Field>
-              <Field label="Phone" error={joinForm.formState.errors.phone?.message}>
-                <TextField {...joinForm.register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
-              </Field>
-              <Field label="Email" error={joinForm.formState.errors.email?.message}>
-                <TextField {...joinForm.register("email")} type="email" placeholder="you@example.com" autoComplete="email" />
-              </Field>
-              <Field label="Password" error={joinForm.formState.errors.password?.message}>
-                <TextField {...joinForm.register("password")} type="password" placeholder="Minimum 8 characters" autoComplete="new-password" />
-              </Field>
-              <Field label="Referral code (optional)" hint="Invited by a friend? You both earn bonus points on your first job.">
-                <TextField {...joinForm.register("referralCode")} placeholder="e.g. GITA-4F8K2Q" className="uppercase" />
-              </Field>
-              <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-outline p-3 text-[13px] leading-relaxed">
-                <input type="checkbox" {...joinForm.register("terms")} className="mt-0.5 size-4 shrink-0 accent-[#0f6b44]" />
-                <span>
-                  I agree to the <Link to="/terms" className="font-bold text-primary hover:underline">Terms of Service</Link>{" "}
-                  and <Link to="/privacy" className="font-bold text-primary hover:underline">Privacy Policy</Link>.
-                </span>
-              </label>
-              {joinForm.formState.errors.terms && (
-                <p role="alert" className="text-xs font-medium text-error">{joinForm.formState.errors.terms.message}</p>
-              )}
-              {signup && authError && (
-                <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{authError}</p>
-              )}
-              <Button type="submit" className="w-full py-3" disabled={busy}>
-                {busy && signup ? "Please wait…" : "Create account"}
-              </Button>
-            </form>
+            <SignupForm />
           </div>
 
           {/* Mobile signup form */}
           {signup && (
             <div className="border-t border-outline p-7 md:hidden">
               <h1 className="font-display text-2xl font-semibold">Create account</h1>
-              <form className="mt-5 space-y-4" onSubmit={joinForm.handleSubmit(doSignup)}>
-                <Field label="Full name" error={joinForm.formState.errors.name?.message}>
-                  <TextField {...joinForm.register("name")} placeholder="e.g. Gita Sharma" autoComplete="name" />
-                </Field>
-                <Field label="Phone" error={joinForm.formState.errors.phone?.message}>
-                  <TextField {...joinForm.register("phone")} placeholder="9852600000" inputMode="tel" autoComplete="tel" />
-                </Field>
-                <Field label="Email" error={joinForm.formState.errors.email?.message}>
-                  <TextField {...joinForm.register("email")} type="email" placeholder="you@example.com" autoComplete="email" />
-                </Field>
-                <Field label="Password" error={joinForm.formState.errors.password?.message}>
-                  <TextField {...joinForm.register("password")} type="password" placeholder="Minimum 8 characters" autoComplete="new-password" />
-                </Field>
-                <Field label="Referral code (optional)">
-                  <TextField {...joinForm.register("referralCode")} placeholder="e.g. GITA-4F8K2Q" className="uppercase" />
-                </Field>
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-outline p-3 text-[13px] leading-relaxed">
-                  <input type="checkbox" {...joinForm.register("terms")} className="mt-0.5 size-4 shrink-0 accent-[#0f6b44]" />
-                  <span>
-                    I agree to the <Link to="/terms" className="font-bold text-primary hover:underline">Terms</Link>{" "}
-                    and <Link to="/privacy" className="font-bold text-primary hover:underline">Privacy Policy</Link>.
-                  </span>
-                </label>
-                {joinForm.formState.errors.terms && (
-                  <p role="alert" className="text-xs font-medium text-error">{joinForm.formState.errors.terms.message}</p>
-                )}
-                {authError && (
-                  <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{authError}</p>
-                )}
-                <Button type="submit" className="w-full py-3" disabled={busy}>
-                  {busy ? "Please wait…" : "Create account"}
-                </Button>
-              </form>
+              <SignupForm />
             </div>
           )}
         </div>

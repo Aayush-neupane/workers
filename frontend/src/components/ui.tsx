@@ -25,6 +25,20 @@ export function Button({
   return <button className={`${base} ${styles[variant]} ${className}`} {...rest} />;
 }
 
+type LinkButtonVariant = "primary" | "outline" | "ghost";
+
+/** Anchor-styled-as-button classes mirroring Button variants (for <a>/<Link> elements). */
+export function linkButtonClass(variant: LinkButtonVariant = "primary"): string {
+  const base =
+    "inline-flex items-center justify-center gap-1.5 rounded-md px-4 py-2.5 text-sm font-bold transition active:scale-[0.98]";
+  const styles: Record<LinkButtonVariant, string> = {
+    primary: "bg-pine-950 text-white hover:bg-pine-800",
+    outline: "border border-outline bg-white hover:border-pine-800",
+    ghost: "text-primary hover:bg-primary-container",
+  };
+  return `${base} ${styles[variant]}`;
+}
+
 export function Card({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
     <div className={`elev-1 rounded-lg border border-outline/60 bg-white ${className}`}>

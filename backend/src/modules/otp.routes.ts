@@ -3,9 +3,9 @@ import { z } from "zod";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth } from "../middleware/auth.js";
-import { calcCommission } from "../utils/money.js";
-import { generateOtp, hashOtp, otpExpiry, OTP_MAX_ATTEMPTS } from "../utils/otp.js";
+import { requireAuth, effectivePermissions } from "../middleware/auth.js";
+import { calcCommission, earnPoints } from "../utils/money.js";
+import { generateOtp, hashOtp, otpExpiry, otpMatches, OTP_MAX_ATTEMPTS, OTP_REISSUE_DELAY_MS } from "../utils/otp.js";
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
 import { pushToUser } from "../services/push.js";
@@ -22,7 +22,10 @@ router.post("/bookings/:id/otp/issue", requireAuth, ah(async (req, res) => {
   const id = req.params.id;
   const uid = req.user!.id;
   const roles = req.user!.roles;
-  const isAdmin = roles.includes("ADMIN");
+  const isSuper = roles.includes("ADMIN");
+  const isStaff = !isSuper && roles.includes("SUB_ADMIN") &&
+    (await effectivePermissions(uid)).includes("bookings.assign");
+  const isAdmin = isSuper || isStaff;
   const bookingId = await resolveBookingId({ query }, id);
   if (!bookingId) return res.status(404).json({ error: "Not found" });
   const r = await query<{
@@ -34,6 +37,14 @@ router.post("/bookings/:id/otp/issue", requireAuth, ah(async (req, res) => {
   if (!isAdmin && !isWorker) return res.status(403).json({ error: "Only the assigned pro can issue the code" });
   if (b.status !== "in-progress") {
     return res.status(409).json({ error: `Code can only be issued while in progress (now: ${b.status})` });
+  }
+  // Throttle re-issues: a fresh code resets the attempt budget, so without
+  // a gap an attacker brute-forces 5-at-a-time forever.
+  const last = await query<{ created_at: string }>(
+    `SELECT created_at FROM booking_otps WHERE booking_id = $1 ORDER BY created_at DESC LIMIT 1`, [b.id]);
+  if ((last.rowCount ?? 0) > 0 &&
+      Date.now() - new Date(last.rows[0].created_at).getTime() < OTP_REISSUE_DELAY_MS) {
+    return res.status(429).json({ error: "A code was just issued — wait a minute before requesting another" });
   }
   const code = generateOtp();
   const client = await pool.connect();
@@ -81,12 +92,15 @@ router.post(
     const { code } = req.body as { code: string };
     const uid = req.user!.id;
     const roles = req.user!.roles;
-    const isAdmin = roles.includes("ADMIN");
+    const isSuper = roles.includes("ADMIN");
+    const isStaff = !isSuper && roles.includes("SUB_ADMIN") &&
+      (await effectivePermissions(uid)).includes("bookings.assign");
+    const isAdmin = isSuper || isStaff;
   const bookingId = await resolveBookingId({ query }, id);
   if (!bookingId) return res.status(404).json({ error: "Not found" });
   const r = await query<{
     id: string; status: string; customer_id: string; worker_id: string | null;
-    estimate_paisa: string; commission_bps: number;
+    estimate_paisa: string; discount_paisa: string; commission_bps: number;
   }>(`SELECT * FROM bookings WHERE id = $1`, [bookingId]);
     if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const b = r.rows[0];
@@ -95,25 +109,33 @@ router.post(
     if (b.status !== "awaiting-confirmation") {
       return res.status(409).json({ error: `No code pending (now: ${b.status})` });
     }
-    const o = await query<{ id: string; code_hash: string; expires_at: string; attempts: number }>(
-      `SELECT id, code_hash, expires_at, attempts FROM booking_otps
-       WHERE booking_id = $1 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1`, [b.id]);
-    if (o.rowCount === 0) return res.status(400).json({ error: "No active code — ask for a new one" });
-    const otp = o.rows[0];
-    if (new Date(otp.expires_at).getTime() < Date.now()) {
-      return res.status(400).json({ error: "Code expired — issue a new one" });
-    }
-    if (otp.attempts >= OTP_MAX_ATTEMPTS) {
-      return res.status(429).json({ error: "Too many attempts — issue a new code" });
-    }
-    if (otp.code_hash !== hashOtp(code)) {
-      await query(`UPDATE booking_otps SET attempts = attempts + 1 WHERE id = $1`, [otp.id]);
-      return res.status(400).json({ error: `Wrong code (${OTP_MAX_ATTEMPTS - otp.attempts - 1} tries left)` });
-    }
-    const finalPaisa = Number(b.estimate_paisa);
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      // Lock the code row: attempts increment and consume happen atomically,
+      // so concurrent guesses can't slip past the 5-attempt budget.
+      const o = await client.query<{ id: string; code_hash: string; expires_at: string; attempts: number }>(
+        `SELECT id, code_hash, expires_at, attempts FROM booking_otps
+         WHERE booking_id = $1 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [b.id]);
+      if ((o.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "No active code — ask for a new one" });
+      }
+      const otp = o.rows[0];
+      if (new Date(otp.expires_at).getTime() < Date.now()) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Code expired — issue a new one" });
+      }
+      if (otp.attempts >= OTP_MAX_ATTEMPTS) {
+        await client.query("ROLLBACK");
+        return res.status(429).json({ error: "Too many attempts — issue a new code" });
+      }
+      if (!otpMatches(otp.code_hash, code)) {
+        await client.query(`UPDATE booking_otps SET attempts = attempts + 1 WHERE id = $1`, [otp.id]);
+        await client.query("COMMIT");
+        return res.status(400).json({ error: `Wrong code (${OTP_MAX_ATTEMPTS - otp.attempts - 1} tries left)` });
+      }
+      const finalPaisa = Math.max(0, Number(b.estimate_paisa) - Number(b.discount_paisa ?? 0));
       await client.query(`UPDATE booking_otps SET consumed_at = now() WHERE id = $1`, [otp.id]);
       await client.query(
         `UPDATE bookings SET status = 'completed', updated_at = now(), final_paisa = $1, payment_status = 'paid' WHERE id = $2`,
@@ -132,12 +154,22 @@ router.post(
          WHERE booking_id = $1 AND provider <> 'cash' AND status = 'pending'`, [b.id]);
       const rules = await client.query<{ value: Record<string, number> }>(`SELECT value FROM settings WHERE id = 'platform'`);
       const per100 = rules.rows[0]?.value.rewardPerNpr100 ?? 1;
-      const pts = Math.floor(finalPaisa / 10000) * per100;
+      const mileEvery = rules.rows[0]?.value.milestoneBookings ?? 5;
+      const mileBonus = rules.rows[0]?.value.milestoneBonus ?? 100;
+      const pts = earnPoints(finalPaisa, per100);
       if (pts > 0) {
         await client.query(
           `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
            VALUES ($1, $2, 'earn', 'Booking completed', $3) ON CONFLICT DO NOTHING`,
           [b.customer_id, pts, b.id]);
+      }
+      const done = await client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM bookings WHERE customer_id = $1 AND status = 'completed'`, [b.customer_id]);
+      if (mileEvery > 0 && done.rows[0].n > 0 && done.rows[0].n % mileEvery === 0) {
+        await client.query(
+          `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+           VALUES ($1, $2, 'bonus', 'Milestone bonus', $3) ON CONFLICT DO NOTHING`,
+          [b.customer_id, mileBonus, b.id]);
       }
       await maybeRewardReferral(client, b.customer_id);
       await notify(client, b.customer_id, "Job completed", "Verified complete — please rate the job.");

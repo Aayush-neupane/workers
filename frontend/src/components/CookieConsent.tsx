@@ -15,8 +15,21 @@ export function CookieConsent() {
   useEffect(() => {
     setCurrent(loadConsent());
     const onChange = (e: Event) => setCurrent((e as CustomEvent<Consent>).detail);
+    const onOpen = () => {
+      const c = loadConsent();
+      setPrefs({
+        preferences: c?.preferences ?? false,
+        analytics: c?.analytics ?? false,
+        marketing: c?.marketing ?? false,
+      });
+      setCustomizing(true);
+    };
     window.addEventListener("sajilo-consent", onChange);
-    return () => window.removeEventListener("sajilo-consent", onChange);
+    window.addEventListener("sajilo-open-cookie-preferences", onOpen);
+    return () => {
+      window.removeEventListener("sajilo-consent", onChange);
+      window.removeEventListener("sajilo-open-cookie-preferences", onOpen);
+    };
   }, []);
 
   async function persist(c: Consent) {

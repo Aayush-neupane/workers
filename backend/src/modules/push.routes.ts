@@ -26,8 +26,22 @@ router.post("/push/subscribe", requireAuth, validate(subSchema), ah(async (req, 
   if (!pushEnabled) return res.status(503).json({ error: "Push not configured" });
   const f = req.body as z.infer<typeof subSchema>;
   const need = f.audience.toUpperCase();
-  if (!req.user!.roles.includes(need)) {
+  const roles = req.user!.roles;
+  const audienceOk = roles.includes(need) || (need === "ADMIN" && roles.includes("SUB_ADMIN"));
+  if (!audienceOk) {
     return res.status(403).json({ error: "Audience does not match your role" });
+  }
+  // One endpoint belongs to one owner: only the owner can re-register it,
+  // and each user gets at most 10 devices (table-bloat guard).
+  const owner = await query<{ user_id: string }>(
+    `SELECT user_id FROM push_subscriptions WHERE endpoint = $1`, [f.endpoint]);
+  if ((owner.rowCount ?? 0) > 0 && owner.rows[0].user_id !== req.user!.id) {
+    return res.status(409).json({ error: "This device is registered to another account" });
+  }
+  const count = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM push_subscriptions WHERE user_id = $1`, [req.user!.id]);
+  if (count.rows[0].n >= 10 && (owner.rowCount ?? 0) === 0) {
+    return res.status(400).json({ error: "Too many devices — remove one first" });
   }
   await query(
     `INSERT INTO push_subscriptions(endpoint, user_id, audience, p256dh, auth)

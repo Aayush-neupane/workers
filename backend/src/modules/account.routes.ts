@@ -108,6 +108,13 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const open = await client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM support_tickets WHERE user_id = $1 AND status <> 'resolved'`,
+        [req.user!.id]);
+      if (open.rows[0].n >= 5) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "You already have 5 open tickets — wait for a reply first" });
+      }
       const t = await client.query<{ id: string }>(
         `INSERT INTO support_tickets(user_id, subject) VALUES ($1, $2) RETURNING id`, [req.user!.id, f.subject]);
       await client.query(`INSERT INTO ticket_messages(ticket_id, from_role, body) VALUES ($1, 'customer', $2)`,
@@ -151,7 +158,8 @@ router.get("/notifications", ah(async (req, res) => {
 }));
 
 router.post("/notifications/:id/read", ah(async (req, res) => {
-  await query(`UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2`, [req.params.id, req.user!.id]);
+  const r = await query(`UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2`, [req.params.id, req.user!.id]);
+  if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: "Not found" });
   return res.json({ ok: true });
 }));
 
@@ -184,7 +192,9 @@ router.post("/worker/invites/:id/accept", ah(async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const role = await client.query<{ id: string }>(`SELECT id FROM roles WHERE name = 'WORKER'`);
+    const role = await client.query<{ id: string }>(
+      `INSERT INTO roles(name) VALUES ('WORKER') ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+    );
     await client.query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [req.user!.id, role.rows[0].id]);
     await client.query(

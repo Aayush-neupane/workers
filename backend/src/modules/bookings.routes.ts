@@ -3,9 +3,9 @@ import { z } from "zod";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireRole, requireAnyPermission, effectivePermissions } from "../middleware/auth.js";
 import { canTransition, type BookingStatus } from "../utils/transitions.js";
-import { calcCommission } from "../utils/money.js";
+import { calcCommission, earnPoints } from "../utils/money.js";
 import {
   OUTSIDE_DAMAK,
   closedWardMessage,
@@ -17,17 +17,21 @@ import {
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
 import { pushToAudience, pushToUser } from "../services/push.js";
+import { isBookingNo, isUuid } from "../utils/booking.js";
 import { inDamakPin, OUTSIDE_PIN, validPin } from "../utils/geo.js";
 
 const router = Router();
 
+import { randomInt } from "node:crypto";
+
 async function bookingNo(): Promise<string> {
+  // 6 digits from a CSPRNG — 900k values, not enumerable like BK-1000..9999.
   for (let i = 0; i < 20; i++) {
-    const no = `BK-${Math.floor(1000 + Math.random() * 9000)}`;
+    const no = `BK-${String(randomInt(100000, 1000000))}`;
     const r = await query(`SELECT id FROM bookings WHERE booking_no = $1`, [no]);
     if (r.rowCount === 0) return no;
   }
-  return `BK-${Date.now().toString().slice(-6)}`;
+  return `BK-${String(randomInt(100000, 1000000))}-${Date.now().toString(36).toUpperCase()}`;
 }
 
 const createSchema = z.object({
@@ -173,8 +177,8 @@ router.get("/bookings/mine", requireAuth, ah(async (req, res) => {
 }));
 
 function bookingKey(id: string): { column: string; value: string } | null {
-  if (/^BK-\d{4,}$/.test(id)) return { column: "booking_no", value: id };
-  if (/^[0-9a-f-]{36}$/i.test(id)) return { column: "id", value: id };
+  if (isBookingNo(id)) return { column: "booking_no", value: id };
+  if (isUuid(id)) return { column: "id", value: id };
   return null;
 }
 
@@ -192,8 +196,11 @@ router.get("/bookings/:id", requireAuth, ah(async (req, res) => {
   if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
   const b = r.rows[0] as Record<string, unknown>;
   const roles = req.user!.roles;
-  const mine = b.customer_id === req.user!.id || b.worker_id === req.user!.id || roles.includes("ADMIN");
-  if (!mine) return res.status(403).json({ error: "Forbidden" });
+  const mine = b.customer_id === req.user!.id || b.worker_id === req.user!.id || roles.includes("ADMIN") ||
+    (roles.includes("SUB_ADMIN") && (await effectivePermissions(req.user!.id)).includes("bookings.view"));
+  // Same 404 whether missing or not yours — booking numbers aren't enumerable,
+  // and this keeps existence private.
+  if (!mine) return res.status(404).json({ error: "Not found" });
   const events = await query(
     `SELECT status, by_role, note, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY created_at`, [b.id]);
   const assigns = await query(
@@ -220,14 +227,20 @@ router.put(
       `SELECT id, customer_id, status FROM bookings WHERE ${key.column} = $1`, [key.value]);
     if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const b = r.rows[0];
-    const isAdmin = req.user!.roles.includes("ADMIN");
+    const roles = req.user!.roles;
+    const isSuper = roles.includes("ADMIN");
+    const isStaffDispatcher = !isSuper && roles.includes("SUB_ADMIN") &&
+      (await effectivePermissions(req.user!.id)).includes("bookings.assign");
+    const isAdmin = isSuper || isStaffDispatcher;
     const isOwner = b.customer_id === req.user!.id;
     if (!isAdmin && !isOwner) return res.status(403).json({ error: "Forbidden" });
-    if (["completed", "cancelled", "in-progress", "awaiting-confirmation"].includes(b.status) && !isAdmin) {
-      return res.status(409).json({ error: `Cannot reschedule while ${b.status} — contact support` });
-    }
     if (["completed", "cancelled"].includes(b.status)) {
       return res.status(409).json({ error: `Cannot reschedule a ${b.status} booking` });
+    }
+    // Once a pro has confirmed, moving the slot needs their consent — so
+    // customers can only reschedule while unconfirmed; staff handle the rest.
+    if (!isAdmin && !["pending", "awaiting-worker"].includes(b.status)) {
+      return res.status(409).json({ error: `Cannot reschedule while ${b.status} — contact support` });
     }
     await query(`UPDATE bookings SET slot = $1, updated_at = now() WHERE id = $2`, [f.slot, b.id]);
     await query(
@@ -244,7 +257,8 @@ router.put(
 router.post(
   "/bookings/:id/assign",
   requireAuth,
-  requireRole("ADMIN"),
+  requireRole("ADMIN", "SUB_ADMIN"),
+  requireAnyPermission("bookings.assign", "worker.assign"),
   validate(z.object({
     workerId: z.string().uuid(),
     reason: z.string().trim().max(300).default(""),
@@ -257,8 +271,8 @@ router.post(
       `SELECT id, service_id, worker_id, status FROM bookings WHERE ${key.column} = $1`, [key.value]);
     if (b.rowCount === 0) return res.status(404).json({ error: "Not found" });
     const booking = b.rows[0];
-    if (["completed", "cancelled"].includes(booking.status)) {
-      return res.status(409).json({ error: `Cannot reassign a ${booking.status} booking` });
+    if (["completed", "cancelled", "disputed", "awaiting-confirmation"].includes(booking.status)) {
+      return res.status(409).json({ error: `Cannot assign while ${booking.status}` });
     }
     const w = await query(
       `SELECT u.id FROM users u JOIN worker_profiles wp ON wp.user_id = u.id
@@ -317,12 +331,15 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
   const to = f.to as BookingStatus;
   const roles = req.user!.roles;
   const uid = req.user!.id;
-  const isAdmin = roles.includes("ADMIN");
+  const isSuper = roles.includes("ADMIN");
+  const isStaffDispatcher = !isSuper && roles.includes("SUB_ADMIN") &&
+    (await effectivePermissions(uid)).includes("bookings.assign");
+  const isAdmin = isSuper || isStaffDispatcher;
   const key = bookingKey(req.params.id);
   if (!key) return res.status(400).json({ error: "Invalid request" });
   const r = await query<{
     id: string; status: string; customer_id: string; worker_id: string | null;
-    service_id: string; estimate_paisa: string; commission_bps: number;
+    service_id: string; estimate_paisa: string; discount_paisa: string; commission_bps: number;
   }>(`SELECT * FROM bookings WHERE ${key.column} = $1`, [key.value]);
   if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
   const b = r.rows[0];
@@ -389,7 +406,16 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
         `INSERT INTO assignments(booking_id, worker_user_id, assigned_by, reason) VALUES ($1, $2, $2, 'self-accept')`,
         [b.id, uid]);
     }
-    const finalPaisa = f.finalPaisa ?? Number(b.estimate_paisa);
+    const estimate = Number(b.estimate_paisa);
+    const owed = Math.max(0, estimate - Number(b.discount_paisa ?? 0));
+    // Direct completion is the dispute-exception path: cap the payout at 2x
+    // the estimate and audit it — nobody sets arbitrary money silently.
+    const requested = f.finalPaisa ?? owed;
+    if (requested < 0 || requested > Math.max(estimate * 2, 10000)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Final amount must be within Rs 0 – Rs ${((Math.max(estimate * 2, 10000)) / 100).toFixed(0)}` });
+    }
+    const finalPaisa = requested;
     if (to === "completed") {
       await client.query(
         `UPDATE bookings SET status = $1, updated_at = now(), final_paisa = $2, payment_status = 'paid' WHERE id = $3`,
@@ -413,7 +439,7 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
       const per100 = rules.rows[0]?.value.rewardPerNpr100 ?? 1;
       const mileEvery = rules.rows[0]?.value.milestoneBookings ?? 5;
       const mileBonus = rules.rows[0]?.value.milestoneBonus ?? 100;
-      const pts = Math.floor(finalPaisa / 10000) * per100;
+      const pts = earnPoints(finalPaisa, per100);
       if (pts > 0) {
         await client.query(
           `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
@@ -437,9 +463,19 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
         `INSERT INTO notifications(user_id, title, body)
          SELECT u.id, 'New booking needs a pro', 'An unassigned booking is waiting.'
          FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-         WHERE r.name = 'ADMIN'`);
+         WHERE r.name = 'ADMIN' AND u.is_active = true
+         UNION
+         SELECT up.user_id, 'New booking needs a pro', 'An unassigned booking is waiting.'
+         FROM user_permissions up JOIN permissions p ON p.id = up.permission_id
+         JOIN users u ON u.id = up.user_id
+         WHERE p.name = 'bookings.assign' AND u.is_active = true`,
+      );
     }
     await client.query("COMMIT");
+    if (isAdmin) {
+      const { audit } = await import("../services/notify.js");
+      await audit(uid, "ADMIN", "booking-transition", `${b.id} ${from} -> ${to}: ${f.note || "no note"}`);
+    }
     // Push the counterpart (in-app rows were written above). Fire-and-forget.
     if (to === "awaiting-worker" && !f.workerId) {
       void pushToAudience("ADMIN", { title: "Dispatch needed", body: "An unassigned booking is waiting.", url: "/admin" });

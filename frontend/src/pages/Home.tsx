@@ -62,7 +62,7 @@ function SectionHead({ eyebrow, title, linkTo, linkLabel, light }: {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <p className={`text-xs font-extrabold tracking-[0.16em] uppercase ${light ? "text-marigold-300" : "text-marigold-700"}`}>{eyebrow}</p>
+        <p className={`text-xs font-extrabold tracking-[0.16em] uppercase ${light ? "text-marigold-300" : "text-secondary"}`}>{eyebrow}</p>
         <h2 className={`font-display mt-1 text-2xl font-semibold md:text-3xl ${light ? "text-white" : ""}`}>{title}</h2>
       </div>
       {linkTo && (
@@ -291,7 +291,7 @@ export default function Home() {
                     <p className="mt-1 line-clamp-2 flex-1 text-sm text-on-surface-variant">{s.description}</p>
                     <div className="mt-4 flex items-center justify-between border-t border-outline/60 pt-3.5">
                       {isQuote
-                        ? <span className="text-sm font-extrabold text-marigold-700">Custom quote</span>
+                        ? <span className="text-sm font-extrabold text-secondary">Custom quote</span>
                         : <Price paisa={s.base_price_paisa} />}
                       <span className="inline-flex items-center gap-1 rounded-md bg-pine-950 px-3 py-1.5 text-xs font-extrabold text-white transition group-hover:bg-pine-800">
                         {isQuote ? "Get quote" : "Book"} <ArrowUpRight size={13} aria-hidden="true" />

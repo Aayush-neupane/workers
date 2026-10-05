@@ -3,21 +3,24 @@ import { z } from "zod";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth, requireRole, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requireRole, requirePermission, requireAnyPermission, requireSuperAdmin, effectivePermissions, isSuperAdmin } from "../middleware/auth.js";
 import { notify, audit } from "../services/notify.js";
 import { pushToAudience, pushToUser } from "../services/push.js";
 import { resolveBookingId } from "../utils/booking.js";
 import { createHash, randomBytes } from "node:crypto";
+import bcrypt from "bcryptjs";
 
 const router = Router();
-router.use(requireAuth, requireRole("ADMIN"));
+// Super-admins (ADMIN) + sub-admins (SUB_ADMIN). Every route below additionally
+// requires its own capability — the role alone authorizes nothing.
+router.use(requireAuth, requireRole("ADMIN", "SUB_ADMIN"));
 
 async function adminAudit(actorId: string, action: string, detail: string) {
   await audit(actorId, "ADMIN", action, detail);
 }
 
 // ---------- Overview (date-filtered operational metrics) ----------
-router.get("/admin/overview", ah(async (_req, res) => {
+router.get("/admin/overview", requirePermission("overview.view"), ah(async (_req, res) => {
   const bookings = await query<{ status: string; n: string }>(
     `SELECT status, COUNT(*) AS n FROM bookings GROUP BY status`);
   const unassigned = await query(`SELECT COUNT(*)::int AS n FROM bookings WHERE status = 'awaiting-worker' AND worker_id IS NULL`);
@@ -44,7 +47,7 @@ router.get("/admin/overview", ah(async (_req, res) => {
 }));
 
 // ---------- Workers: invite, verify, activate ----------
-router.get("/admin/workers", requirePermission("worker.verify"), ah(async (req, res) => {
+router.get("/admin/workers", requireAnyPermission("worker.verify", "workers.view", "bookings.view", "bookings.assign"), ah(async (req, res) => {
   const state = typeof req.query.state === "string" ? req.query.state : "";
   const r = await query(
     `SELECT u.id, u.name, u.email, u.phone, u.is_active, wp.bio, wp.years_exp, wp.areas,
@@ -64,12 +67,20 @@ router.post(
   validate(z.object({ email: z.string().trim().toLowerCase().email(), name: z.string().trim().min(2).max(80) })),
   ah(async (req, res) => {
     const f = req.body as { email: string; name: string };
+    // Never resurrect an already-accepted invitation for the same email —
+    // that would hand a fresh takeover token to whoever is invited.
+    const used = await query(
+      `SELECT 1 FROM worker_invites WHERE email = $1 AND accepted_at IS NOT NULL`, [f.email]);
+    if ((used.rowCount ?? 0) > 0) {
+      return res.status(409).json({ error: "This email already accepted an invitation" });
+    }
     const token = randomBytes(24).toString("hex");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     await query(
       `INSERT INTO worker_invites(email, name, token_hash, expires_at, created_by)
        VALUES ($1, $2, $3, now() + interval '7 days', $4)
-       ON CONFLICT (email) DO UPDATE SET token_hash = EXCLUDED.token_hash, expires_at = EXCLUDED.expires_at, accepted_at = NULL`,
+       ON CONFLICT (email) DO UPDATE SET token_hash = EXCLUDED.token_hash, expires_at = EXCLUDED.expires_at, accepted_at = NULL
+       WHERE worker_invites.accepted_at IS NULL`,
       [f.email, f.name, tokenHash, req.user!.id]);
     await adminAudit(req.user!.id, "worker-invite", f.email);
     // Token returned once for the admin to share securely; only the hash is stored.
@@ -88,47 +99,54 @@ router.post(
   validate(z.object({ userId: z.string().uuid() })),
   ah(async (req, res) => {
     const f = req.body as { userId: string };
-    const u = await query<{ id: string; email: string; name: string }>(
-      `SELECT id, email, name FROM users WHERE id = $1 AND is_active = true`, [f.userId]);
-    if (u.rowCount === 0) return res.status(404).json({ error: "User not found" });
-    const already = await query(
-      `SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
-       WHERE ur.user_id = $1 AND r.name = 'WORKER'`, [f.userId]);
-    if ((already.rowCount ?? 0) > 0) {
-      return res.status(400).json({ error: "User is already a professional" });
-    }
-    const pending = await query(
-      `SELECT id FROM worker_invites
-       WHERE (user_id = $1 OR email = $2) AND accepted_at IS NULL AND expires_at > now()`,
-      [f.userId, u.rows[0].email]);
-    if ((pending.rowCount ?? 0) > 0) {
-      return res.status(409).json({ error: "An active invite already exists for this user" });
-    }
-    const token = randomBytes(24).toString("hex");
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const inv = await query<{ id: string }>(
-      `INSERT INTO worker_invites(email, name, token_hash, expires_at, created_by, user_id)
-       VALUES ($1, $2, $3, now() + interval '7 days', $4, $5) RETURNING id`,
-      [u.rows[0].email, u.rows[0].name, tokenHash, req.user!.id, f.userId]);
+    if (f.userId === req.user!.id) return res.status(400).json({ error: "You cannot invite yourself" });
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const locked = await client.query<{ id: string; email: string; name: string }>(
+        `SELECT id, email, name FROM users WHERE id = $1 AND is_active = true FOR UPDATE`, [f.userId]);
+      if (locked.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "User not found" });
+      }
+      // Staff and existing pros are never invite targets.
+      const staff = await client.query(
+        `SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+         WHERE ur.user_id = $1 AND r.name IN ('WORKER', 'ADMIN', 'SUB_ADMIN')`, [f.userId]);
+      if ((staff.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Only customers can be invited as professionals" });
+      }
+      const pending = await client.query(
+        `SELECT id FROM worker_invites
+         WHERE (user_id = $1 OR email = $2) AND accepted_at IS NULL AND expires_at > now()`,
+        [f.userId, locked.rows[0].email]);
+      if ((pending.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "An active invite already exists for this user" });
+      }
+      const token = randomBytes(24).toString("hex");
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const inv = await client.query<{ id: string }>(
+        `INSERT INTO worker_invites(email, name, token_hash, expires_at, created_by, user_id)
+         VALUES ($1, $2, $3, now() + interval '7 days', $4, $5) RETURNING id`,
+        [locked.rows[0].email, locked.rows[0].name, tokenHash, req.user!.id, f.userId]);
       await notify(client, f.userId, "Invited as a professional",
         "Our team verified your application. Accept the invitation in your dashboard to open the pro portal.");
       await client.query("COMMIT");
+      await adminAudit(req.user!.id, "worker-invite-user", `${locked.rows[0].email} (${f.userId})`);
+      void pushToUser(f.userId, {
+        title: "Invited as a professional",
+        body: "Our team verified your application — accept it in your dashboard.",
+        url: "/dashboard",
+      });
+      return res.status(201).json({ ok: true, id: inv.rows[0].id });
     } catch (e) {
       await client.query("ROLLBACK");
       throw e;
     } finally {
       client.release();
     }
-    await adminAudit(req.user!.id, "worker-invite-user", `${u.rows[0].email} (${f.userId})`);
-    void pushToUser(f.userId, {
-      title: "Invited as a professional",
-      body: "Our team verified your application — accept it in your dashboard.",
-      url: "/dashboard",
-    });
-    return res.status(201).json({ ok: true, id: inv.rows[0].id });
   }),
 );
 
@@ -141,9 +159,17 @@ router.post(
   })),
   ah(async (req, res) => {
     const f = req.body as { state: string; notes: string };
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid worker id" });
+    if (req.params.id === req.user!.id) return res.status(400).json({ error: "You cannot review yourself" });
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const exists = await client.query(
+        `SELECT 1 FROM worker_profiles WHERE user_id = $1`, [req.params.id]);
+      if ((exists.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Worker profile not found" });
+      }
       await client.query(
         `UPDATE worker_profiles SET verification_state = $1, updated_at = now() WHERE user_id = $2`,
         [f.state, req.params.id]);
@@ -168,15 +194,29 @@ router.post(
   validate(z.object({ active: z.boolean(), serviceIds: z.array(z.string().uuid()).default([]) })),
   ah(async (req, res) => {
     const f = req.body as { active: boolean; serviceIds: string[] };
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid worker id" });
+    if (req.params.id === req.user!.id) return res.status(400).json({ error: "You cannot change your own activation" });
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const prof = await client.query<{ verification_state: string }>(
+        `SELECT verification_state FROM worker_profiles WHERE user_id = $1`, [req.params.id]);
+      if ((prof.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Worker profile not found" });
+      }
       if (f.active) {
-        const v = await client.query<{ verification_state: string }>(
-          `SELECT verification_state FROM worker_profiles WHERE user_id = $1`, [req.params.id]);
-        if (v.rowCount === 0 || v.rows[0].verification_state !== "verified") {
+        if (prof.rows[0].verification_state !== "verified") {
           await client.query("ROLLBACK");
           return res.status(400).json({ error: "Only verified pros can be activated" });
+        }
+        if (f.serviceIds.length > 0) {
+          const svc = await client.query<{ n: number }>(
+            `SELECT COUNT(*)::int AS n FROM services WHERE id = ANY ($1::uuid[])`, [f.serviceIds]);
+          if (svc.rows[0].n !== new Set(f.serviceIds).size) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "One or more services do not exist" });
+          }
         }
       }
       await client.query(`UPDATE worker_profiles SET is_active = $1, updated_at = now() WHERE user_id = $2`,
@@ -198,14 +238,15 @@ router.post(
   }),
 );
 
-router.get("/admin/workers/:id/documents", requirePermission("worker.verify"), ah(async (req, res) => {
+router.get("/admin/workers/:id/documents", requireAnyPermission("worker.verify", "workers.view"), ah(async (req, res) => {
   const r = await query(`SELECT id, kind, uploaded_at FROM verification_documents WHERE worker_user_id = $1`, [req.params.id]);
   return res.json({ documents: r.rows });
 }));
 
 // ---------- Customers (least-privilege: masked contact) ----------
-router.get("/admin/customers", ah(async (req, res) => {
-  const q = typeof req.query.q === "string" ? `%${req.query.q}%` : "%";
+router.get("/admin/customers", requirePermission("customers.view"), ah(async (req, res) => {
+  const raw = typeof req.query.q === "string" ? req.query.q : "";
+  const q = `%${raw.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const r = await query(
     `SELECT u.id, u.name, u.email, u.is_active, u.created_at,
             (SELECT COUNT(*)::int FROM bookings WHERE customer_id = u.id) AS bookings,
@@ -220,19 +261,26 @@ router.get("/admin/customers", ah(async (req, res) => {
 router.post(
   "/admin/categories",
   requirePermission("catalog.edit"),
-  validate(z.object({
-    name: z.string().trim().min(2).max(80), slug: z.string().trim().min(2).max(40),
+   validate(z.object({
+    name: z.string().trim().min(2).max(80), slug: z.string().trim().min(2).max(40).regex(/^[a-z0-9-]+$/, "Slug: lowercase letters, numbers, dashes only"),
     tagline: z.string().max(200).default(""), icon: z.string().max(30).default("wrench"),
     commissionBps: z.number().int().min(0).max(10000).default(1500),
   })),
   ah(async (req, res) => {
     const f = req.body as Record<string, string | number>;
-    const r = await query(
-      `INSERT INTO categories(name, slug, tagline, icon, commission_bps)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [f.name, f.slug, f.tagline, f.icon, f.commissionBps]);
-    await adminAudit(req.user!.id, "catalog-category", String(f.slug));
-    return res.status(201).json({ ok: true, id: (r.rows[0] as { id: string }).id });
+    try {
+      const r = await query(
+        `INSERT INTO categories(name, slug, tagline, icon, commission_bps)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [f.name, f.slug, f.tagline, f.icon, f.commissionBps]);
+      await adminAudit(req.user!.id, "catalog-category", String(f.slug));
+      return res.status(201).json({ ok: true, id: (r.rows[0] as { id: string }).id });
+    } catch (e) {
+      if ((e as { code?: string }).code === "23505") {
+        return res.status(409).json({ error: "A category with this slug already exists" });
+      }
+      throw e;
+    }
   }),
 );
 
@@ -264,8 +312,21 @@ router.put(
   validate(z.object({ wards: z.array(z.boolean()).length(10) })),
   ah(async (req, res) => {
     const { wards } = req.body as { wards: boolean[] };
-    for (let i = 0; i < 10; i++) {
-      await query(`UPDATE coverage_wards SET is_open = $1, updated_at = now() WHERE ward = $2`, [wards[i], i + 1]);
+    if (!wards.some(Boolean)) {
+      return res.status(400).json({ error: "At least one ward must stay open — closing all of Damak blocks every booking" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (let i = 0; i < 10; i++) {
+        await client.query(`UPDATE coverage_wards SET is_open = $1, updated_at = now() WHERE ward = $2`, [wards[i], i + 1]);
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
     await adminAudit(req.user!.id, "coverage", `wards open: ${wards.filter(Boolean).length}/10`);
     return res.json({ ok: true });
@@ -283,6 +344,25 @@ router.post(
   })),
   ah(async (req, res) => {
     const f = req.body as { scope: string; categoryId: string | null; workerId: string | null; rateBps: number };
+    // Scope coherence: global rules reference nothing, category rules need a
+    // category, worker rules need a worker — and the targets must exist.
+    if (f.scope === "global" && (f.categoryId || f.workerId)) {
+      return res.status(400).json({ error: "Global rules take no category or worker" });
+    }
+    if (f.scope === "category" && !f.categoryId) {
+      return res.status(400).json({ error: "Category rules need a categoryId" });
+    }
+    if (f.scope === "worker" && !f.workerId) {
+      return res.status(400).json({ error: "Worker rules need a workerId" });
+    }
+    if (f.categoryId) {
+      const c = await query(`SELECT id FROM categories WHERE id = $1`, [f.categoryId]);
+      if ((c.rowCount ?? 0) === 0) return res.status(404).json({ error: "Category not found" });
+    }
+    if (f.workerId) {
+      const w = await query(`SELECT id FROM users WHERE id = $1`, [f.workerId]);
+      if ((w.rowCount ?? 0) === 0) return res.status(404).json({ error: "Worker not found" });
+    }
     await query(
       `INSERT INTO commission_rules(scope, category_id, worker_user_id, rate_bps)
        VALUES ($1, $2, $3, $4)
@@ -293,7 +373,7 @@ router.post(
   }),
 );
 
-router.get("/admin/bookings", ah(async (req, res) => {
+router.get("/admin/bookings", requirePermission("bookings.view"), ah(async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : "";
   const r = await query(
     `SELECT b.*, s.name AS service_name, cu.name AS customer_name, w.name AS worker_name
@@ -313,15 +393,56 @@ router.post(
   })),
   ah(async (req, res) => {
     const f = req.body as Record<string, string | number>;
-    await query(
-      `INSERT INTO settlements(worker_user_id, amount_paisa, kind, note, by_user_id)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [f.workerId, f.amountPaisa, f.kind, f.note, req.user!.id]);
-    await query(
-      `UPDATE commission_ledger SET is_settled = true, settled_at = now()
-       WHERE booking_id IN (SELECT id FROM bookings WHERE worker_id = $1)`, [f.workerId]);
-    await adminAudit(req.user!.id, "settlement", `${f.kind} ${f.amountPaisa} for ${f.workerId}`);
-    return res.json({ ok: true });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Settle FIFO against the actual unsettled commission owed — never
+      // blanket-settle, and never settle more than is owed.
+      await client.query(
+        `SELECT cl.booking_id FROM commission_ledger cl
+         JOIN bookings b ON b.id = cl.booking_id
+         WHERE b.worker_id = $1 AND NOT cl.is_settled FOR UPDATE OF cl`, [f.workerId]);
+      const owed = await client.query<{ open: string }>(
+        `SELECT COALESCE(SUM(cl.commission_paisa), 0)::bigint AS open
+         FROM commission_ledger cl JOIN bookings b ON b.id = cl.booking_id
+         WHERE b.worker_id = $1 AND NOT cl.is_settled`, [f.workerId]);
+      const openOwed = Number((owed.rows[0] as { open: string }).open);
+      const amount = Number(f.amountPaisa);
+      if (openOwed <= 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Nothing unsettled for this pro" });
+      }
+      if (amount > openOwed) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: `Amount exceeds unsettled Rs ${(openOwed / 100).toFixed(0)}` });
+      }
+      await client.query(
+        `INSERT INTO settlements(worker_user_id, amount_paisa, kind, note, by_user_id)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [f.workerId, amount, f.kind, f.note, req.user!.id]);
+      // FIFO: mark oldest unsettled rows settled until the amount is covered.
+      await client.query(
+        `WITH open_rows AS (
+           SELECT cl.booking_id FROM commission_ledger cl
+           JOIN bookings b ON b.id = cl.booking_id
+           WHERE b.worker_id = $1 AND NOT cl.is_settled
+           ORDER BY cl.created_at
+         ), running AS (
+           SELECT booking_id, SUM(commission_paisa) OVER (ORDER BY created_at) AS running
+           FROM commission_ledger WHERE booking_id IN (SELECT booking_id FROM open_rows)
+         )
+         UPDATE commission_ledger cl SET is_settled = true, settled_at = now()
+         FROM running r WHERE cl.booking_id = r.booking_id AND r.running <= $2`,
+        [f.workerId, amount]);
+      await client.query("COMMIT");
+      await adminAudit(req.user!.id, "settlement", `${f.kind} ${amount} for ${f.workerId} (owed ${openOwed})`);
+      return res.json({ ok: true, settledPaisa: amount, remainingPaisa: openOwed - amount });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
   }),
 );
 
@@ -341,25 +462,37 @@ router.post(
         return res.status(404).json({ error: "Payment not found" });
       }
       const paid = Number(p.rows[0].amount_paisa);
-      if (f.amountPaisa > paid) {
+      // Prior refunds count — a second refund of the remainder is fine,
+      // refunding more than what is left is not. Lock the refund rows too.
+      const prior = await client.query<{ total: string }>(
+        `SELECT COALESCE(SUM(amount_paisa), 0)::bigint AS total FROM refunds WHERE payment_id = $1`,
+        [f.paymentId]);
+      const refunded = Number((prior.rows[0] as { total: string }).total);
+      const remaining = paid - refunded;
+      if (f.amountPaisa > remaining) {
         await client.query("ROLLBACK");
-        return res.status(400).json({ error: "Refund exceeds payment" });
+        return res.status(400).json({ error: `Only Rs ${(remaining / 100).toFixed(0)} left to refund` });
       }
       await client.query(
         `INSERT INTO refunds(payment_id, amount_paisa, reason, by_user_id) VALUES ($1, $2, $3, $4)`,
         [f.paymentId, f.amountPaisa, f.reason, req.user!.id]);
-      const partial = f.amountPaisa < paid;
+      const partial = f.amountPaisa < remaining;
       await client.query(`UPDATE payments SET status = $1 WHERE id = $2`,
         [partial ? "partially-refunded" : "refunded", f.paymentId]);
       const bk = await client.query<{ customer_id: string }>(`SELECT customer_id FROM bookings WHERE id = $1`, [p.rows[0].booking_id]);
       if ((bk.rowCount ?? 0) > 0) {
-        await client.query(
-          `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
-           SELECT $1, -points, 'reverse', 'Refund reversal', $2 FROM reward_ledger
-           WHERE ref_booking_id = $2 AND kind = 'earn' ON CONFLICT DO NOTHING`,
-          [bk.rows[0].customer_id, p.rows[0].booking_id]);
+        // Reverse earned points once — guarded so retries can't double-reverse.
+        const already = await client.query(
+          `SELECT 1 FROM reward_ledger WHERE ref_booking_id = $1 AND kind = 'reverse'`, [p.rows[0].booking_id]);
+        if ((already.rowCount ?? 0) === 0) {
+          await client.query(
+            `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+             SELECT $1, -points, 'reverse', 'Refund reversal', $2 FROM reward_ledger
+             WHERE ref_booking_id = $2 AND kind = 'earn'`,
+            [bk.rows[0].customer_id, p.rows[0].booking_id]);
+        }
+        await notify(client, bk.rows[0].customer_id, "Refund processed", `Rs ${(f.amountPaisa / 100).toFixed(0)} refunded.`);
       }
-      await notify(client, bk.rows[0]?.customer_id ?? "", "Refund processed", `Rs ${(f.amountPaisa / 100).toFixed(0)} refunded.`);
       await client.query("COMMIT");
       await adminAudit(req.user!.id, "refund", `${f.paymentId} ${f.amountPaisa}`);
       return res.json({ ok: true, partial });
@@ -385,6 +518,9 @@ router.post(
   validate(z.object({ body: z.string().trim().min(1).max(2000) })),
   ah(async (req, res) => {
     const f = req.body as { body: string };
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid ticket id" });
+    const t = await query(`SELECT id FROM support_tickets WHERE id = $1`, [req.params.id]);
+    if ((t.rowCount ?? 0) === 0) return res.status(404).json({ error: "Ticket not found" });
     await query(`INSERT INTO ticket_messages(ticket_id, from_role, body) VALUES ($1, 'admin', $2)`,
       [req.params.id, f.body]);
     await query(`UPDATE support_tickets SET status = 'in-progress', updated_at = now() WHERE id = $1`, [req.params.id]);
@@ -398,7 +534,9 @@ router.post(
   validate(z.object({ status: z.enum(["open", "in-progress", "resolved"]) })),
   ah(async (req, res) => {
     const f = req.body as { status: string };
-    await query(`UPDATE support_tickets SET status = $1, updated_at = now() WHERE id = $2`, [f.status, req.params.id]);
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid ticket id" });
+    const r = await query(`UPDATE support_tickets SET status = $1, updated_at = now() WHERE id = $2`, [f.status, req.params.id]);
+    if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: "Ticket not found" });
     await adminAudit(req.user!.id, "ticket-status", `${req.params.id} -> ${f.status}`);
     return res.json({ ok: true });
   }),
@@ -410,7 +548,7 @@ router.get("/admin/audit", requirePermission("audit.read"), ah(async (req, res) 
   return res.json({ entries: r.rows });
 }));
 
-router.get("/admin/settings", ah(async (_req, res) => {
+router.get("/admin/settings", requireAnyPermission("settings.view", "settings.edit", "rewards.view"), ah(async (_req, res) => {
   const r = await query(`SELECT value FROM settings WHERE id = 'platform'`);
   return res.json(r.rows[0]?.value ?? {});
 }));
@@ -418,22 +556,43 @@ router.get("/admin/settings", ah(async (_req, res) => {
 router.put(
   "/admin/settings",
   requirePermission("settings.edit"),
-  validate(z.object({ value: z.record(z.unknown()) })),
+  validate(z.object({
+    value: z.object({
+      zone: z.string().max(40).optional(),
+      rewardPerNpr100: z.number().int().min(0).max(100).optional(),
+      redeemPoints: z.number().int().min(1).max(100000).optional(),
+      redeemDiscountPaisa: z.number().int().min(0).max(500000).optional(),
+      milestoneBookings: z.number().int().min(0).max(1000).optional(),
+      milestoneBonus: z.number().int().min(0).max(100000).optional(),
+      referralBonus: z.number().int().min(0).max(100000).optional(),
+      quotesRequireAdminApproval: z.boolean().optional(),
+      quotesApprovalThresholdPaisa: z.number().int().min(0).max(100000000).optional(),
+      cookiePolicyVersion: z.string().max(20).optional(),
+      consentVersion: z.number().int().min(1).max(100).optional(),
+    }).strict(),
+  })),
   ah(async (req, res) => {
     const f = req.body as { value: Record<string, unknown> };
+    // Merge, never replace: a partial strict object must not wipe keys.
     await query(
       `INSERT INTO settings(id, value) VALUES ('platform', $1)
-       ON CONFLICT (id) DO UPDATE SET value = $1, updated_at = now()`,
+       ON CONFLICT (id) DO UPDATE SET value = settings.value || EXCLUDED.value, updated_at = now()`,
       [JSON.stringify(f.value)]);
-    await adminAudit(req.user!.id, "settings", "platform updated");
+    await adminAudit(req.user!.id, "settings", `platform updated: ${Object.keys(f.value).join(", ")}`);
     return res.json({ ok: true });
   }),
 );
 
 // ---------- Reports (date-ranged, finance kept honest) ----------
-router.get("/admin/reports/summary", ah(async (req, res) => {
-  const from = typeof req.query.from === "string" ? req.query.from : "1970-01-01";
-  const to = typeof req.query.to === "string" ? req.query.to : "2100-01-01";
+router.get("/admin/reports/summary", requirePermission("reports.view"), ah(async (req, res) => {
+  const dateParam = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").safeParse;
+  const fromRaw = typeof req.query.from === "string" ? req.query.from : "1970-01-01";
+  const toRaw = typeof req.query.to === "string" ? req.query.to : "2100-01-01";
+  if (!dateParam(fromRaw).success || !dateParam(toRaw).success) {
+    return res.status(400).json({ error: "from/to must be YYYY-MM-DD dates" });
+  }
+  const from = fromRaw > toRaw ? toRaw : fromRaw;
+  const to = fromRaw > toRaw ? fromRaw : toRaw;
   const totals = await query(
     `SELECT COUNT(*)::int AS bookings,
             COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
@@ -486,7 +645,7 @@ router.get("/admin/reports/summary", ah(async (req, res) => {
 }));
 
 // ---------- Commission ledger ----------
-router.get("/admin/ledger", ah(async (req, res) => {
+router.get("/admin/ledger", requirePermission("finance.view"), ah(async (req, res) => {
   const settled = typeof req.query.settled === "string" ? req.query.settled : "";
   const r = await query(
     `SELECT cl.*, b.booking_no, cu.name AS customer_name, w.name AS worker_name
@@ -505,7 +664,7 @@ router.get("/admin/ledger", ah(async (req, res) => {
 }));
 
 // ---------- Reviews moderation ----------
-router.get("/admin/reviews", ah(async (_req, res) => {
+router.get("/admin/reviews", requirePermission("reviews.view"), ah(async (_req, res) => {
   const r = await query(
     `SELECT r.*, b.booking_no, w.name AS worker_name, cu.name AS customer_name
      FROM reviews r JOIN bookings b ON b.id = r.booking_id
@@ -514,8 +673,9 @@ router.get("/admin/reviews", ah(async (_req, res) => {
   return res.json({ reviews: r.rows });
 }));
 
-router.delete("/admin/reviews/:id", ah(async (req, res) => {
-  await query(`DELETE FROM reviews WHERE id = $1`, [req.params.id]);
+router.delete("/admin/reviews/:id", requirePermission("reviews.moderate"), ah(async (req, res) => {
+  const r = await query(`DELETE FROM reviews WHERE id = $1`, [req.params.id]);
+  if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: "Review not found" });
   await adminAudit(req.user!.id, "review-delete", req.params.id);
   return res.json({ ok: true });
 }));
@@ -523,6 +683,7 @@ router.delete("/admin/reviews/:id", ah(async (req, res) => {
 // ---------- Broadcast (role audience, recorded per user) ----------
 router.post(
   "/admin/notifications/broadcast",
+  requirePermission("broadcast.send"),
   validate(z.object({
     audience: z.enum(["CUSTOMER", "WORKER", "ADMIN", "ALL"]),
     title: z.string().trim().min(4).max(120),
@@ -552,7 +713,7 @@ router.post(
 );
 
 // ---------- Customer detail ----------
-router.get("/admin/customers/:id", ah(async (req, res) => {
+router.get("/admin/customers/:id", requirePermission("customers.view"), ah(async (req, res) => {
   const u = await query(`SELECT id, name, email, phone, is_active, created_at FROM users WHERE id = $1`, [req.params.id]);
   if (u.rowCount === 0) return res.status(404).json({ error: "Not found" });
   const bookings = await query(
@@ -572,9 +733,24 @@ router.get("/admin/customers/:id", ah(async (req, res) => {
 
 router.post(
   "/admin/customers/:id/restrict",
+  requirePermission("customers.manage"),
   validate(z.object({ active: z.boolean() })),
   ah(async (req, res) => {
     const f = req.body as { active: boolean };
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid user id" });
+    if (req.params.id === req.user!.id) {
+      return res.status(400).json({ error: "You cannot restrict your own account" });
+    }
+    // Restriction applies to customers only — staff and pro accounts are
+    // managed through their own verify/activate/staff flows. This prevents a
+    // sub-admin from suspending super-admins, staff, or pros.
+    const target = await query<{ id: string }>(
+      `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
+       JOIN roles r ON r.id = ur.role_id AND r.name = 'CUSTOMER'
+       WHERE u.id = $1`, [req.params.id]);
+    if ((target.rowCount ?? 0) === 0) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
     await query(`UPDATE users SET is_active = $1 WHERE id = $2`, [f.active, req.params.id]);
     await adminAudit(req.user!.id, "customer-restrict", `${req.params.id} active=${f.active}`);
     return res.json({ ok: true });
@@ -582,7 +758,7 @@ router.post(
 );
 
 // ---------- Catalog management ----------
-router.get("/admin/services-all", ah(async (_req, res) => {
+router.get("/admin/services-all", requireAnyPermission("catalog.view", "catalog.edit", "worker.activate"), ah(async (_req, res) => {
   const r = await query(
     `SELECT s.*, c.name AS category_name, c.slug AS category_slug,
             (SELECT COUNT(*)::int FROM bookings WHERE service_id = s.id AND status = 'completed') AS jobs_done
@@ -617,14 +793,15 @@ router.put(
     }
     if (sets.length === 0) return res.status(400).json({ error: "Nothing to update" });
     params.push(req.params.id);
-    await query(`UPDATE services SET ${sets.join(", ")}, updated_at = now() WHERE id = $${params.length}`, params);
+    const r = await query(`UPDATE services SET ${sets.join(", ")}, updated_at = now() WHERE id = $${params.length}`, params);
+    if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: "Service not found" });
     await adminAudit(req.user!.id, "catalog-service-edit", `${req.params.id}: ${sets.join(", ")}`);
     return res.json({ ok: true });
   }),
 );
 
 // ---------- Payments lookup (for refunds) ----------
-router.get("/admin/payments", ah(async (req, res) => {
+router.get("/admin/payments", requirePermission("finance.view"), ah(async (req, res) => {
   const booking = typeof req.query.booking === "string" ? req.query.booking : "";
   if (!booking) return res.status(400).json({ error: "booking required" });
   const bookingId = await resolveBookingId({ query }, booking);
@@ -637,7 +814,7 @@ router.get("/admin/payments", ah(async (req, res) => {
 }));
 
 // ---------- Quote pipeline ----------
-router.get("/admin/quotes", ah(async (_req, res) => {
+router.get("/admin/quotes", requireAnyPermission("quotes.view", "quotes.approve"), ah(async (_req, res) => {
   const r = await query(
     `SELECT q.*, c.name AS category_name, cu.name AS customer_name,
        (SELECT json_agg(p ORDER BY p.created_at) FROM quote_proposals p WHERE p.request_id = q.id) AS proposals
@@ -645,6 +822,194 @@ router.get("/admin/quotes", ah(async (_req, res) => {
      LEFT JOIN users cu ON cu.id = q.customer_id
      ORDER BY q.created_at DESC LIMIT 100`);
   return res.json({ requests: r.rows });
+}));
+
+// ---------- Own capabilities (for panel gating) ----------
+router.get("/admin/me/permissions", ah(async (req, res) => {
+  const permissions = await effectivePermissions(req.user!.id);
+  return res.json({ permissions, isSuperAdmin: isSuperAdmin(req.user!.roles) });
+}));
+
+// ---------- Sub-admins (super-admin only) ----------
+const STAFF_PERM_GROUPS: { group: string; perms: string[] }[] = [
+  { group: "Dispatch", perms: ["overview.view", "bookings.view", "bookings.assign", "workers.view", "customers.view"] },
+  { group: "Workers", perms: ["workers.view", "worker.invite", "worker.verify", "worker.activate", "worker.assign"] },
+  { group: "Customers & support", perms: ["customers.view", "customers.manage", "support.reply"] },
+  { group: "Quotes", perms: ["quotes.view", "quotes.approve"] },
+  { group: "Catalog & coverage", perms: ["catalog.view", "catalog.edit", "coverage.edit", "commission.edit"] },
+  { group: "Finance", perms: ["finance.view", "finance.settle", "finance.refund", "reports.view"] },
+  { group: "Growth", perms: ["rewards.view", "rewards.edit", "broadcast.send", "reviews.view", "reviews.moderate"] },
+  { group: "Platform", perms: ["settings.view", "settings.edit", "audit.read", "reports.view"] },
+];
+
+router.get("/admin/permissions", requireSuperAdmin, ah(async (_req, res) => {
+  const r = await query(`SELECT name FROM permissions ORDER BY name`);
+  return res.json({ permissions: r.rows.map((x) => x.name), groups: STAFF_PERM_GROUPS });
+}));
+
+router.get("/admin/staff", requireSuperAdmin, ah(async (_req, res) => {
+  const r = await query(
+    `SELECT u.id, u.name, u.email, u.phone, u.is_active, u.created_at,
+            COALESCE(array_agg(p.name) FILTER (WHERE p.name IS NOT NULL), '{}') AS permissions
+     FROM users u
+     JOIN user_roles ur ON ur.user_id = u.id
+     JOIN roles r ON r.id = ur.role_id AND r.name = 'SUB_ADMIN'
+     LEFT JOIN user_permissions up ON up.user_id = u.id
+     LEFT JOIN permissions p ON p.id = up.permission_id
+     GROUP BY u.id ORDER BY u.created_at DESC`,
+  );
+  return res.json({ staff: r.rows });
+}));
+
+const staffCreateSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  phone: z.string().trim().min(10).max(20),
+  email: z.string().trim().toLowerCase().email().max(160),
+  password: z.string().min(8).max(128),
+  permissions: z.array(z.string().trim().min(2).max(60)).min(1).max(40),
+});
+
+router.post(
+  "/admin/staff",
+  requireSuperAdmin,
+  validate(staffCreateSchema),
+  ah(async (req, res) => {
+    const f = req.body as z.infer<typeof staffCreateSchema>;
+    const known = await query<{ name: string }>(`SELECT name FROM permissions`);
+    const knownSet = new Set(known.rows.map((x) => x.name));
+    if (f.permissions.includes("staff.manage")) {
+      return res.status(400).json({ error: "staff.manage is reserved for super-admins" });
+    }
+    for (const p of f.permissions) {
+      if (!knownSet.has(p)) return res.status(400).json({ error: `Unknown permission: ${p}` });
+    }
+    const hash = await bcrypt.hash(f.password, 12);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let userId: string;
+      try {
+        const u = await client.query<{ id: string }>(
+          `INSERT INTO users(email, password_hash, name, phone) VALUES ($1, $2, $3, $4) RETURNING id`,
+          [f.email, hash, f.name, f.phone],
+        );
+        userId = u.rows[0].id;
+      } catch (e) {
+        if ((e as { code?: string }).code !== "23505") throw e;
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Email already registered" });
+      }
+      const subRole = await client.query<{ id: string }>(
+        `INSERT INTO roles(name) VALUES ('SUB_ADMIN') ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+      );
+      await client.query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
+        userId, subRole.rows[0].id,
+      ]);
+      for (const p of new Set(f.permissions)) {
+        await client.query(
+          `INSERT INTO user_permissions(user_id, permission_id, granted_by)
+           VALUES ($1, (SELECT id FROM permissions WHERE name = $2), $3) ON CONFLICT DO NOTHING`,
+          [userId, p, req.user!.id],
+        );
+      }
+      await client.query("COMMIT");
+      await adminAudit(req.user!.id, "staff-create", `${f.email} [${f.permissions.join(", ")}]`);
+      return res.status(201).json({ ok: true, id: userId });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
+const staffPatchSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  phone: z.string().trim().min(10).max(20).optional(),
+  password: z.string().min(8).max(128).optional(),
+  isActive: z.boolean().optional(),
+  permissions: z.array(z.string().trim().min(2).max(60)).min(1).max(40).optional(),
+});
+
+router.patch(
+  "/admin/staff/:id",
+  requireSuperAdmin,
+  validate(staffPatchSchema),
+  ah(async (req, res) => {
+    const f = req.body as z.infer<typeof staffPatchSchema>;
+    const target = await query<{ id: string }>(
+      `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
+       JOIN roles r ON r.id = ur.role_id AND r.name = 'SUB_ADMIN' WHERE u.id = $1`,
+      [req.params.id],
+    );
+    if (target.rowCount === 0) return res.status(404).json({ error: "Sub-admin not found" });
+    if (f.permissions) {
+      if (f.permissions.includes("staff.manage")) {
+        return res.status(400).json({ error: "staff.manage is reserved for super-admins" });
+      }
+      const known = await query<{ name: string }>(`SELECT name FROM permissions`);
+      const knownSet = new Set(known.rows.map((x) => x.name));
+      for (const p of f.permissions) {
+        if (!knownSet.has(p)) return res.status(400).json({ error: `Unknown permission: ${p}` });
+      }
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      if (f.name !== undefined || f.phone !== undefined || f.isActive !== undefined) {
+        const sets: string[] = [];
+        const params: unknown[] = [];
+        if (f.name !== undefined) { params.push(f.name); sets.push(`name = $${params.length}`); }
+        if (f.phone !== undefined) { params.push(f.phone); sets.push(`phone = $${params.length}`); }
+        if (f.isActive !== undefined) { params.push(f.isActive); sets.push(`is_active = $${params.length}`); }
+        if (sets.length > 0) {
+          params.push(req.params.id);
+          await client.query(`UPDATE users SET ${sets.join(", ")}, updated_at = now() WHERE id = $${params.length}`, params);
+        }
+      }
+      if (f.password) {
+        const hash = await bcrypt.hash(f.password, 12);
+        // Bump the session version so any existing sessions for this staff
+        // account die immediately — a reset locks out whoever held them.
+        await client.query(
+          `UPDATE users SET password_hash = $1, password_changed_at = now(), updated_at = now() WHERE id = $2`,
+          [hash, req.params.id]);
+      }
+      if (f.permissions) {
+        await client.query(`DELETE FROM user_permissions WHERE user_id = $1`, [req.params.id]);
+        for (const p of new Set(f.permissions)) {
+          await client.query(
+            `INSERT INTO user_permissions(user_id, permission_id, granted_by)
+             VALUES ($1, (SELECT id FROM permissions WHERE name = $2), $3) ON CONFLICT DO NOTHING`,
+            [req.params.id, p, req.user!.id],
+          );
+        }
+      }
+      await client.query("COMMIT");
+      await adminAudit(req.user!.id, "staff-update", `${req.params.id}`);
+      return res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
+router.delete("/admin/staff/:id", requireSuperAdmin, ah(async (req, res) => {
+  // Destructive deletes would orphan audit rows — revoke access instead of deleting.
+  const target = await query(
+    `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
+     JOIN roles r ON r.id = ur.role_id AND r.name = 'SUB_ADMIN' WHERE u.id = $1`,
+    [req.params.id],
+  );
+  if (target.rowCount === 0) return res.status(404).json({ error: "Sub-admin not found" });
+  await query(`UPDATE users SET is_active = false WHERE id = $1`, [req.params.id]);
+  await query(`DELETE FROM user_permissions WHERE user_id = $1`, [req.params.id]);
+  await adminAudit(req.user!.id, "staff-revoke", req.params.id);
+  return res.json({ ok: true });
 }));
 
 export default router;

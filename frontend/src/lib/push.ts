@@ -40,7 +40,7 @@ async function registration(): Promise<ServiceWorkerRegistration> {
 }
 
 /** Current device state (browser subscription AND server record must agree). */
-export async function pushStatus(): Promise<PushState> {
+export async function pushStatus(audience?: string): Promise<PushState> {
   if (!pushSupported()) return "unsupported";
   if (Notification.permission === "denied") return "denied";
   try {
@@ -55,7 +55,8 @@ export async function pushStatus(): Promise<PushState> {
     // Self-heal: a browser subscription the server forgot (DB reset, reseed)
     // looks "on" but receives nothing. Detect and clean it.
     const { devices } = await api<{ devices: { audience: string }[] }>("/api/push/devices");
-    if (devices.length === 0) {
+    const mine = audience ? devices.filter((d) => d.audience === audience) : devices;
+    if (mine.length === 0) {
       try {
         await sub.unsubscribe();
       } catch {
@@ -89,12 +90,24 @@ export async function enablePush(role: Role): Promise<PushState> {
     throw new Error("service-unreachable");
   }
   const json = sub.toJSON();
-  await post("/api/push/subscribe", {
-    endpoint: sub.endpoint,
-    p256dh: b64url(json.keys?.p256dh),
-    auth: b64url(json.keys?.auth),
-    audience: audienceFor(role),
-  });
+  try {
+    await post("/api/push/subscribe", {
+      endpoint: sub.endpoint,
+      p256dh: b64url(json.keys?.p256dh),
+      auth: b64url(json.keys?.auth),
+      audience: audienceFor(role),
+    });
+  } catch (e) {
+    // Don't strand a browser subscription the server never recorded.
+    try {
+      await sub.unsubscribe();
+    } catch {
+      /* ignore */
+    }
+    const name = e instanceof Error ? e.name : "Error";
+    const serverMsg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Push failed (${name}): ${serverMsg}`);
+  }
   try {
     localStorage.setItem("sajilo-push-endpoint", sub.endpoint);
   } catch {
@@ -104,26 +117,23 @@ export async function enablePush(role: Role): Promise<PushState> {
 }
 
 export async function disablePush(): Promise<PushState> {
+  const reg = await navigator.serviceWorker.getRegistration("/");
+  const sub = await reg?.pushManager.getSubscription();
+  const endpoint =
+    sub?.endpoint ?? (() => {
+      try {
+        return localStorage.getItem("sajilo-push-endpoint") ?? "";
+      } catch {
+        return "";
+      }
+    })();
+  if (sub) await sub.unsubscribe();
+  // Throw unless the server record is actually gone, so the UI can offer retry.
+  if (endpoint) await post("/api/push/unsubscribe", { endpoint });
   try {
-    const reg = await navigator.serviceWorker.getRegistration("/");
-    const sub = await reg?.pushManager.getSubscription();
-    const endpoint =
-      sub?.endpoint ?? (() => {
-        try {
-          return localStorage.getItem("sajilo-push-endpoint") ?? "";
-        } catch {
-          return "";
-        }
-      })();
-    await sub?.unsubscribe();
-    if (endpoint) await post("/api/push/unsubscribe", { endpoint });
-    try {
-      localStorage.removeItem("sajilo-push-endpoint");
-    } catch {
-      /* ignore */
-    }
+    localStorage.removeItem("sajilo-push-endpoint");
   } catch {
-    /* already gone */
+    /* ignore */
   }
   return Notification.permission === "denied" ? "denied" : "off";
 }

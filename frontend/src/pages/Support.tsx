@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button, Card, Field, PageHero, TextArea, TextField } from "../components/ui";
 import { api, post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 const schema = z.object({
   subject: z.string().trim().min(8, "Subject needs at least 8 characters"),
@@ -19,8 +21,10 @@ interface Ticket {
 }
 
 export default function Support() {
+  const { user } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [submitError, setSubmitError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [done, setDone] = useState(false);
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -28,12 +32,15 @@ export default function Support() {
   });
 
   function reload() {
-    api<{ tickets: Ticket[] }>("/api/tickets").then((d) => setTickets(d.tickets)).catch(() => {});
+    if (!user) return;
+    setLoadError("");
+    api<{ tickets: Ticket[] }>("/api/tickets").then((d) => setTickets(d.tickets)).catch(() => setLoadError("Couldn't load your tickets."));
   }
-  useEffect(reload, []);
+  useEffect(reload, [user]);
 
   async function submit(f: z.infer<typeof schema>) {
     setSubmitError("");
+    setDone(false);
     try {
       await post("/api/tickets", f);
       form.reset();
@@ -42,6 +49,21 @@ export default function Support() {
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Could not open ticket");
     }
+  }
+
+  if (!user) {
+    return (
+      <div className="fade-up">
+        <PageHero eyebrow="Help" title="Support" body="Booking-linked complaints, payment disputes and refund requests — answered by our Damak team." />
+        <div className="wrap py-8">
+          <Card className="mx-auto max-w-md space-y-3 p-6 text-center">
+            <p className="font-bold">Sign in to open and track tickets</p>
+            <p className="text-sm text-on-surface-variant">Support tickets live on your account so replies reach you here.</p>
+            <Link to="/signin"><Button className="w-full">Sign in</Button></Link>
+          </Card>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -67,6 +89,12 @@ export default function Support() {
         </Card>
         <div className="space-y-3">
           <h2 className="font-bold">Your tickets ({tickets.length})</h2>
+          {loadError && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 rounded-md bg-error-container p-3.5 text-sm font-medium text-error">
+              {loadError}
+              <Button variant="outline" onClick={reload}>Retry</Button>
+            </p>
+          )}
           {tickets.map((t) => (
             <Card key={t.id} className="p-5">
               <p className="font-bold">{t.subject}</p>

@@ -50,11 +50,6 @@ export function roundPin(p: Pin): Pin {
   };
 }
 
-/** Nepal bounding box — matches the backend CHECK constraints. */
-export function pinInNepal(p: Pin): boolean {
-  return p.lat >= 26 && p.lat <= 31 && p.lng >= 80 && p.lng <= 89;
-}
-
 export interface SearchHit {
   place_id: number;
   display_name: string;

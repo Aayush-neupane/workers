@@ -17,24 +17,30 @@ async function perm(name: string) {
 const customerId = await role("CUSTOMER");
 const workerId = await role("WORKER");
 const adminId = await role("ADMIN");
+const subAdminId = await role("SUB_ADMIN");
 
 const perms = [
   "worker.invite", "worker.verify", "worker.activate", "worker.assign",
   "catalog.edit", "coverage.edit", "commission.edit",
   "finance.settle", "finance.refund", "rewards.edit",
   "support.reply", "quotes.approve", "settings.edit", "audit.read",
+  // Sub-admin granularity (007). Super-admins hold every one.
+  "staff.manage", "overview.view", "bookings.view", "bookings.assign",
+  "customers.view", "customers.manage", "quotes.view", "finance.view",
+  "reviews.view", "reviews.moderate", "broadcast.send", "reports.view",
+  "rewards.view", "settings.view", "catalog.view", "workers.view",
 ];
 const permIds: Record<string, string> = {};
 for (const p of perms) permIds[p] = await perm(p);
 for (const p of perms) {
   await query(`INSERT INTO role_permissions(role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [adminId, permIds[p]]);
 }
-// Support-light capabilities for future staff roles (least privilege ready).
-for (const p of ["support.reply", "audit.read"]) {
-  await query(`INSERT INTO role_permissions(role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [workerId, permIds[p]]);
-}
 void customerId;
+void workerId;
+void subAdminId; // SUB_ADMIN gets no implicit grants — per-user user_permissions only.
 
+// NOTE: re-running seed never resets the admin password — the upsert below
+// only touches name/phone so a rotated production password survives seeding.
 const hash = await bcrypt.hash(ADMIN_PASSWORD, 12);
 const u = await query(
   `INSERT INTO users(email, password_hash, name, phone) VALUES ($1, $2, 'Sajilo Admin', '9852600000')
@@ -55,9 +61,15 @@ const cats: [string, string, string, string, number, number][] = [
 for (const [name, slug, tagline, icon, bps, sort] of cats) {
   await query(
     `INSERT INTO categories(name, slug, tagline, icon, commission_bps, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (slug) DO NOTHING`,
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, tagline = EXCLUDED.tagline,
+       icon = EXCLUDED.icon, commission_bps = EXCLUDED.commission_bps, sort_order = EXCLUDED.sort_order`,
     [name, slug, tagline, icon, bps, sort],
   );
+}
+
+function serviceSlug(categorySlug: string, name: string): string {
+  return `${categorySlug}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60)}`;
 }
 
 const services: [string, string, string, string, number, number][] = [
@@ -75,9 +87,12 @@ for (const [slug, name, desc, model, price, dur] of services) {
   const c = await query<{ id: string }>(`SELECT id FROM categories WHERE slug = $1`, [slug]);
   if (c.rowCount === 0) continue;
   await query(
-    `INSERT INTO services(category_id, name, description, pricing_model, base_price_paisa, duration_min)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [c.rows[0].id, name, desc, model, price, dur],
+    `INSERT INTO services(category_id, name, slug, description, pricing_model, base_price_paisa, duration_min)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description,
+       pricing_model = EXCLUDED.pricing_model, base_price_paisa = EXCLUDED.base_price_paisa,
+       duration_min = EXCLUDED.duration_min, category_id = EXCLUDED.category_id`,
+    [c.rows[0].id, name, serviceSlug(slug, name), desc, model, price, dur],
   );
 }
 

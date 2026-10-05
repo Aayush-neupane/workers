@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { Button, Card, EmptyState, Field, PageHero, TextField } from "../components/ui";
 import { post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 const schema = z.object({
   phone: z.string().trim().min(10, "Enter a valid phone number").max(20),
@@ -22,6 +23,7 @@ interface InviteInfo {
 export default function Invite() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { refresh } = useAuth();
   const token = params.get("token") ?? "";
   const [info, setInfo] = useState<InviteInfo | null>(null);
   const [error, setError] = useState("");
@@ -46,9 +48,11 @@ export default function Invite() {
     setError("");
     try {
       await post("/api/auth/worker/accept", { token, phone: f.phone, password: f.password });
+      await refresh();
       navigate("/worker", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not accept invitation");
+    } finally {
       setBusy(false);
     }
   }

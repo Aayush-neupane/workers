@@ -12,8 +12,9 @@ export function PushToggle() {
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    pushStatus().then(setState).catch(() => {});
-  }, []);
+    const audience = role === "worker" ? "worker" : role === "admin" ? "admin" : role === "customer" ? "customer" : undefined;
+    pushStatus(audience).then(setState).catch(() => {});
+  }, [role]);
 
   async function toggle() {
     if (!role) return;
@@ -47,6 +48,17 @@ export function PushToggle() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!role) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" disabled title="Loading account…">
+          <BellOff size={15} aria-hidden="true" />
+          Turn on push
+        </Button>
+      </div>
+    );
   }
 
   if (state === "unsupported") {

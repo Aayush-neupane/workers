@@ -5,11 +5,15 @@ import { z } from "zod";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth, setSession, clearSession, signSession } from "../middleware/auth.js";
+import { requireAuth, setSession, clearSession, signSession, effectivePermissions, isSuperAdmin } from "../middleware/auth.js";
 import { audit } from "../services/notify.js";
 import { ensureReferralCode, redeemReferralCode } from "../services/referrals.js";
 
 const router = Router();
+
+// Pre-computed dummy hash so unknown-email logins cost the same bcrypt work
+// as real ones (no timing oracle for account enumeration).
+const DUMMY_HASH = bcrypt.hashSync("no-such-account", 12);
 
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -19,12 +23,20 @@ const registerSchema = z.object({
   referralCode: z.string().trim().max(20).optional(),
 });
 
+/** Normalize phone: drop spaces/dashes/parens, require +?\d{10,15}. */
+export function normalizePhone(raw: string): string | null {
+  const digits = raw.trim().replace(/[\s\-().]/g, "");
+  return /^\+?\d{10,15}$/.test(digits) ? digits : null;
+}
+
 /** Public registration creates CUSTOMERs only — roles are never client-assignable. */
 router.post(
   "/register",
   validate(registerSchema),
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof registerSchema>;
+    const phone = normalizePhone(f.phone);
+    if (!phone) return res.status(400).json({ error: "Enter a valid phone number (10–15 digits)" });
     const hash = await bcrypt.hash(f.password, 12);
     const client = await pool.connect();
     try {
@@ -33,7 +45,7 @@ router.post(
       try {
         const u = await client.query<{ id: string }>(
           `INSERT INTO users(email, password_hash, name, phone) VALUES ($1, $2, $3, $4) RETURNING id`,
-          [f.email, hash, f.name, f.phone],
+          [f.email, hash, f.name, phone],
         );
         userId = u.rows[0].id;
       } catch (e) {
@@ -41,7 +53,13 @@ router.post(
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "Email already registered" });
       }
-      const role = await client.query<{ id: string }>(`SELECT id FROM roles WHERE name = 'CUSTOMER'`);
+      const role = await client.query<{ id: string }>(
+        `INSERT INTO roles(name) VALUES ('CUSTOMER') ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+      );
+      if (role.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(500).json({ error: "Signup is not ready yet — please try again shortly" });
+      }
       await client.query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2)`, [userId, role.rows[0].id]);
       await ensureReferralCode(client, userId, f.name);
       if (f.referralCode) {
@@ -55,7 +73,9 @@ router.post(
         }
       }
       await client.query("COMMIT");
-      setSession(res, await signSession(userId));
+      const ver = await query<{ v: number }>(
+        `SELECT (EXTRACT(EPOCH FROM password_changed_at) * 1000)::bigint AS v FROM users WHERE id = $1`, [userId]);
+      setSession(res, await signSession(userId, ver.rows[0] ? Number(ver.rows[0].v) : undefined));
       return res.status(201).json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK");
@@ -71,17 +91,25 @@ router.post(
   validate(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1) })),
   ah(async (req, res) => {
     const f = req.body as { email: string; password: string };
-    const r = await query<{ id: string; password_hash: string | null; is_active: boolean }>(
-      `SELECT id, password_hash, is_active FROM users WHERE email = $1`,
+    const r = await query<{ id: string; password_hash: string | null; is_active: boolean; pwdVersion: number }>(
+      `SELECT id, password_hash, is_active, (EXTRACT(EPOCH FROM password_changed_at) * 1000)::bigint AS "pwdVersion"
+       FROM users WHERE email = $1`,
       [f.email],
     );
+    // Constant-time path for unknown emails: same bcrypt cost either way, so
+    // response timing doesn't reveal which emails are registered.
     if (r.rowCount === 0 || !r.rows[0].password_hash) {
+      try {
+        await bcrypt.compare(f.password, DUMMY_HASH);
+      } catch {
+        /* timing only — result discarded */
+      }
       return res.status(401).json({ error: "Invalid email or password" });
     }
     if (!r.rows[0].is_active) return res.status(403).json({ error: "Account suspended" });
     const ok = await bcrypt.compare(f.password, r.rows[0].password_hash!);
     if (!ok) return res.status(401).json({ error: "Invalid email or password" });
-    setSession(res, await signSession(r.rows[0].id));
+    setSession(res, await signSession(r.rows[0].id, Number(r.rows[0].pwdVersion)));
     return res.json({ ok: true });
   }),
 );
@@ -92,7 +120,14 @@ router.post("/logout", ah(async (_req, res) => {
 }));
 
 router.get("/me", requireAuth, ah(async (req, res) => {
-  return res.json({ user: req.user });
+  const permissions = await effectivePermissions(req.user!.id);
+  return res.json({
+    user: {
+      ...req.user,
+      permissions,
+      isSuperAdmin: isSuperAdmin(req.user!.roles),
+    },
+  });
 }));
 
 router.patch(
@@ -162,13 +197,21 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      // Never overwrite an existing account: invite acceptance must not
+      // hijack whoever already owns the email (e.g. an admin address).
+      const existing = await client.query<{ id: string }>(`SELECT id FROM users WHERE email = $1`, [invite.email]);
+      if ((existing.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "An account with this email already exists — sign in with it, then accept the invitation from your dashboard" });
+      }
       const u = await client.query<{ id: string }>(
-        `INSERT INTO users(email, password_hash, name, phone) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (email) DO UPDATE SET phone = EXCLUDED.phone RETURNING id`,
+        `INSERT INTO users(email, password_hash, name, phone) VALUES ($1, $2, $3, $4) RETURNING id`,
         [invite.email, hash, invite.name, f.phone],
       );
       const userId = u.rows[0].id;
-      const role = await client.query<{ id: string }>(`SELECT id FROM roles WHERE name = 'WORKER'`);
+      const role = await client.query<{ id: string }>(
+        `INSERT INTO roles(name) VALUES ('WORKER') ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+      );
       await client.query(`INSERT INTO user_roles(user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [userId, role.rows[0].id]);
       await client.query(
         `INSERT INTO worker_profiles(user_id, verification_state) VALUES ($1, 'awaiting-documents') ON CONFLICT (user_id) DO NOTHING`,
@@ -177,7 +220,9 @@ router.post(
       await client.query(`UPDATE worker_invites SET accepted_at = now() WHERE id = $1`, [invite.id]);
       await client.query("COMMIT");
       await audit(null, "WORKER", "invite-accepted", invite.email);
-      setSession(res, await signSession(userId));
+      const ver = await query<{ v: number }>(
+        `SELECT (EXTRACT(EPOCH FROM password_changed_at) * 1000)::bigint AS v FROM users WHERE id = $1`, [userId]);
+      setSession(res, await signSession(userId, ver.rows[0] ? Number(ver.rows[0].v) : undefined));
       return res.status(201).json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK");

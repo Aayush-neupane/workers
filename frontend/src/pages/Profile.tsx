@@ -24,12 +24,15 @@ export default function Profile() {
   const [name, setName] = useState(user?.name ?? "");
   const [phone, setPhone] = useState("");
   const [saved, setSaved] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [pin, setPin] = useState<Pin | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [locating, setLocating] = useState(false);
 
   function reload() {
-    api<{ addresses: Address[] }>("/api/addresses").then((d) => setAddresses(d.addresses)).catch(() => {});
+    setLoadError("");
+    api<{ addresses: Address[] }>("/api/addresses").then((d) => setAddresses(d.addresses)).catch(() => setLoadError("Couldn't load your addresses."));
   }
   useEffect(reload, []);
 
@@ -52,17 +55,32 @@ export default function Profile() {
 
   async function saveProfile() {
     setSaved("");
+    setProfileError("");
+    if (name.trim().length < 2) {
+      setProfileError("Enter your full name (at least 2 characters).");
+      return;
+    }
+    if (phone.trim().length < 10) {
+      setProfileError("Enter a valid phone number (at least 10 digits).");
+      return;
+    }
     try {
-      await api("/api/auth/me", { method: "PATCH", body: JSON.stringify({ name, phone }) });
+      await api("/api/auth/me", { method: "PATCH", body: JSON.stringify({ name: name.trim(), phone: phone.trim() }) });
       setSaved("Profile saved.");
-    } catch {
-      setSaved("Could not save profile.");
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : "Could not save profile.");
     }
   }
 
   async function remove(id: string) {
-    await api(`/api/addresses/${id}`, { method: "DELETE" }).catch(() => {});
-    reload();
+    if (!window.confirm("Remove this address?")) return;
+    setAddrError("");
+    try {
+      await api(`/api/addresses/${id}`, { method: "DELETE" });
+      reload();
+    } catch (e) {
+      setAddrError(e instanceof Error ? e.message : "Could not remove address.");
+    }
   }
 
   function locateMe() {
@@ -110,11 +128,18 @@ export default function Profile() {
             <Field label="Full name"><TextField value={name} onChange={(e) => setName(e.target.value)} /></Field>
             <Field label="Phone"><TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" /></Field>
             <Button onClick={saveProfile}>Save profile</Button>
-            {saved && <p className="text-sm font-medium">{saved}</p>}
+            {profileError && <p role="alert" className="text-sm font-medium text-error">{profileError}</p>}
+            {saved && <p role="status" className="text-sm font-medium">{saved}</p>}
           </div>
         </Card>
         <Card className="h-fit p-6">
           <h2 className="font-bold">Saved addresses ({addresses.length}/5)</h2>
+          {loadError && (
+            <p role="alert" className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-error-container p-3 text-sm font-medium text-error">
+              {loadError}
+              <Button variant="outline" onClick={reload}>Retry</Button>
+            </p>
+          )}
           <ul className="mt-3 space-y-2 text-sm">
             {addresses.map((a) => (
               <li key={a.id} className="flex items-center justify-between gap-2 rounded-md bg-surface-container p-3">

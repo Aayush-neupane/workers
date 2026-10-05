@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { FileText, Mail, MapPin, Phone } from "lucide-react";
 import { Card, PageHero } from "../components/ui";
@@ -227,7 +228,12 @@ export function Privacy() {
 }
 
 export function Cookies() {
-  const c = typeof window !== "undefined" ? loadConsent() : null;
+  const [c, setC] = useState(() => (typeof window !== "undefined" ? loadConsent() : null));
+  useEffect(() => {
+    const onChange = () => setC(loadConsent());
+    window.addEventListener("sajilo-consent", onChange);
+    return () => window.removeEventListener("sajilo-consent", onChange);
+  }, []);
   return (
     <Doc
       eyebrow="Legal · Cookie Policy"
