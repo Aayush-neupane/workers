@@ -33,10 +33,35 @@ export function formatDay(iso: string): string {
   return `${formatDate(iso)} (${WEEKDAYS[d.getDay()]})`;
 }
 
-/** Live preview for a datetime-local input value (yyyy/mm/dd HH:MM). */
-export function previewDateTimeLocal(value: string): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  return `→ ${formatDateTime(d.toISOString())}`;
+/**
+ * Parse a yyyy/mm/dd HH:MM value (24h local time) to an ISO string.
+ * Returns null unless the shape is exact and the calendar date is real.
+ */
+export function parseSlotInput(value: string): string | null {
+  const m = value.trim().match(/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const day = Number(m[3]);
+  const h = Number(m[4]);
+  const mi = Number(m[5]);
+  if (mo < 1 || mo > 12 || day < 1 || day > 31 || h > 23 || mi > 59) return null;
+  const d = new Date(y, mo - 1, day, h, mi);
+  if (d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== day) return null;
+  return d.toISOString();
+}
+
+/**
+ * Parse a yyyy/mm/dd value to a yyyy-mm-dd API date. Null unless exact/real.
+ */
+export function parseDateInput(value: string): string | null {
+  const m = value.trim().match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const day = Number(m[3]);
+  if (mo < 1 || mo > 12 || day < 1 || day > 31) return null;
+  const d = new Date(y, mo - 1, day);
+  if (d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== day) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
 }

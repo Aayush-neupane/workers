@@ -9,7 +9,7 @@ import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { suggestStreet, type Pin } from "../lib/geo";
-import { previewDateTimeLocal } from "../lib/format";
+import { parseSlotInput } from "../lib/format";
 import type { Category } from "../lib/types";
 
 const schema = z.object({
@@ -20,16 +20,24 @@ const schema = z.object({
   windowStart: z.string().min(1, "Pick a start"),
   windowEnd: z.string().min(1, "Pick an end"),
 }).superRefine((d, ctx) => {
-  const start = new Date(d.windowStart).getTime();
-  const end = new Date(d.windowEnd).getTime();
+  const startIso = parseSlotInput(d.windowStart);
+  const endIso = parseSlotInput(d.windowEnd);
+  if (d.windowStart && !startIso) {
+    ctx.addIssue({ code: "custom", message: "Use yyyy/mm/dd HH:MM", path: ["windowStart"] });
+  }
+  if (d.windowEnd && !endIso) {
+    ctx.addIssue({ code: "custom", message: "Use yyyy/mm/dd HH:MM", path: ["windowEnd"] });
+  }
+  const start = startIso ? new Date(startIso).getTime() : NaN;
+  const end = endIso ? new Date(endIso).getTime() : NaN;
   const now = Date.now();
-  if (d.windowStart && Number.isFinite(start) && start <= now) {
+  if (startIso && start <= now) {
     ctx.addIssue({ code: "custom", message: "Start must be in the future", path: ["windowStart"] });
   }
-  if (d.windowEnd && Number.isFinite(end) && end <= now) {
+  if (endIso && end <= now) {
     ctx.addIssue({ code: "custom", message: "End must be in the future", path: ["windowEnd"] });
   }
-  if (d.windowStart && d.windowEnd && Number.isFinite(start) && Number.isFinite(end) && end <= start) {
+  if (startIso && endIso && end <= start) {
     ctx.addIssue({ code: "custom", message: "End must be after start", path: ["windowEnd"] });
   }
 });
@@ -52,12 +60,18 @@ export default function QuoteNew() {
 
   async function submit(f: z.infer<typeof schema>) {
     setError("");
+    const startIso = parseSlotInput(f.windowStart);
+    const endIso = parseSlotInput(f.windowEnd);
+    if (!startIso || !endIso) {
+      setError("Use yyyy/mm/dd HH:MM for the preferred window.");
+      return;
+    }
     try {
       await post("/api/quotes/requests", {
         ...f,
         categoryId: f.categoryId || undefined,
-        windowStart: new Date(f.windowStart).toISOString(),
-        windowEnd: new Date(f.windowEnd).toISOString(),
+        windowStart: startIso,
+        windowEnd: endIso,
         photos: [],
         lat: pin?.lat ?? null,
         lng: pin?.lng ?? null,
@@ -118,16 +132,14 @@ export default function QuoteNew() {
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Field label="Preferred window start" error={form.formState.errors.windowStart?.message}>
-                  <TextField {...form.register("windowStart")} type="datetime-local" style={{ colorScheme: "light" }} />
+                <Field label="Preferred window start" error={form.formState.errors.windowStart?.message} hint="yyyy/mm/dd HH:MM">
+                  <TextField {...form.register("windowStart")} placeholder="2030/07/01 10:00" inputMode="numeric" className="font-mono" />
                 </Field>
-                <p className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(form.watch("windowStart")) || "yyyy/mm/dd HH:MM"}</p>
               </div>
               <div>
-                <Field label="Preferred window end" error={form.formState.errors.windowEnd?.message}>
-                  <TextField {...form.register("windowEnd")} type="datetime-local" style={{ colorScheme: "light" }} />
+                <Field label="Preferred window end" error={form.formState.errors.windowEnd?.message} hint="yyyy/mm/dd HH:MM">
+                  <TextField {...form.register("windowEnd")} placeholder="2030/07/05 18:00" inputMode="numeric" className="font-mono" />
                 </Field>
-                <p className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(form.watch("windowEnd")) || "yyyy/mm/dd HH:MM"}</p>
               </div>
             </div>
             {error && <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{error}</p>}

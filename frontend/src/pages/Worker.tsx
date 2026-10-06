@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BadgeCheck, ChevronDown, FileUp, Phone, Star } from "lucide-react";
-import { Badge, Button, Card, EmptyState, PageHero, Price, TextField } from "../components/ui";
+import { Badge, Button, Card, DateTimeField, EmptyState, PageHero, Price, TextField } from "../components/ui";
 import { LiveMap } from "../components/LiveMap";
 import { fetchRoute, formatKm, type Pin } from "../lib/geo";
 import { api, post } from "../lib/api";
-import { formatDate, formatNPR, formatSlot, previewDateTimeLocal } from "../lib/format";
+import { formatDate, formatNPR, formatSlot, parseSlotInput } from "../lib/format";
 import type { Booking } from "../lib/types";
 
 interface Me {
@@ -242,18 +242,16 @@ function JobCard({ job, onDone, onMsg }: {
       .then((d) => setReqs(d.requests)).catch(() => {});
   }, [open, job.id]);
 
-  const minSlot = (() => {
-    const d = new Date(Date.now() + 3600 * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  })();
-
   async function requestReschedule() {
-    if (!reqSlot) return;
+    const iso = parseSlotInput(reqSlot);
+    if (!iso) {
+      onMsg("Use yyyy/mm/dd HH:MM.");
+      return;
+    }
     setReqBusy(true);
     try {
       await post(`/api/bookings/${job.id}/reschedule-requests`, {
-        proposedSlot: new Date(reqSlot).toISOString(), reason: reqReason.trim(),
+        proposedSlot: iso, reason: reqReason.trim(),
       });
       onMsg("Request sent — the admin confirms the new time with the customer.");
       setReqOpen(false);
@@ -407,13 +405,11 @@ function JobCard({ job, onDone, onMsg }: {
             <div className="space-y-2 rounded-md border border-outline/60 bg-white p-3">
               <div>
                 <label htmlFor={`req-slot-${job.id}`} className="mb-1.5 block text-xs font-bold">Proposed new time (at least an hour ahead)</label>
-                <TextField id={`req-slot-${job.id}`} type="datetime-local" value={reqSlot} min={minSlot}
-                  onChange={(e) => setReqSlot(e.target.value)} style={{ colorScheme: "light" }} />
-                <p className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(reqSlot) || "yyyy/mm/dd HH:MM"}</p>
+                <DateTimeField id={`req-slot-${job.id}`} value={reqSlot} onChange={setReqSlot} />
               </div>
               <TextField value={reqReason} onChange={(e) => setReqReason(e.target.value)}
                 placeholder="Reason (sent to admin)" aria-label="Reason" maxLength={500} />
-              <Button onClick={requestReschedule} disabled={reqBusy || !reqSlot}>{reqBusy ? "Sending…" : "Send request"}</Button>
+              <Button onClick={requestReschedule} disabled={reqBusy || !parseSlotInput(reqSlot)}>{reqBusy ? "Sending…" : "Send request"}</Button>
             </div>
           )}
           {job.status === "awaiting-confirmation" && (

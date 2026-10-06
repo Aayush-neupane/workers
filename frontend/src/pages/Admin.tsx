@@ -3,11 +3,11 @@ import {
   AlertTriangle, ArrowRight, BadgeCheck, Ban, Megaphone, Search,
   Star, Trash2, UserCheck, UserX, X,
 } from "lucide-react";
-import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
+import { Badge, Button, Card, DateField, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
 import { LiveMap } from "../components/LiveMap";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
-import { formatDate, formatDateTime, formatSlot, formatNPR } from "../lib/format";
+import { formatDate, formatDateTime, formatSlot, formatNPR, parseDateInput } from "../lib/format";
 import { useAuth } from "../lib/auth";
 
 type Tab =
@@ -1488,12 +1488,12 @@ function Broadcast({ onMsg }: { onMsg: (m: string) => void }) {
 /* ================= REPORTS / AUDIT / SETTINGS ================= */
 
 function Reports() {
-  const toLocalDate = (d: Date) => {
+  const toSlashDate = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
   };
-  const today = toLocalDate(new Date());
-  const weekAgo = toLocalDate(new Date(Date.now() - 6 * 864e5));
+  const today = toSlashDate(new Date());
+  const weekAgo = toSlashDate(new Date(Date.now() - 6 * 864e5));
   const [from, setFrom] = useState(weekAgo);
   const [to, setTo] = useState(today);
   const [d, setD] = useState<{
@@ -1505,7 +1505,10 @@ function Reports() {
   } | null>(null);
 
   function load() {
-    api<typeof d>(`/api/admin/reports/summary?from=${from}&to=${to}`).then(setD).catch(() => {});
+    const f = parseDateInput(from);
+    const t = parseDateInput(to);
+    if (!f || !t) return;
+    api<typeof d>(`/api/admin/reports/summary?from=${f}&to=${t}`).then(setD).catch(() => {});
   }
   useEffect(load, []);
 
@@ -1515,8 +1518,8 @@ function Reports() {
     <div className="space-y-5">
       <form className="flex flex-wrap items-end gap-3 rounded-lg border border-outline/60 bg-white p-4"
         onSubmit={(e) => { e.preventDefault(); load(); }}>
-        <Field label="From"><TextField type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} style={{ colorScheme: "light" }} /></Field>
-        <Field label="To"><TextField type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} style={{ colorScheme: "light" }} /></Field>
+        <Field label="From (yyyy/mm/dd)"><DateField value={from} onChange={setFrom} /></Field>
+        <Field label="To (yyyy/mm/dd)"><DateField value={to} onChange={setTo} /></Field>
         <Button type="submit">Apply</Button>
       </form>
       {!d ? <p className="text-sm text-on-surface-variant">Loading…</p> : (
@@ -1532,7 +1535,7 @@ function Reports() {
               <p className="font-bold">Bookings by day</p>
               <div className="mt-3 flex h-28 items-end gap-1.5" role="img" aria-label="Bookings per day bar chart">
                 {d.byDay.map((x) => (
-                  <div key={x.day} className="flex-1 rounded-t bg-primary/80" title={`${x.day}: ${x.bookings}`}
+                  <div key={x.day} className="flex-1 rounded-t bg-primary/80" title={`${formatDate(x.day)}: ${x.bookings}`}
                     style={{ height: `${Math.max(4, (x.bookings / maxDay) * 100)}%` }} />
                 ))}
                 {d.byDay.length === 0 && <p className="text-sm text-on-surface-variant">No data in range.</p>}
@@ -1541,7 +1544,7 @@ function Reports() {
                 <caption>Bookings per day</caption>
                 <tbody>
                   {d.byDay.map((x) => (
-                    <tr key={x.day}><th scope="row">{x.day}</th><td>{x.bookings} bookings</td></tr>
+                    <tr key={x.day}><th scope="row">{formatDate(x.day)}</th><td>{x.bookings} bookings</td></tr>
                   ))}
                 </tbody>
               </table>

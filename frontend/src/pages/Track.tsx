@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Badge, Button, Card, EmptyState, Price, TextField } from "../components/ui";
+import { Badge, Button, Card, DateTimeField, EmptyState, Price, TextField } from "../components/ui";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
-import { formatDateTime, formatSlot, previewDateTimeLocal } from "../lib/format";
+import { formatDateTime, formatSlot, parseSlotInput } from "../lib/format";
 import type { Booking } from "../lib/types";
 
 interface History {
@@ -104,15 +104,13 @@ export default function Track() {
     }
   }
 
-  const minSlot = (() => {
-    const d = new Date(Date.now() + 3600 * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  })();
-
   async function reschedule() {
-    if (!newSlot) return;
-    if (new Date(newSlot).getTime() < Date.now() + 3600 * 1000) {
+    const iso = parseSlotInput(newSlot);
+    if (!iso) {
+      setError("Use yyyy/mm/dd HH:MM.");
+      return;
+    }
+    if (new Date(iso).getTime() < Date.now() + 3600 * 1000) {
       setError("Pick a slot at least an hour ahead.");
       return;
     }
@@ -121,7 +119,7 @@ export default function Track() {
     try {
       await api(`/api/bookings/${id}/slot`, {
         method: "PUT",
-        body: JSON.stringify({ slot: new Date(newSlot).toISOString() }),
+        body: JSON.stringify({ slot: iso }),
       });
       setRescheduling(false);
       setNewSlot("");
@@ -136,8 +134,12 @@ export default function Track() {
   const pendingReq = requests.find((r) => r.status === "pending");
 
   async function requestReschedule() {
-    if (!reqSlot) return;
-    if (new Date(reqSlot).getTime() < Date.now() + 3600 * 1000) {
+    const iso = parseSlotInput(reqSlot);
+    if (!iso) {
+      setError("Use yyyy/mm/dd HH:MM.");
+      return;
+    }
+    if (new Date(iso).getTime() < Date.now() + 3600 * 1000) {
       setError("Propose a slot at least an hour ahead.");
       return;
     }
@@ -145,7 +147,7 @@ export default function Track() {
     setReqBusy(true);
     try {
       await post(`/api/bookings/${id}/reschedule-requests`, {
-        proposedSlot: new Date(reqSlot).toISOString(), reason: reqReason.trim(),
+        proposedSlot: iso, reason: reqReason.trim(),
       });
       setReqOpen(false);
       setReqSlot("");
@@ -212,11 +214,9 @@ export default function Track() {
               <Card className="mt-3 flex flex-col gap-2 p-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
                   <label htmlFor="new-slot" className="mb-1.5 block text-sm font-semibold">New slot (at least an hour ahead)</label>
-                  <TextField id="new-slot" type="datetime-local" value={newSlot} min={minSlot} onChange={(e) => setNewSlot(e.target.value)}
-                    style={{ colorScheme: "light" }} aria-describedby="new-slot-preview" />
-                  <p id="new-slot-preview" className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(newSlot) || "yyyy/mm/dd HH:MM"}</p>
+                  <DateTimeField id="new-slot" value={newSlot} onChange={setNewSlot} />
                 </div>
-                <Button onClick={reschedule} disabled={!newSlot || reschedBusy}>{reschedBusy ? "Moving…" : "Confirm move"}</Button>
+                <Button onClick={reschedule} disabled={!parseSlotInput(newSlot) || reschedBusy}>{reschedBusy ? "Moving…" : "Confirm move"}</Button>
               </Card>
             )}
             {pendingReq && (
@@ -228,16 +228,14 @@ export default function Track() {
               <Card className="mt-3 space-y-2 p-4">
                 <div>
                   <label htmlFor="req-slot" className="mb-1.5 block text-sm font-semibold">Proposed new time (at least an hour ahead)</label>
-                  <TextField id="req-slot" type="datetime-local" value={reqSlot} min={minSlot} onChange={(e) => setReqSlot(e.target.value)}
-                    style={{ colorScheme: "light" }} aria-describedby="req-slot-preview" />
-                  <p id="req-slot-preview" className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(reqSlot) || "yyyy/mm/dd HH:MM"}</p>
+                  <DateTimeField id="req-slot" value={reqSlot} onChange={setReqSlot} />
                 </div>
                 <div>
                   <label htmlFor="req-reason" className="mb-1.5 block text-sm font-semibold">Reason (sent to the admin)</label>
                   <TextField id="req-reason" value={reqReason} onChange={(e) => setReqReason(e.target.value)}
                     placeholder="e.g. Family emergency, need next-day morning" maxLength={500} />
                 </div>
-                <Button onClick={requestReschedule} disabled={!reqSlot || reqBusy}>{reqBusy ? "Sending…" : "Send request"}</Button>
+                <Button onClick={requestReschedule} disabled={!parseSlotInput(reqSlot) || reqBusy}>{reqBusy ? "Sending…" : "Send request"}</Button>
               </Card>
             )}
             {booking.status === "completed" && (
