@@ -120,29 +120,34 @@ export default function Dashboard() {
               </div>
             )}
           </section>
-          {activeQuotes.map((q) => (
-            <section key={q.id}>
-              <h2 className="font-display text-xl font-semibold">Quote: {q.title}</h2>
+          {activeQuotes.length > 0 && (
+            <section>
+              <h2 className="font-display text-xl font-semibold">Quotes waiting on you ({activeQuotes.length})</h2>
               <div className="mt-3 space-y-3">
-                {(q.proposals ?? []).length === 0 && (
-                  <EmptyState title="Waiting for proposals" body="Verified pros in Damak are reviewing your request." />
-                )}
-                {(q.proposals ?? []).map((p) => (
-                  <Card key={p.id} className="p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Price paisa={p.price_paisa} />
-                      {p.approved ? <Badge tone="success">Approved</Badge> : <Badge tone="warning">Admin review</Badge>}
-                    </div>
-                    <p className="mt-2 text-sm">{p.scope}</p>
-                    <p className="mt-1 text-xs text-on-surface-variant">Available: {p.availability}</p>
-                    <Button className="mt-3" disabled={!p.approved} onClick={() => acceptProposal(p.id)}>
-                      {p.approved ? "Accept & book" : "Awaiting approval"}
-                    </Button>
+                {activeQuotes.map((q) => (
+                  <Card key={q.id} className="p-4">
+                    <p className="font-bold">Quote: {q.title}</p>
+                    {(q.proposals ?? []).length === 0 && (
+                      <p className="mt-1 text-sm text-on-surface-variant">Verified pros in Damak are reviewing your request.</p>
+                    )}
+                    {(q.proposals ?? []).map((p) => (
+                      <div key={p.id} className="mt-3 rounded-md bg-surface-container/60 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Price paisa={p.price_paisa} />
+                          {p.approved ? <Badge tone="success">Approved</Badge> : <Badge tone="warning">Admin review</Badge>}
+                        </div>
+                        <p className="mt-2 text-sm">{p.scope}</p>
+                        <p className="mt-1 text-xs text-on-surface-variant">Available: {p.availability}</p>
+                        <Button className="mt-3" disabled={!p.approved} onClick={() => acceptProposal(p.id)}>
+                          {p.approved ? "Accept & book" : "Awaiting approval"}
+                        </Button>
+                      </div>
+                    ))}
                   </Card>
                 ))}
               </div>
             </section>
-          ))}
+          )}
           {pastQuotes.length > 0 && (
             <details>
               <summary className="cursor-pointer font-display text-xl font-semibold">Past quotes ({pastQuotes.length})</summary>
