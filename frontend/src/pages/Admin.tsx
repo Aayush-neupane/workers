@@ -467,9 +467,10 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
             )}
           </Card>
 
+          {["pending", "awaiting-worker", "confirmed", "en-route", "in-progress"].includes(String(b.status)) ? (
           <div className="rounded-lg border border-outline/60 bg-white p-4">
             <p className="font-bold">Assign / reassign pro</p>
-            <p className="text-xs text-on-surface-variant">Only verified, active pros skilled in {b ? String(b.service_name) : "this service"} are listed.</p>
+            <p className="text-xs text-on-surface-variant">Only verified, active pros skilled in {String(b.service_name)} are listed.</p>
             <div className="mt-2 space-y-2">
               {eligibleFailed ? (
                 <p role="alert" className="text-sm font-medium text-error">Couldn't load eligible pros — check your dispatch permission and retry.</p>
@@ -491,6 +492,14 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
               <Button onClick={assign} disabled={!workerId}>Assign</Button>
             </div>
           </div>
+          ) : (
+          <div className="rounded-lg border border-outline/60 bg-white p-4">
+            <p className="font-bold">Assign / reassign pro</p>
+            <p className="mt-1 rounded-md bg-surface-container p-3 text-sm text-on-surface-variant">
+              This booking is {String(b.status)} — assignment is closed and can't be reopened from here.
+            </p>
+          </div>
+          )}
 
           <div className="rounded-lg border border-outline/60 bg-white p-4">
             <p className="font-bold">Status correction</p>

@@ -262,10 +262,13 @@ router.get(
   ah(async (req, res) => {
     const bookingId = await resolveBookingId({ query }, req.params.id);
     if (!bookingId) return res.status(404).json({ error: "Not found" });
-    const b = await query<{ service_id: string; service_name: string }>(
-      `SELECT b.service_id, s.name AS service_name FROM bookings b
+    const b = await query<{ service_id: string; service_name: string; status: string }>(
+      `SELECT b.service_id, b.status, s.name AS service_name FROM bookings b
        LEFT JOIN services s ON s.id = b.service_id WHERE b.id = $1`, [bookingId]);
     if (b.rowCount === 0) return res.status(404).json({ error: "Not found" });
+    if (["completed", "cancelled", "disputed", "awaiting-confirmation"].includes(b.rows[0].status)) {
+      return res.status(409).json({ error: `Nobody is eligible while ${b.rows[0].status}` });
+    }
     const r = await query(
       `SELECT u.id, u.name,
               (SELECT COUNT(*)::int FROM bookings WHERE worker_id = u.id AND status NOT IN ('completed', 'cancelled')) AS active_jobs
