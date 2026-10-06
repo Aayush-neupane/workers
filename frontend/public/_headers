@@ -1,0 +1,9 @@
+# Netlify headers — shipped with the frontend build (frontend/public).
+# Tight CSP: no inline scripts (Vite build emits files only), inline styles
+# allowed (React style props), maps/geocoding endpoints allowlisted.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://photon.komoot.io https://router.project-osrm.org https://server.arcgisonline.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(self), camera=(), microphone=(), payment=()

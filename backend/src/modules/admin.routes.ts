@@ -61,37 +61,11 @@ router.get("/admin/workers", requireAnyPermission("worker.verify", "workers.view
   return res.json({ workers: r.rows });
 }));
 
-router.post(
-  "/admin/workers/invite",
-  requirePermission("worker.invite"),
-  validate(z.object({ email: z.string().trim().toLowerCase().email(), name: z.string().trim().min(2).max(80) })),
-  ah(async (req, res) => {
-    const f = req.body as { email: string; name: string };
-    // Never resurrect an already-accepted invitation for the same email —
-    // that would hand a fresh takeover token to whoever is invited.
-    const used = await query(
-      `SELECT 1 FROM worker_invites WHERE email = $1 AND accepted_at IS NOT NULL`, [f.email]);
-    if ((used.rowCount ?? 0) > 0) {
-      return res.status(409).json({ error: "This email already accepted an invitation" });
-    }
-    const token = randomBytes(24).toString("hex");
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    await query(
-      `INSERT INTO worker_invites(email, name, token_hash, expires_at, created_by)
-       VALUES ($1, $2, $3, now() + interval '7 days', $4)
-       ON CONFLICT (email) DO UPDATE SET token_hash = EXCLUDED.token_hash, expires_at = EXCLUDED.expires_at, accepted_at = NULL
-       WHERE worker_invites.accepted_at IS NULL`,
-      [f.email, f.name, tokenHash, req.user!.id]);
-    await adminAudit(req.user!.id, "worker-invite", f.email);
-    // Token returned once for the admin to share securely; only the hash is stored.
-    return res.status(201).json({ ok: true, token });
-  }),
-);
-
 /**
- * Invite an EXISTING user (the office flow): customer signs up, submits
- * certificates physically, admin verifies and sends the invite to their
- * profile. They accept in-app from their dashboard — no email link needed.
+ * Invite an EXISTING customer as a professional (the only way pros enter):
+ * they sign up normally, submit certificates physically, admin verifies and
+ * sends the invite straight to their dashboard — they accept in-app, that's
+ * it. No email links, no tokens leave the server.
  */
 router.post(
   "/admin/workers/invite-user",
@@ -125,6 +99,8 @@ router.post(
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "An active invite already exists for this user" });
       }
+      // Internal row key only — never returned or shared. Acceptance happens
+      // in-app from the customer's dashboard, never via link.
       const token = randomBytes(24).toString("hex");
       const tokenHash = createHash("sha256").update(token).digest("hex");
       const inv = await client.query<{ id: string }>(

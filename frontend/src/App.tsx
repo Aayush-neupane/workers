@@ -15,7 +15,6 @@ const QuoteNew = lazy(() => import("./pages/QuoteNew"));
 const Rewards = lazy(() => import("./pages/Rewards"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
-const Invite = lazy(() => import("./pages/Invite"));
 const Track = lazy(() => import("./pages/Track"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Worker = lazy(() => import("./pages/Worker"));
@@ -39,7 +38,6 @@ export default function App() {
               <Route path="/services/:id" element={<ServiceDetail />} />
               <Route path="/signin" element={<Signin mode="signin" />} />
               <Route path="/signup" element={<Signin mode="signup" />} />
-              <Route path="/invite" element={<Invite />} />
               <Route path="/support" element={<Support />} />
               <Route path="/terms" element={<LegalTerms />} />
               <Route path="/privacy" element={<LegalPrivacy />} />

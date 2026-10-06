@@ -3,7 +3,7 @@ import { z } from "zod";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth, requireRole, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requireRole, requirePermission, requireCustomerOrder } from "../middleware/auth.js";
 import { closedWardMessage } from "../utils/coverage.js";
 import { parseWard, mentionsDamak, OUTSIDE_DAMAK } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
@@ -31,7 +31,7 @@ const requestSchema = z.object({
 router.post(
   "/quotes/requests",
   requireAuth,
-  requireRole("CUSTOMER", "ADMIN"),
+  requireCustomerOrder,
   validate(requestSchema),
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof requestSchema>;
@@ -199,9 +199,11 @@ router.post("/quotes/proposals/:id/accept", requireAuth, ah(async (req, res) => 
       return res.status(404).json({ error: "Not found" });
     }
     const prop = p.rows[0];
-    if (prop.customer_id !== uid && !req.user!.roles.includes("ADMIN")) {
+    // Only the owning customer accepts — staff and pros never place orders,
+    // not even on someone's behalf.
+    if (prop.customer_id !== uid) {
       await client.query("ROLLBACK");
-      return res.status(403).json({ error: "Forbidden" });
+      return res.status(403).json({ error: "Only the requesting customer can accept" });
     }
     if (!prop.approved) {
       await client.query("ROLLBACK");

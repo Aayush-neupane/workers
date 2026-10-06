@@ -25,6 +25,24 @@ const subSchema = z.object({
 router.post("/push/subscribe", requireAuth, validate(subSchema), ah(async (req, res) => {
   if (!pushEnabled) return res.status(503).json({ error: "Push not configured" });
   const f = req.body as z.infer<typeof subSchema>;
+  // SSRF guard: push endpoints trigger server-side POSTs (web-push), so the
+  // host must be a genuine push service — never an arbitrary/internal URL.
+  // Browser-generated subscriptions always point at one of these.
+  let host = "";
+  try {
+    const u = new URL(f.endpoint);
+    if (u.protocol !== "https:") return res.status(400).json({ error: "Push endpoint must be https" });
+    host = u.hostname.toLowerCase();
+  } catch {
+    return res.status(400).json({ error: "Invalid push endpoint" });
+  }
+  const allowed =
+    host === "fcm.googleapis.com" ||
+    host === "push.services.mozilla.com" ||
+    host === "updates.push.services.mozilla.com" ||
+    host === "web.push.apple.com" ||
+    host.endsWith(".notify.windows.com");
+  if (!allowed) return res.status(400).json({ error: "Unknown push service" });
   const need = f.audience.toUpperCase();
   const roles = req.user!.roles;
   const audienceOk = roles.includes(need) || (need === "ADMIN" && roles.includes("SUB_ADMIN"));

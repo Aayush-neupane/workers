@@ -7,6 +7,7 @@ import { MapPin } from "lucide-react";
 import { Button, Card, Field, PageHero, Select, TextArea, TextField } from "../components/ui";
 import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { suggestStreet, type Pin } from "../lib/geo";
 import type { Category } from "../lib/types";
 
@@ -34,6 +35,7 @@ const schema = z.object({
 
 export default function QuoteNew() {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const [cats, setCats] = useState<Category[]>([]);
   const [error, setError] = useState("");
   const [pin, setPin] = useState<Pin | null>(null);
@@ -69,6 +71,14 @@ export default function QuoteNew() {
     <div className="fade-up">
       <PageHero eyebrow="Mode B · Complex jobs" title="Request a quote"
         body="Describe the job, verified pros propose fixed prices, you compare and pick. Your exact address stays hidden until you accept." />
+      {role && role !== "customer" ? (
+        <div className="wrap py-8">
+          <Card className="mx-auto max-w-2xl p-6 text-center md:p-8">
+            <p className="font-display text-xl font-semibold">Customers request here</p>
+            <p className="mt-1.5 text-sm text-on-surface-variant">Staff and professional accounts can't request quotes. Sign in with a customer account to continue.</p>
+          </Card>
+        </div>
+      ) : (
       <div className="wrap py-8">
         <Card className="mx-auto max-w-2xl p-6 md:p-8">
           <form className="space-y-4" onSubmit={form.handleSubmit(submit)}>
@@ -118,6 +128,7 @@ export default function QuoteNew() {
           </form>
         </Card>
       </div>
+      )}
     </div>
   );
 }

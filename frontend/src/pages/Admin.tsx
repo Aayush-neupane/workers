@@ -15,22 +15,22 @@ type Tab =
   | "overview" | "dispatch" | "workers" | "customers" | "quotes" | "catalog"
   | "finance" | "rewards" | "reviews" | "support" | "broadcast" | "reports" | "audit" | "settings" | "staff";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "dispatch", label: "Dispatch" },
-  { id: "workers", label: "Workers" },
-  { id: "customers", label: "Customers" },
-  { id: "quotes", label: "Quotes" },
-  { id: "catalog", label: "Catalog" },
-  { id: "finance", label: "Finance" },
-  { id: "rewards", label: "Rewards" },
-  { id: "reviews", label: "Reviews" },
-  { id: "support", label: "Support" },
-  { id: "broadcast", label: "Broadcast" },
-  { id: "reports", label: "Reports" },
-  { id: "audit", label: "Audit" },
-  { id: "settings", label: "Settings" },
-  { id: "staff", label: "Staff" },
+const TABS: { id: Tab; label: string; section: string }[] = [
+  { id: "overview", label: "Overview", section: "Operations" },
+  { id: "dispatch", label: "Dispatch", section: "Operations" },
+  { id: "workers", label: "Workers", section: "Operations" },
+  { id: "customers", label: "Customers", section: "Operations" },
+  { id: "quotes", label: "Quotes", section: "Operations" },
+  { id: "finance", label: "Finance", section: "Money" },
+  { id: "rewards", label: "Rewards", section: "Money" },
+  { id: "reviews", label: "Reviews", section: "Money" },
+  { id: "support", label: "Support", section: "Customers" },
+  { id: "broadcast", label: "Broadcast", section: "Customers" },
+  { id: "catalog", label: "Catalog", section: "System" },
+  { id: "reports", label: "Reports", section: "System" },
+  { id: "audit", label: "Audit", section: "System" },
+  { id: "settings", label: "Settings", section: "System" },
+  { id: "staff", label: "Staff", section: "System" },
 ];
 
 /** Tab → capabilities (any-of). Super-admins bypass and see everything. */
@@ -173,18 +173,27 @@ export default function Admin() {
       />
       <div className="wrap grid items-start gap-5 py-8 lg:grid-cols-[220px_1fr]">
         <nav aria-label="Admin sections" className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-24 lg:flex-col lg:overflow-visible lg:pb-0">
-          {visible.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              aria-current={tab === t.id ? "page" : undefined}
-              className={`shrink-0 rounded-md px-4 py-2.5 text-left text-sm font-bold transition active:scale-[0.98] ${
-                tab === t.id ? "bg-pine-950 text-white" : "bg-white border border-outline/60 hover:border-pine-800"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+          {visible.map((t, i) => {
+            const showHeading = t.section !== visible[i - 1]?.section;
+            return (
+              <div key={t.id} className="contents">
+                {showHeading && (
+                  <p aria-hidden="true" className="hidden shrink-0 px-4 pt-2 text-[11px] font-extrabold tracking-[0.12em] text-on-surface-variant uppercase lg:block">
+                    {t.section}
+                  </p>
+                )}
+                <button
+                  onClick={() => setTab(t.id)}
+                  aria-current={tab === t.id ? "page" : undefined}
+                  className={`shrink-0 rounded-md px-4 py-2.5 text-left text-sm font-bold transition active:scale-[0.98] ${
+                    tab === t.id ? "bg-pine-950 text-white" : "bg-white border border-outline/60 hover:border-pine-800"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              </div>
+            );
+          })}
         </nav>
         <div className="min-w-0">
           {msg && <p role="status" className="mb-4 rounded-md bg-info-container p-3 text-sm font-medium text-info">{msg}</p>}
@@ -512,9 +521,6 @@ function Workers({ onMsg }: { onMsg: (m: string) => void }) {
     [],
   );
   const [selected, setSelected] = useState<string | null>(null);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
-  const [inviteToken, setInviteToken] = useState("");
   const [custQ, setCustQ] = useState("");
   const [custResults, setCustResults] = useState<{ id: string; name: string; email: string }[]>([]);
 
@@ -523,16 +529,6 @@ function Workers({ onMsg }: { onMsg: (m: string) => void }) {
       .then((r) => setList(r.workers)).catch(() => {});
   }
   useEffect(load, [state]);
-
-  async function invite() {
-    try {
-      const out = await post<{ token: string }>("/api/admin/workers/invite", { email: inviteEmail, name: inviteName });
-      setInviteToken(out.token);
-      onMsg("Invite created — share the link securely (7-day expiry).");
-    } catch (e) {
-      onMsg(e instanceof Error ? e.message : "Invite failed");
-    }
-  }
 
   async function searchCustomers() {
     try {
@@ -557,22 +553,8 @@ function Workers({ onMsg }: { onMsg: (m: string) => void }) {
   return (
     <div className="space-y-4">
       <Card className="p-4">
-        <p className="font-bold">Invite a worker</p>
-        <p className="text-xs text-on-surface-variant">The only way pros enter — no public signup exists.</p>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-          <TextField value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Full name" aria-label="Worker name" />
-          <TextField value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Email" aria-label="Worker email" />
-          <Button onClick={invite}>Create invite</Button>
-        </div>
-        {inviteToken && (
-          <p className="mt-2 rounded-md bg-warning-container p-3 font-mono text-xs break-all">
-            {window.location.origin}/invite?token={inviteToken} — shown once.
-          </p>
-        )}
-      </Card>
-      <Card className="p-4">
-        <p className="font-bold">Invite an existing customer (office flow)</p>
-        <p className="text-xs text-on-surface-variant">They signed up, submitted certificates at the office, you verified — send the invite to their profile. They accept from their dashboard.</p>
+        <p className="font-bold">Invite a professional</p>
+        <p className="text-xs text-on-surface-variant">Pros enter only from existing customer accounts — search one below and send the invite to their dashboard. No links, no public signup.</p>
         <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); searchCustomers(); }}>
           <TextField value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder="Search name or email…" aria-label="Search customers to invite" />
           <Button type="submit"><Search size={15} /> Find</Button>

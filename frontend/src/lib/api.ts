@@ -6,12 +6,14 @@ export function onUnauthorized(fn: (() => void) | null) {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const hasBody = init?.body !== undefined && init?.body !== null;
+  // Content-Type is ALWAYS sent, even on bodyless DELETEs: the API rejects
+  // non-JSON mutations as a CSRF layer, and a missing header would 415.
+  // (The extra CORS preflight this triggers is harmless.)
   const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
     ...init,
     headers: {
-      ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      "Content-Type": "application/json",
       ...((init?.headers as Record<string, string> | undefined) ?? {}),
     },
   });

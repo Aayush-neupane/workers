@@ -8,6 +8,7 @@ import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextAr
 import { MapPicker } from "../components/MapPicker";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { formatSlot } from "../lib/format";
 import { DAMAK_CENTER, geocodeArea, suggestStreet } from "../lib/geo";
 import type { Pin } from "../lib/geo";
@@ -43,6 +44,7 @@ function buildSlots(): string[] {
 export default function Book() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { role } = useAuth();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [providers, setProviders] = useState({ esewa: false, khalti: false });
   const [rewardBalance, setRewardBalance] = useState(0);
@@ -143,6 +145,17 @@ export default function Book() {
 
   if (missing) {
     return <div className="wrap py-12"><EmptyState title="Service not found" body="Pick a service from the directory to start a booking." /></div>;
+  }
+  // Ordering is for customer accounts — staff and pros use their own portals.
+  if (role && role !== "customer") {
+    return (
+      <div className="wrap py-12">
+        <EmptyState
+          title="Customers order here"
+          body="Staff and professional accounts can't place orders. Sign in with a customer account to book this service."
+        />
+      </div>
+    );
   }
   if (!service) return <p role="status" className="wrap py-12 text-center text-on-surface-variant">Loading…</p>;
 

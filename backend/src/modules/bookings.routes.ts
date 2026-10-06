@@ -3,7 +3,7 @@ import { z } from "zod";
 import { pool, query } from "../db/pool.js";
 import { validate } from "../middleware/validate.js";
 import { ah } from "../middleware/async.js";
-import { requireAuth, requireRole, requireAnyPermission, effectivePermissions } from "../middleware/auth.js";
+import { requireAuth, requireRole, requireAnyPermission, requireCustomerOrder, effectivePermissions } from "../middleware/auth.js";
 import { canTransition, type BookingStatus } from "../utils/transitions.js";
 import { calcCommission, earnPoints } from "../utils/money.js";
 import {
@@ -51,7 +51,7 @@ const createSchema = z.object({
 router.post(
   "/bookings",
   requireAuth,
-  requireRole("CUSTOMER", "ADMIN"),
+  requireCustomerOrder,
   validate(createSchema),
   ah(async (req, res) => {
     const f = req.body as z.infer<typeof createSchema>;

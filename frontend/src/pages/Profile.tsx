@@ -18,7 +18,7 @@ const addressSchema = z.object({
 });
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [addrError, setAddrError] = useState("");
   const [name, setName] = useState(user?.name ?? "");
@@ -132,6 +132,27 @@ export default function Profile() {
             {saved && <p role="status" className="text-sm font-medium">{saved}</p>}
           </div>
         </Card>
+        <div className="space-y-5">
+        <Card className="h-fit p-6">
+          <h2 className="font-bold">Sessions</h2>
+          <p className="mt-1 text-sm text-on-surface-variant">Lost a device or see activity you don't recognize? This signs out every session, everywhere — including this one.</p>
+          <Button
+            variant="outline"
+            className="mt-3"
+            onClick={async () => {
+              if (!window.confirm("Sign out on all devices? You'll need to sign in again here too.")) return;
+              try {
+                await post("/api/auth/logout-all", {});
+              } catch {
+                /* session already dead — still leave */
+              }
+              await signOut();
+              window.location.href = "/signin";
+            }}
+          >
+            Sign out everywhere
+          </Button>
+        </Card>
         <Card className="h-fit p-6">
           <h2 className="font-bold">Saved addresses ({addresses.length}/5)</h2>
           {loadError && (
@@ -190,6 +211,7 @@ export default function Profile() {
               }} />
           )}
         </Card>
+        </div>
       </div>
     </div>
   );

@@ -130,6 +130,21 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
   next();
 }
 
+/** Ordering gate — placing orders is for customer accounts only. Staff
+ *  (ADMIN/SUB_ADMIN) and pros (WORKER) can never order, even if they also
+ *  hold the CUSTOMER role. Use after requireAuth. */
+export function requireCustomerOrder(req: Request, res: Response, next: NextFunction) {
+  const roles = req.user?.roles ?? [];
+  if (!req.user) return res.status(401).json({ error: "Sign in required" });
+  if (!roles.includes("CUSTOMER")) {
+    return res.status(403).json({ error: "Only customer accounts can place orders" });
+  }
+  if (roles.includes("ADMIN") || roles.includes("SUB_ADMIN") || roles.includes("WORKER")) {
+    return res.status(403).json({ error: "Staff and professional accounts cannot order services — use a customer account" });
+  }
+  next();
+}
+
 /** Capability gate backed by role_permissions + user_permissions.
  *  Super-admins (ADMIN role) bypass so they are never locked out. */
 export function requirePermission(permission: string) {

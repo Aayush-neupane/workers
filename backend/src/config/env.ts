@@ -29,6 +29,18 @@ const envSchema = z.object({
 });
 
 export const env = envSchema.parse(process.env);
+
+// Fail fast in production on placeholder secrets — the #1 breach pattern is
+// shipping dev .env values. Local dev is unaffected.
+if (env.NODE_ENV === "production") {
+  const placeholders = [/change-me/i, /dev-only/i, /example/i, /^123456/, /^password$/i];
+  if (placeholders.some((re) => re.test(env.AUTH_SECRET))) {
+    throw new Error("Refusing to start: AUTH_SECRET is a placeholder — set a real 32+ char secret");
+  }
+  if (env.APP_URL.includes("localhost") || env.APP_URL.startsWith("http://")) {
+    throw new Error("Refusing to start: APP_URL must be the https production URL");
+  }
+}
 export const isProd = env.NODE_ENV === "production";
 export const onlinePaymentsEnabled =
   Boolean(env.ESEWA_MERCHANT_CODE || env.KHALTI_SECRET_KEY);
