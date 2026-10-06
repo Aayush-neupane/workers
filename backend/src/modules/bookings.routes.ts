@@ -17,7 +17,7 @@ import {
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
 import { pushToAudience, pushToUser } from "../services/push.js";
-import { isBookingNo, isUuid } from "../utils/booking.js";
+import { isBookingNo, isUuid, resolveBookingId } from "../utils/booking.js";
 import { inDamakPin, OUTSIDE_PIN, validPin } from "../utils/geo.js";
 
 const router = Router();
@@ -251,7 +251,36 @@ router.put(
 );
 
 /**
- * Explicit assign / reassign (admin only). Validates eligibility, records the
+ * Pros eligible for a booking: verified + active + skilled in its service.
+ * Powers the dispatch dropdown so admins only ever pick someone assignable.
+ */
+router.get(
+  "/bookings/:id/eligible-workers",
+  requireAuth,
+  requireRole("ADMIN", "SUB_ADMIN"),
+  requireAnyPermission("bookings.assign", "bookings.view"),
+  ah(async (req, res) => {
+    const bookingId = await resolveBookingId({ query }, req.params.id);
+    if (!bookingId) return res.status(404).json({ error: "Not found" });
+    const b = await query<{ service_id: string; service_name: string }>(
+      `SELECT b.service_id, s.name AS service_name FROM bookings b
+       LEFT JOIN services s ON s.id = b.service_id WHERE b.id = $1`, [bookingId]);
+    if (b.rowCount === 0) return res.status(404).json({ error: "Not found" });
+    const r = await query(
+      `SELECT u.id, u.name,
+              (SELECT COUNT(*)::int FROM bookings WHERE worker_id = u.id AND status NOT IN ('completed', 'cancelled')) AS active_jobs
+       FROM users u JOIN worker_profiles wp ON wp.user_id = u.id
+       JOIN worker_services ws ON ws.worker_user_id = u.id
+       WHERE u.is_active = true AND wp.verification_state = 'verified'
+         AND wp.is_active = true AND ws.service_id = $1
+       ORDER BY active_jobs, u.name`,
+      [b.rows[0].service_id]);
+    return res.json({ service: b.rows[0].service_name, workers: r.rows });
+  }),
+);
+
+/**
+ * Explicit assign / reassign. Validates eligibility, records the
  * assignment row, notifies the pro, and audit-logs the reason.
  */
 router.post(

@@ -404,14 +404,18 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
   const [b, setB] = useState<Record<string, string | number | null> | null>(null);
   const [history, setHistory] = useState<{ status: string; by_role: string; note: string; at: string }[]>([]);
   const [assigns, setAssigns] = useState<{ worker_name: string; reason: string; created_at: string }[]>([]);
-  const [workers, setWorkers] = useState<{ id: string; name: string }[]>([]);
+  const [workers, setWorkers] = useState<{ id: string; name: string; active_jobs: number }[]>([]);
   const [workerId, setWorkerId] = useState("");
   const [reason, setReason] = useState("");
+  const [eligibleFailed, setEligibleFailed] = useState(false);
 
   function reload() {
     api<{ booking: Record<string, string | number | null>; history: typeof history; assignments: typeof assigns }>(`/api/bookings/${bookingNo}`)
       .then((d) => { setB(d.booking); setHistory(d.history); setAssigns(d.assignments); }).catch(() => {});
-    api<{ workers: { id: string; name: string }[] }>("/api/admin/workers").then((d) => setWorkers(d.workers)).catch(() => {});
+    // Only pros who can actually take THIS job — verified, active, skilled.
+    api<{ workers: typeof workers }>(`/api/bookings/${bookingNo}/eligible-workers`)
+      .then((d) => { setWorkers(d.workers); setEligibleFailed(false); })
+      .catch(() => { setWorkers([]); setEligibleFailed(true); });
   }
   useEffect(reload, [bookingNo]);
 
@@ -465,11 +469,24 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
 
           <div className="rounded-lg border border-outline/60 bg-white p-4">
             <p className="font-bold">Assign / reassign pro</p>
+            <p className="text-xs text-on-surface-variant">Only verified, active pros skilled in {b ? String(b.service_name) : "this service"} are listed.</p>
             <div className="mt-2 space-y-2">
-              <Select value={workerId} onChange={(e) => setWorkerId(e.target.value)} aria-label="Professional">
-                <option value="">Choose a verified pro…</option>
-                {workers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </Select>
+              {eligibleFailed ? (
+                <p role="alert" className="text-sm font-medium text-error">Couldn't load eligible pros — check your dispatch permission and retry.</p>
+              ) : workers.length === 0 ? (
+                <p className="rounded-md bg-warning-container p-3 text-sm font-medium">
+                  No eligible pro right now. Verify and activate a pro with this skill in the Workers tab first.
+                </p>
+              ) : (
+                <Select value={workerId} onChange={(e) => setWorkerId(e.target.value)} aria-label="Professional">
+                  <option value="">Choose a pro…</option>
+                  {workers.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}{w.active_jobs > 0 ? ` (${w.active_jobs} active)` : ""}
+                    </option>
+                  ))}
+                </Select>
+              )}
               <TextField value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (recorded in audit)" />
               <Button onClick={assign} disabled={!workerId}>Assign</Button>
             </div>
