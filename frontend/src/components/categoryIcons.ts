@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 /** Icon per category slug (matches seed data). */
-export const CATEGORY_ICONS: Record<string, LucideIcon> = {
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
   electrical: Zap,
   plumbing: Droplet,
   cleaning: Sparkles,
@@ -21,7 +21,7 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
 };
 
 /** Tile hue per category slug — distinctive but harmonious. */
-export const CATEGORY_HUES: Record<string, number> = {
+const CATEGORY_HUES: Record<string, number> = {
   electrical: 45,
   plumbing: 205,
   cleaning: 160,

@@ -159,6 +159,7 @@ export default function Dashboard() {
               </div>
             </details>
           )}
+          {done.length > 0 && (
           <section>
             <h2 className="font-display text-xl font-semibold">History ({done.length})</h2>
             <div className="mt-3 space-y-3">
@@ -173,6 +174,7 @@ export default function Dashboard() {
               ))}
             </div>
           </section>
+          )}
         </div>
         <aside className="space-y-4">
           <div className="rounded-lg bg-pine-950 p-5 text-white">
