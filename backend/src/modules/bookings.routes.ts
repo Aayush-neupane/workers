@@ -16,7 +16,7 @@ import {
 } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
 import { maybeRewardReferral } from "../services/referrals.js";
-import { pushToAudience, pushToUser } from "../services/push.js";
+import { pushToStaff, pushToUser } from "../services/push.js";
 import { isBookingNo, isUuid, resolveBookingId } from "../utils/booking.js";
 import { inDamakPin, OUTSIDE_PIN, validPin } from "../utils/geo.js";
 
@@ -26,12 +26,13 @@ import { randomInt } from "node:crypto";
 
 async function bookingNo(): Promise<string> {
   // 6 digits from a CSPRNG — 900k values, not enumerable like BK-1000..9999.
-  for (let i = 0; i < 20; i++) {
+  // The fallback stays numeric so every number remains resolvable.
+  for (let i = 0; i < 60; i++) {
     const no = `BK-${String(randomInt(100000, 1000000))}`;
     const r = await query(`SELECT id FROM bookings WHERE booking_no = $1`, [no]);
     if (r.rowCount === 0) return no;
   }
-  return `BK-${String(randomInt(100000, 1000000))}-${Date.now().toString(36).toUpperCase()}`;
+  return `BK-${String(randomInt(10000000, 100000000))}`;
 }
 
 const createSchema = z.object({
@@ -121,18 +122,6 @@ router.post(
       const redeemPoints = rules.redeemPoints ?? 100;
       const redeemDiscount = rules.redeemDiscountPaisa ?? 5000;
       let discount = 0;
-      if (f.useRewards) {
-        const bal = await client.query<{ pts: number }>(
-          `SELECT COALESCE(SUM(points), 0)::int AS pts FROM reward_ledger WHERE user_id = $1`, [userId]);
-        if (bal.rows[0].pts < redeemPoints) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({ error: `Not enough points (${redeemPoints} needed)` });
-        }
-        await client.query(
-          `INSERT INTO reward_ledger(user_id, points, kind, reason) VALUES ($1, $2, 'redeem', 'Checkout discount')`,
-          [userId, -redeemPoints]);
-        discount = redeemDiscount;
-      }
       let no = await bookingNo();
       let b;
       const insertSql = `INSERT INTO bookings(booking_no, customer_id, service_id, status, address_id, address_text, ward, lat, lng,
@@ -149,6 +138,27 @@ router.post(
         b = await client.query(insertSql, [no, ...params.slice(1)]);
       }
       const bookingId = (b.rows[0] as { id: string }).id;
+      if (f.useRewards) {
+        // Lock the redeemer: two concurrent checkouts must not both spend
+        // the same points. The redeem row carries the booking ref so a
+        // later cancel/refund can return exactly these points.
+        await client.query(`SELECT id FROM users WHERE id = $1 FOR UPDATE`, [userId]);
+        const bal = await client.query<{ pts: number }>(
+          `SELECT COALESCE(SUM(points), 0)::int AS pts FROM reward_ledger WHERE user_id = $1`, [userId]);
+        if (bal.rows[0].pts < redeemPoints) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: `Not enough points (${redeemPoints} needed)` });
+        }
+        await client.query(
+          `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+           VALUES ($1, $2, 'redeem', 'Checkout discount', $3)`,
+          [userId, -redeemPoints, bookingId]);
+        discount = redeemDiscount;
+        const capped = Math.min(discount, estimate);
+        await client.query(`UPDATE bookings SET discount_paisa = $1 WHERE id = $2`, [capped, bookingId]);
+        await client.query(`UPDATE payments SET amount_paisa = $1 WHERE booking_id = $2`, [Math.max(0, estimate - capped), bookingId]);
+        discount = capped;
+      }
       await client.query(
         `INSERT INTO booking_events(booking_id, status, by_role, by_user_id) VALUES ($1, 'pending', 'customer', $2)`,
         [bookingId, userId]);
@@ -202,10 +212,10 @@ router.get("/bookings/:id", requireAuth, ah(async (req, res) => {
   // and this keeps existence private.
   if (!mine) return res.status(404).json({ error: "Not found" });
   const events = await query(
-    `SELECT status, by_role, note, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY created_at`, [b.id]);
+    `SELECT status, by_role, note, created_at AS at FROM booking_events WHERE booking_id = $1 ORDER BY created_at, id`, [b.id]);
   const assigns = await query(
     `SELECT a.*, u.name AS worker_name FROM assignments a LEFT JOIN users u ON u.id = a.worker_user_id
-     WHERE booking_id = $1 ORDER BY created_at`, [b.id]);
+     WHERE booking_id = $1 ORDER BY created_at, a.id`, [b.id]);
   return res.json({ booking: b, history: events.rows, assignments: assigns.rows });
 }));
 /**
@@ -329,8 +339,12 @@ router.post(
         await notify(client, booking.worker_id, "Assignment changed", "A booking was reassigned away from you.");
       }
       await client.query("COMMIT");
-      const { audit } = await import("../services/notify.js");
-      await audit(req.user!.id, "ADMIN", "booking-assign", `${booking.id} -> ${f.workerId}: ${f.reason}`);
+      try {
+        const { audit } = await import("../services/notify.js");
+        await audit(req.user!.id, "ADMIN", "booking-assign", `${booking.id} -> ${f.workerId}: ${f.reason}`);
+      } catch {
+        /* best-effort: the assignment already committed */
+      }
       void pushToUser(f.workerId, {
         title: "New assignment",
         body: "A Damak booking was assigned to you — open your jobs.",
@@ -458,6 +472,22 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
     await client.query(
       `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note) VALUES ($1, $2, $3, $4, $5)`,
       [b.id, to, byRole, uid, f.note]);
+    if (to === "cancelled") {
+      // Return checkout-redeemed points: cancelling must not eat them.
+      // Reason-scoped guard so refunds (different reason) still reverse earn.
+      const used = await client.query<{ points: number }>(
+        `SELECT points FROM reward_ledger WHERE ref_booking_id = $1 AND kind = 'redeem'`, [b.id]);
+      if ((used.rowCount ?? 0) > 0) {
+        const back = await client.query(
+          `SELECT 1 FROM reward_ledger WHERE ref_booking_id = $1 AND reason LIKE 'Cancelled%'`, [b.id]);
+        if ((back.rowCount ?? 0) === 0) {
+          await client.query(
+            `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+             VALUES ($1, $2, 'reverse', 'Cancelled booking — points returned', $3)`,
+            [b.customer_id, -Number(used.rows[0].points), b.id]);
+        }
+      }
+    }
     if (to === "completed") {
       const commission = calcCommission(finalPaisa, b.commission_bps);
       await client.query(
@@ -504,13 +534,17 @@ router.post("/bookings/:id/transition", requireAuth, validate(transitionSchema),
       );
     }
     await client.query("COMMIT");
-    if (isAdmin) {
-      const { audit } = await import("../services/notify.js");
-      await audit(uid, "ADMIN", "booking-transition", `${b.id} ${from} -> ${to}: ${f.note || "no note"}`);
+    try {
+      if (isAdmin) {
+        const { audit } = await import("../services/notify.js");
+        await audit(uid, "ADMIN", "booking-transition", `${b.id} ${from} -> ${to}: ${f.note || "no note"}`);
+      }
+    } catch {
+      /* best-effort: the transition already committed */
     }
     // Push the counterpart (in-app rows were written above). Fire-and-forget.
     if (to === "awaiting-worker" && !f.workerId) {
-      void pushToAudience("ADMIN", { title: "Dispatch needed", body: "An unassigned booking is waiting.", url: "/admin" });
+      void pushToStaff("bookings.assign", { title: "Dispatch needed", body: "An unassigned booking is waiting.", url: "/admin" });
     } else if (to === "confirmed" && byRole === "worker") {
       void pushToUser(b.customer_id, { title: "Pro confirmed", body: "Your pro accepted the job — track it live.", url: `/track/${b.id}` });
     } else if (to === "en-route") {

@@ -70,18 +70,6 @@ export function CookieConsent() {
 
   return (
     <>
-      {/* Reopen entry: footer links here via hash */}
-      <button
-        id="cookie-preferences"
-        onClick={() => { setPrefs({
-          preferences: current?.preferences ?? false,
-          analytics: current?.analytics ?? false,
-          marketing: current?.marketing ?? false,
-        }); setCustomizing(true); }}
-        className="sr-only"
-        aria-hidden="true"
-        tabIndex={-1}
-      />
       {!current && !customizing && (
         <div role="dialog" aria-label="Cookie consent" aria-live="polite"
           className="elev-2 fixed inset-x-3 bottom-3 z-50 rounded-lg border border-outline bg-white p-5 md:inset-x-auto md:right-6 md:bottom-6 md:max-w-md">

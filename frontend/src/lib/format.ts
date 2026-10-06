@@ -4,6 +4,7 @@ export function formatNPR(paisa: number): string {
 
 export function formatSlot(iso: string): string {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("en-GB", {
     weekday: "short",
     day: "numeric",

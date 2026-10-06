@@ -94,7 +94,7 @@ router.post(
 // ---------- Support tickets ----------
 router.get("/tickets", ah(async (req, res) => {
   const r = await query(
-    `SELECT t.*, (SELECT json_agg(json_build_object('from', m.from_role, 'text', m.body, 'at', m.created_at) ORDER BY m.created_at)
+    `SELECT t.*, (SELECT json_agg(json_build_object('from', m.from_role, 'text', m.body, 'at', m.created_at) ORDER BY m.created_at, m.id)
       FROM ticket_messages m WHERE m.ticket_id = t.id) AS messages
      FROM support_tickets t WHERE t.user_id = $1 ORDER BY t.updated_at DESC`, [req.user!.id]);
   return res.json({ tickets: r.rows });
@@ -153,7 +153,7 @@ router.get("/referrals/mine", ah(async (req, res) => {
 }));
 
 router.get("/notifications", ah(async (req, res) => {
-  const r = await query(`SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [req.user!.id]);
+  const r = await query(`SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 50`, [req.user!.id]);
   return res.json({ notifications: r.rows });
 }));
 

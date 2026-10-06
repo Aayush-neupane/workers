@@ -88,8 +88,8 @@ export default function Worker() {
   }, [msg]);
 
   const today = new Date().toDateString();
-  const todays = jobs.filter((j) => new Date(j.slot).toDateString() === today);
-  const upcoming = jobs.filter((j) => new Date(j.slot).toDateString() !== today);
+  const todays = jobs.filter((j) => (j.slot ? new Date(j.slot).toDateString() === today : false));
+  const upcoming = jobs.filter((j) => (j.slot ? new Date(j.slot).toDateString() !== today : true));
 
   return (
     <div className="fade-up">
@@ -422,11 +422,31 @@ function QuotePropose({ quote, onDone, onError }: { quote: OpenQuote; onDone: ()
   const [scope, setScope] = useState("");
   const [avail, setAvail] = useState("");
   const [open, setOpen] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  const priceNum = Number(price);
+  const priceError = price.trim() === "" ? "Enter a price." : Number.isNaN(priceNum) || priceNum <= 0 ? "Price must be greater than 0." : "";
+  const scopeError = scope.trim().length > 0 && scope.trim().length < 10 ? "Describe the scope in at least 10 characters." : "";
+  const availError = avail.trim().length > 0 && avail.trim().length < 4 ? "Add availability (at least 4 characters)." : "";
+  const invalid = Boolean(priceError) || scope.trim().length < 10 || avail.trim().length < 4;
 
   async function send() {
+    if (priceError) {
+      setFormError(priceError);
+      return;
+    }
+    if (scope.trim().length < 10) {
+      setFormError("Describe the scope in at least 10 characters.");
+      return;
+    }
+    if (avail.trim().length < 4) {
+      setFormError("Add availability (at least 4 characters).");
+      return;
+    }
+    setFormError("");
     try {
       const out = await post<{ needsApproval: boolean }>(`/api/quotes/requests/${quote.id}/proposals`, {
-        pricePaisa: Math.round(Number(price) * 100), scope, availability: avail,
+        pricePaisa: Math.round(Number(price) * 100), scope: scope.trim(), availability: avail.trim(),
       });
       onDone();
       if (out.needsApproval) onError("Proposal sent — needs admin approval (high value).");
@@ -445,9 +465,13 @@ function QuotePropose({ quote, onDone, onError }: { quote: OpenQuote; onDone: ()
       ) : (
         <div className="mt-3 space-y-2">
           <TextField value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Price in Rs" inputMode="decimal" aria-label="Price in rupees" />
+          {priceError && <p role="alert" className="text-xs font-medium text-error">{priceError}</p>}
           <TextField value={scope} onChange={(e) => setScope(e.target.value)} placeholder="Scope (min 10 chars)" aria-label="Scope" />
+          {scopeError && <p role="alert" className="text-xs font-medium text-error">{scopeError}</p>}
           <TextField value={avail} onChange={(e) => setAvail(e.target.value)} placeholder="Availability, e.g. Tue–Thu mornings" aria-label="Availability" />
-          <Button onClick={send}>Send proposal</Button>
+          {availError && <p role="alert" className="text-xs font-medium text-error">{availError}</p>}
+          {formError && <p role="alert" className="text-xs font-medium text-error">{formError}</p>}
+          <Button onClick={send} disabled={invalid}>Send proposal</Button>
         </div>
       )}
     </Card>

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import {
-  AlertTriangle, ArrowRight, BadgeCheck, Ban, Check, Megaphone, Search,
+  AlertTriangle, ArrowRight, BadgeCheck, Ban, Megaphone, Search,
   Star, Trash2, UserCheck, UserX, X,
 } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
@@ -243,7 +242,7 @@ function Overview({ go, canSee }: { go: (t: Tab) => void; canSee: (t: Tab) => bo
     api<{ bookings: Record<string, string>[] }>("/api/admin/bookings").then((r) => setRecent(r.bookings.slice(0, 8))).catch((e) => recordError("recent", e));
   }, []);
 
-  const rs = (v: unknown) => (v == null ? "—" : `Rs ${(Number(v) / 100).toLocaleString()}`);
+  const rs = (v: unknown) => (v == null ? "—" : formatNPR(Number(v)));
   const restrictedMsg = "Restricted — ask a super-admin for access";
   const overviewRestricted = isRestricted("overview");
 
@@ -328,7 +327,9 @@ const STATUSES = ["", "pending", "awaiting-worker", "confirmed", "en-route", "in
 
 /** How long an unassigned booking has waited — aging work gets flagged. */
 function AgeBadge({ createdAt, status, assigned }: { createdAt: string; status: string; assigned: boolean }) {
-  const mins = Math.max(0, Math.round((Date.now() - new Date(createdAt).getTime()) / 60000));
+  const raw = Math.round((Date.now() - new Date(createdAt).getTime()) / 60000);
+  if (Number.isNaN(raw)) return <span className="text-on-surface-variant">—</span>;
+  const mins = Math.max(0, raw);
   const label = mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
   const aging = !assigned && ["pending", "awaiting-worker"].includes(status) && mins >= 120;
   const stale = !assigned && ["pending", "awaiting-worker"].includes(status) && mins >= 30;
@@ -345,10 +346,12 @@ function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
   const [status, setStatus] = useState("");
   const [list, setList] = useState<Record<string, string>[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const seqRef = useRef(0);
 
   function load(s: string) {
+    const my = ++seqRef.current;
     api<{ bookings: Record<string, string>[] }>(`/api/admin/bookings${s ? `?status=${s}` : ""}`)
-      .then((r) => setList(r.bookings)).catch(() => {});
+      .then((r) => { if (seqRef.current === my) setList(r.bookings); }).catch(() => {});
   }
   useEffect(() => { load(status); }, [status]);
 
@@ -408,14 +411,16 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
   const [workerId, setWorkerId] = useState("");
   const [reason, setReason] = useState("");
   const [eligibleFailed, setEligibleFailed] = useState(false);
+  const seqRef = useRef(0);
 
   function reload() {
+    const my = ++seqRef.current;
     api<{ booking: Record<string, string | number | null>; history: typeof history; assignments: typeof assigns }>(`/api/bookings/${bookingNo}`)
-      .then((d) => { setB(d.booking); setHistory(d.history); setAssigns(d.assignments); }).catch(() => {});
+      .then((d) => { if (seqRef.current !== my) return; setB(d.booking); setHistory(d.history); setAssigns(d.assignments); }).catch(() => {});
     // Only pros who can actually take THIS job — verified, active, skilled.
     api<{ workers: typeof workers }>(`/api/bookings/${bookingNo}/eligible-workers`)
-      .then((d) => { setWorkers(d.workers); setEligibleFailed(false); })
-      .catch(() => { setWorkers([]); setEligibleFailed(true); });
+      .then((d) => { if (seqRef.current !== my) return; setWorkers(d.workers); setEligibleFailed(false); })
+      .catch(() => { if (seqRef.current !== my) return; setWorkers([]); setEligibleFailed(true); });
   }
   useEffect(reload, [bookingNo]);
 
@@ -910,6 +915,18 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
   }
   useEffect(load, []);
 
+  const priceNum = Number(price);
+  const priceError = price.trim() === "" ? "Enter a price." : Number.isNaN(priceNum) ? "Price must be a number." : priceNum < 0 ? "Price can't be negative." : "";
+  const durNum = Number(dur);
+  const durError = dur.trim() === "" ? "Enter minutes." : Number.isNaN(durNum) ? "Minutes must be a number." : durNum <= 0 ? "Minutes must be greater than 0." : "";
+  const editError = priceError || durError;
+  const nPriceNum = Number(nPrice);
+  const nPriceError = nPrice.trim() === "" ? "Enter a base price." : Number.isNaN(nPriceNum) ? "Price must be a number." : nPriceNum < 0 ? "Price can't be negative." : "";
+
+  function normalizeSlug(raw: string): string {
+    return raw.toLowerCase().trim().replace(/[^a-z0-9-]+/g, "-");
+  }
+
   function startEdit(s: Record<string, string | number | boolean>) {
     setEditing(String(s.id));
     setPrice(String(Math.round(Number(s.base_price_paisa) / 100)));
@@ -918,6 +935,7 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
   }
 
   async function saveEdit(id: string) {
+    if (editError) return;
     if (!active && !window.confirm("Deactivate this service? It will stop appearing for new bookings.")) return;
     try {
       await api(`/api/admin/services/${id}`, {
@@ -933,10 +951,11 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
   }
 
   async function createService() {
+    if (nPriceError) return;
     try {
       await post("/api/admin/services", {
         categoryId: nCat, name: nName, description: nDesc,
-        pricingModel: nModel, basePricePaisa: Math.round(Number(nPrice || 0) * 100), durationMin: 60,
+        pricingModel: nModel, basePricePaisa: Math.round(Number(nPrice) * 100), durationMin: 60,
       });
       onMsg("Service created.");
       setNName(""); setNDesc(""); setNPrice("");
@@ -948,7 +967,8 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
 
   async function createCategory() {
     try {
-      await post("/api/admin/categories", { name: cName, slug: cSlug, commissionBps: Number(cBps) });
+      const slug = normalizeSlug(cSlug);
+      await post("/api/admin/categories", { name: cName, slug, commissionBps: Number(cBps) });
       onMsg("Category created.");
       setCName(""); setCSlug("");
       load();
@@ -966,8 +986,11 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
             <td className="px-4 py-2.5">{String(s.category_name ?? "—")}</td>
             <td className="px-4 py-2.5">
               {editing === String(s.id) ? (
-                <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" aria-label="Price in rupees"
-                  className="w-24 rounded-md border border-outline px-2 py-1 text-sm" />
+                <span className="block">
+                  <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" aria-label="Price in rupees"
+                    className="w-24 rounded-md border border-outline px-2 py-1 text-sm" />
+                  {priceError && <span role="alert" className="mt-1 block text-xs font-medium text-error">{priceError}</span>}
+                </span>
               ) : <Price paisa={Number(s.base_price_paisa)} />}
             </td>
             <td className="px-4 py-2.5">{String(s.jobs_done)}</td>
@@ -978,11 +1001,14 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
             </td>
             <td className="px-4 py-2.5">
               {editing === String(s.id) ? (
-                <span className="flex gap-1.5">
-                  <input value={dur} onChange={(e) => setDur(e.target.value)} inputMode="numeric" aria-label="Minutes"
-                    className="w-16 rounded-md border border-outline px-2 py-1 text-sm" />
-                  <Button onClick={() => saveEdit(String(s.id))}>Save</Button>
-                  <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                <span className="block">
+                  <span className="flex gap-1.5">
+                    <input value={dur} onChange={(e) => setDur(e.target.value)} inputMode="numeric" aria-label="Minutes"
+                      className="w-16 rounded-md border border-outline px-2 py-1 text-sm" />
+                    <Button onClick={() => saveEdit(String(s.id))} disabled={Boolean(editError)}>Save</Button>
+                    <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                  </span>
+                  {durError && <span role="alert" className="mt-1 block text-xs font-medium text-error">{durError}</span>}
                 </span>
               ) : (
                 <Button variant="outline" onClick={() => startEdit(s)}>Edit</Button>
@@ -1011,7 +1037,8 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
               </Select>
               <TextField value={nPrice} onChange={(e) => setNPrice(e.target.value)} placeholder="Base Rs" inputMode="decimal" aria-label="Base price in rupees" />
             </div>
-            <Button onClick={createService} disabled={!nName || !nCat}>Add service</Button>
+            {nPriceError && <p role="alert" className="text-xs font-medium text-error">{nPriceError}</p>}
+            <Button onClick={createService} disabled={!nName || !nCat || Boolean(nPriceError)}>Add service</Button>
           </div>
         </Card>
         <Card className="p-4">
@@ -1019,6 +1046,7 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
           <div className="mt-2 space-y-2">
             <TextField value={cName} onChange={(e) => setCName(e.target.value)} placeholder="Category name" aria-label="Category name" />
             <TextField value={cSlug} onChange={(e) => setCSlug(e.target.value)} placeholder="slug" aria-label="Slug" />
+            <p className="text-xs text-on-surface-variant">Lowercase letters, numbers and dashes only — auto-formatted on save (e.g. “Home Cleaning” → “home-cleaning”).</p>
             <TextField value={cBps} onChange={(e) => setCBps(e.target.value)} placeholder="Commission bps (1500 = 15%)" inputMode="numeric" aria-label="Commission bps" />
             <Button onClick={createCategory} disabled={!cName || !cSlug}>Add category</Button>
           </div>
@@ -1031,6 +1059,9 @@ function Catalog({ onMsg }: { onMsg: (m: string) => void }) {
 /* ================= FINANCE ================= */
 
 function Finance({ onMsg }: { onMsg: (m: string) => void }) {
+  const { can } = useAuth();
+  const canSettle = can("finance.settle");
+  const canRefund = can("finance.refund");
   const [filter, setFilter] = useState("");
   const [ledger, setLedger] = useState<Record<string, string | boolean>[]>([]);
   const [cash, setCash] = useState<Record<string, string>[]>([]);
@@ -1167,7 +1198,8 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
             </div>
             <TextField value={sNote} onChange={(e) => setSNote(e.target.value)} placeholder="Reference / note" aria-label="Note" />
             {sError && <p role="alert" className="text-xs font-medium text-error">{sError}</p>}
-            <Button onClick={settle} disabled={!sWorker || !sAmount}>Record</Button>
+            <Button onClick={settle} disabled={!sWorker || !sAmount || !canSettle}>Record</Button>
+            {!canSettle && <p className="text-xs text-on-surface-variant">Needs finance.settle permission.</p>}
           </div>
           {settlements.length > 0 && (
             <ul className="mt-3 space-y-1 text-sm">
@@ -1192,7 +1224,8 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
             <TextField value={rAmount} onChange={(e) => setRAmount(e.target.value)} placeholder="Refund Rs" inputMode="decimal" aria-label="Refund amount" />
             <TextField value={rReason} onChange={(e) => setRReason(e.target.value)} placeholder="Reason (audit-logged)" aria-label="Reason" />
             {rError && <p role="alert" className="text-xs font-medium text-error">{rError}</p>}
-            <Button onClick={refund} disabled={!rPayment || !rAmount}>Refund</Button>
+            <Button onClick={refund} disabled={!rPayment || !rAmount || !canRefund}>Refund</Button>
+            {!canRefund && <p className="text-xs text-on-surface-variant">Needs finance.refund permission.</p>}
           </div>
         </Card>
       </div>
@@ -1214,7 +1247,12 @@ function RewardsAdmin({ onMsg }: { onMsg: (m: string) => void }) {
 
   async function save() {
     try {
-      const value = JSON.parse(draft) as Record<string, unknown>;
+      const parsed = JSON.parse(draft) as Record<string, unknown>;
+      const KEYS = ["zone", "rewardPerNpr100", "redeemPoints", "redeemDiscountPaisa", "milestoneBookings", "milestoneBonus", "referralBonus", "quotesRequireAdminApproval", "quotesApprovalThresholdPaisa", "cookiePolicyVersion", "consentVersion"] as const;
+      const value: Record<string, unknown> = {};
+      for (const k of KEYS) {
+        if (parsed[k] !== undefined) value[k] = parsed[k];
+      }
       await api("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value }) });
       onMsg("Reward rules updated. Historical awards are untouched.");
     } catch {
@@ -1246,6 +1284,8 @@ function RewardsAdmin({ onMsg }: { onMsg: (m: string) => void }) {
 /* ================= REVIEWS / SUPPORT / BROADCAST ================= */
 
 function ReviewsAdmin({ onMsg }: { onMsg: (m: string) => void }) {
+  const { can } = useAuth();
+  const canModerate = can("reviews.moderate");
   const [list, setList] = useState<Record<string, string | number>[]>([]);
 
   function load() {
@@ -1265,18 +1305,21 @@ function ReviewsAdmin({ onMsg }: { onMsg: (m: string) => void }) {
   }
 
   return (
-    <Table head={["Booking", "Pro", "Customer", "Rating", "Text", ""]}>
-      {list.map((r) => (
-        <tr key={String(r.id)} className="border-t border-outline/60">
-          <td className="px-4 py-2.5 font-mono text-xs">{String(r.booking_no)}</td>
-          <td className="px-4 py-2.5">{String(r.worker_name)}</td>
-          <td className="px-4 py-2.5">{String(r.customer_name)}</td>
-          <td className="px-4 py-2.5"><span className="inline-flex items-center gap-1 font-bold"><Star size={13} /> {String(r.rating)}</span></td>
-          <td className="px-4 py-2.5 max-w-xs truncate">{String(r.text || "—")}</td>
-          <td className="px-4 py-2.5"><Button variant="ghost" onClick={() => remove(String(r.id))} aria-label="Delete review"><Trash2 size={15} /></Button></td>
-        </tr>
-      ))}
-    </Table>
+    <div className="space-y-2">
+      {!canModerate && <p className="text-xs text-on-surface-variant">Delete needs reviews.moderate permission.</p>}
+      <Table head={["Booking", "Pro", "Customer", "Rating", "Text", ""]}>
+        {list.map((r) => (
+          <tr key={String(r.id)} className="border-t border-outline/60">
+            <td className="px-4 py-2.5 font-mono text-xs">{String(r.booking_no)}</td>
+            <td className="px-4 py-2.5">{String(r.worker_name)}</td>
+            <td className="px-4 py-2.5">{String(r.customer_name)}</td>
+            <td className="px-4 py-2.5"><span className="inline-flex items-center gap-1 font-bold"><Star size={13} /> {String(r.rating)}</span></td>
+            <td className="px-4 py-2.5 max-w-xs truncate">{String(r.text || "—")}</td>
+            <td className="px-4 py-2.5">{canModerate ? <Button variant="ghost" onClick={() => remove(String(r.id))} aria-label="Delete review"><Trash2 size={15} /></Button> : null}</td>
+          </tr>
+        ))}
+      </Table>
+    </div>
   );
 }
 
@@ -1403,8 +1446,12 @@ function Broadcast({ onMsg }: { onMsg: (m: string) => void }) {
 /* ================= REPORTS / AUDIT / SETTINGS ================= */
 
 function Reports() {
-  const today = new Date().toISOString().slice(0, 10);
-  const weekAgo = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
+  const toLocalDate = (d: Date) => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  const today = toLocalDate(new Date());
+  const weekAgo = toLocalDate(new Date(Date.now() - 6 * 864e5));
   const [from, setFrom] = useState(weekAgo);
   const [to, setTo] = useState(today);
   const [d, setD] = useState<{
@@ -1677,7 +1724,7 @@ function Staff({ onMsg }: { onMsg: (m: string) => void }) {
           <TextField value={nName} onChange={(e) => setNName(e.target.value)} placeholder="Full name" aria-label="Full name" />
           <TextField value={nEmail} onChange={(e) => setNEmail(e.target.value)} placeholder="staff@example.com" aria-label="Email" />
           <TextField value={nPhone} onChange={(e) => setNPhone(e.target.value)} placeholder="Phone (10+ digits)" aria-label="Phone" />
-          <TextField value={nPass} onChange={(e) => setNPass(e.target.value)} type="password" placeholder="Temp password (min 8)" aria-label="Temporary password" />
+          <TextField value={nPass} onChange={(e) => setNPass(e.target.value)} type="password" placeholder="Temp password (min 8)" aria-label="Temporary password" autoComplete="new-password" />
         </div>
         <p className="mt-3 text-xs font-extrabold tracking-wider text-on-surface-variant uppercase">Quick presets</p>
         <div className="mt-1.5 flex flex-wrap gap-2">
@@ -1754,7 +1801,7 @@ function Staff({ onMsg }: { onMsg: (m: string) => void }) {
             <Card className="p-4">
               <p className="font-bold">Reset password</p>
               <div className="mt-2 flex gap-2">
-                <TextField value={ePass} onChange={(e) => setEPass(e.target.value)} type="password" placeholder="New password (min 8)" aria-label="New password" />
+                <TextField value={ePass} onChange={(e) => setEPass(e.target.value)} type="password" placeholder="New password (min 8)" aria-label="New password" autoComplete="new-password" />
                 <Button variant="outline" onClick={() => resetPass(s.id)}>Reset</Button>
               </div>
             </Card>

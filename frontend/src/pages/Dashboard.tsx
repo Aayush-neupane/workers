@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [quotes, setQuotes] = useState<QuoteRequest[]>([]);
   const [balance, setBalance] = useState(0);
+  const [rules, setRules] = useState({ redeemPoints: 100, redeemDiscountPaisa: 5000 });
   const [notes, setNotes] = useState<{ id: string; title: string; body: string; is_read: boolean }[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loadError, setLoadError] = useState("");
@@ -30,6 +31,9 @@ export default function Dashboard() {
     api<{ bookings: Booking[] }>("/api/bookings/mine").then((d) => setBookings(d.bookings)).catch(() => setLoadError("Couldn't load your bookings."));
     api<{ requests: QuoteRequest[] }>("/api/quotes/requests/mine").then((d) => setQuotes(d.requests)).catch(() => setLoadError("Couldn't load your quote requests."));
     api<{ balance: number }>("/api/rewards/mine").then((d) => setBalance(d.balance)).catch(() => {});
+    api<{ redeemPoints: number; redeemDiscountPaisa: number }>("/api/settings")
+      .then((d) => setRules({ redeemPoints: d.redeemPoints, redeemDiscountPaisa: d.redeemDiscountPaisa }))
+      .catch(() => {});
     api<{ notifications: typeof notes }>("/api/notifications").then((d) => setNotes(d.notifications)).catch(() => {});
     api<{ invites: Invite[] }>("/api/worker/invites/mine").then((d) => setInvites(d.invites)).catch(() => {});
   }
@@ -185,7 +189,7 @@ export default function Dashboard() {
           <div className="rounded-lg bg-pine-950 p-5 text-white">
             <p className="text-xs font-extrabold tracking-widest text-marigold-300 uppercase">Loyalty</p>
             <p className="font-display mt-1 text-4xl font-semibold">{balance} <span className="text-lg">pts</span></p>
-            <p className="mt-1 text-xs text-white/70">100 pts = Rs 50 off at checkout. Earned only on completed jobs.</p>
+            <p className="mt-1 text-xs text-white/70">{rules.redeemPoints} pts = Rs {rules.redeemDiscountPaisa / 100} off at checkout. Earned only on completed jobs.</p>
             <Link to="/rewards" className="mt-3 inline-block rounded-md bg-marigold-300 px-3 py-1.5 text-xs font-extrabold text-pine-950">View rewards</Link>
           </div>
           <Card className="p-5">

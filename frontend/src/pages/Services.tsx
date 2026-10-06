@@ -35,10 +35,15 @@ export default function Services() {
   }, [urlQ]);
 
   useEffect(() => {
+    const ctrl = new AbortController();
     const qs = new URLSearchParams({ sort });
     if (debouncedQ) qs.set("q", debouncedQ);
     if (category) qs.set("category", category);
-    api<{ services: Service[] }>(`/api/services?${qs}`).then((d) => { setServices(d.services); setLoadError(false); setLoaded(true); }).catch(() => { setLoadError(true); setLoaded(true); });
+    api<{ services: Service[] }>(`/api/services?${qs}`, { signal: ctrl.signal }).then((d) => { setServices(d.services); setLoadError(false); setLoaded(true); }).catch((e) => {
+      if (e instanceof Error && (e.name === "AbortError" || /abort/i.test(e.message))) return;
+      setLoadError(true); setLoaded(true);
+    });
+    return () => ctrl.abort();
   }, [debouncedQ, category, sort]);
 
   return (

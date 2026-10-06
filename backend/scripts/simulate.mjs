@@ -281,9 +281,129 @@ console.log("== 9. perms + validation fuzz ==");
   check("settings strict 400", badKey.status === 400, `${badKey.status}`);
 }
 
-console.log("== 10. cleanup scratch ==");
+console.log("== 10. redeem, referral, milestone, lockout, dispute, cash, push, quotes-neg, rules ==");
 {
-  const ids = await q(`SELECT id FROM users WHERE email IN ($1,$2,$3)`, [`sim-${TS}-cus@example.com`, proEmail, `sim-${TS}-other@example.com`]);
+  // redeem: fund points, book with rewards, cancel returns them
+  await q(`INSERT INTO reward_ledger(user_id, points, kind, reason) VALUES ((SELECT id FROM users WHERE email=$1), 100, 'bonus', 'sim fund')`, [`sim-${TS}-cus@example.com`]);
+  const bal0 = await q(`SELECT COALESCE(SUM(points),0)::int AS b FROM reward_ledger WHERE user_id=(SELECT id FROM users WHERE email=$1)`, [`sim-${TS}-cus@example.com`]);
+  const rb = await cus("/api/bookings", { method: "POST", body: JSON.stringify(mk({ slot: "2030-06-07T10:00:00.000Z", useRewards: true })) });
+  check("redeem booking 201", rb.status === 201 && rb.body.discountPaisa === 5000, `${rb.status} ${JSON.stringify(rb.body)}`);
+  const cxl = await cus(`/api/bookings/${rb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to: "cancelled", note: "sim" }) });
+  check("cancel redeems back", cxl.status === 200, `${cxl.status}`);
+  const bal1 = await q(`SELECT COALESCE(SUM(points),0)::int AS b FROM reward_ledger WHERE user_id=(SELECT id FROM users WHERE email=$1)`, [`sim-${TS}-cus@example.com`]);
+  check("points restored", bal1.rows[0].b === bal0.rows[0].b, `${bal0.rows[0].b}->${bal1.rows[0].b}`);
+  // insufficient redeem (fresh account, 0 points)
+  const otr = jar();
+  await otr("/api/auth/login", { method: "POST", body: JSON.stringify({ email: `sim-${TS}-other@example.com`, password: "Simtest123!" }) });
+  const poor = await otr("/api/bookings", { method: "POST", body: JSON.stringify(mk({ slot: "2030-06-08T10:00:00.000Z", useRewards: true })) });
+  check("poor redeem 400", poor.status === 400, `${poor.status}`);
+}
+{
+  // referral: new user signs up with sim-cus code, completes first job, both paid from snapshot
+  const myCode = await q(`SELECT code FROM referral_codes WHERE owner_user_id=(SELECT id FROM users WHERE email=$1)`, [`sim-${TS}-cus@example.com`]);
+  const ref = await anon("/api/auth/register", { method: "POST", body: JSON.stringify({ name: "Sim Ref", phone: "9852600104", email: `sim-${TS}-ref@example.com`, password: "Simtest123!", referralCode: myCode.rows[0].code }) });
+  check("referral signup 201", ref.status === 201, `${ref.status} ${JSON.stringify(ref.body)}`);
+  await admin("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value: { referralBonus: 77 } }) });
+  const rj = jar();
+  await rj("/api/auth/login", { method: "POST", body: JSON.stringify({ email: `sim-${TS}-ref@example.com`, password: "Simtest123!" }) });
+  const rAddr = await rj("/api/addresses", { method: "POST", body: JSON.stringify({ label: "Home", line: "Damak-5, Test lane", phone: "9852600104" }) });
+  const rBk = await rj("/api/bookings", { method: "POST", body: JSON.stringify({ serviceId: SVC, addressId: rAddr.body.address.id, slot: "2030-06-09T10:00:00.000Z", instructions: "Referral sim booking works.", paymentMethod: "cash" }) });
+  check("referee books w/ addressId", rBk.status === 201, `${rBk.status}`);
+  await admin(`/api/bookings/${rBk.body.bookingNo}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
+  for (const to of ["awaiting-worker", "confirmed", "en-route", "in-progress"]) {
+    await admin(`/api/bookings/${rBk.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to, note: "sim" }) });
+  }
+  await admin(`/api/bookings/${rBk.body.bookingNo}/otp/issue`, { method: "POST", body: JSON.stringify({}) });
+  const nz = await q(`SELECT body FROM notifications WHERE user_id=(SELECT id FROM users WHERE email=$1) AND title='Completion code' ORDER BY created_at DESC LIMIT 1`, [`sim-${TS}-ref@example.com`]);
+  await admin(`/api/bookings/${rBk.body.bookingNo}/otp/verify`, { method: "POST", body: JSON.stringify({ code: nz.rows[0].body.match(/(\d{6})/)[1] }) });
+  const both = await q(`SELECT user_id, points FROM reward_ledger WHERE reason LIKE 'Referral reward%' AND created_at > now() - interval '5 minutes'`);
+  check("both sides paid 77", both.rows.length === 2 && both.rows.every((r) => r.points === 77), JSON.stringify(both.rows));
+  await admin("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value: { referralBonus: 50 } }) });
+}
+{
+  // milestone: every-1st-completion pays immediately (restored after)
+  await admin("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value: { milestoneBookings: 1, milestoneBonus: 11 } }) });
+  const mb = await cus("/api/bookings", { method: "POST", body: JSON.stringify(mk({ slot: "2030-06-10T10:00:00.000Z" })) });
+  await admin(`/api/bookings/${mb.body.bookingNo}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
+  for (const to of ["awaiting-worker", "confirmed", "en-route", "in-progress"]) {
+    await admin(`/api/bookings/${mb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to, note: "sim" }) });
+  }
+  await admin(`/api/bookings/${mb.body.bookingNo}/otp/issue`, { method: "POST", body: JSON.stringify({}) });
+  const mn = await q(`SELECT body FROM notifications WHERE user_id=(SELECT id FROM users WHERE email=$1) AND title='Completion code' ORDER BY created_at DESC LIMIT 1`, [`sim-${TS}-cus@example.com`]);
+  await admin(`/api/bookings/${mb.body.bookingNo}/otp/verify`, { method: "POST", body: JSON.stringify({ code: mn.rows[0].body.match(/(\d{6})/)[1] }) });
+  const ms = await q(`SELECT points FROM reward_ledger WHERE user_id=(SELECT id FROM users WHERE email=$1) AND reason='Milestone bonus' ORDER BY created_at DESC LIMIT 1`, [`sim-${TS}-cus@example.com`]);
+  check("milestone paid", ms.rows[0]?.points === 11, JSON.stringify(ms.rows[0]));
+  await admin("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value: { milestoneBookings: 5, milestoneBonus: 100 } }) });
+  const merged = await admin("/api/admin/settings", {});
+  check("settings merge keeps keys", merged.body.rewardPerNpr100 !== undefined && merged.body.milestoneBookings === 5, JSON.stringify(merged.body).slice(0, 80));
+}
+{
+  // OTP lockout then dispute lifecycle + finalPaisa cap
+  const lb = await cus("/api/bookings", { method: "POST", body: JSON.stringify(mk({ slot: "2030-06-11T10:00:00.000Z" })) });
+  await admin(`/api/bookings/${lb.body.bookingNo}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
+  for (const to of ["awaiting-worker", "confirmed", "en-route", "in-progress"]) {
+    await admin(`/api/bookings/${lb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to, note: "sim" }) });
+  }
+  await pro(`/api/bookings/${lb.body.bookingNo}/otp/issue`, { method: "POST", body: JSON.stringify({}) });
+  let last = 0;
+  for (let i = 0; i < 6; i++) {
+    const w = await pro(`/api/bookings/${lb.body.bookingNo}/otp/verify`, { method: "POST", body: JSON.stringify({ code: "111111" }) });
+    last = w.status;
+  }
+  check("6th guess locked 429", last === 429, `${last}`);
+  const dsp = await cus(`/api/bookings/${lb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to: "disputed", note: "sim dispute" }) });
+  check("customer disputes", dsp.status === 200, `${dsp.status}`);
+  const cap = await admin(`/api/bookings/${lb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to: "completed", finalPaisa: 99999999, note: "sim" }) });
+  check("finalPaisa cap 400", cap.status === 400, `${cap.status}`);
+  const done2 = await admin(`/api/bookings/${lb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to: "completed", note: "sim" }) });
+  check("dispute resolved", done2.status === 200, `${done2.status}`);
+  // cash collect exact/duplicate
+  const cc1 = await pro(`/api/bookings/${lb.body.bookingNo}/cash-collect`, { method: "POST", body: JSON.stringify({ amountPaisa: 1 }) });
+  check("wrong cash 400", cc1.status === 400, `${cc1.status} ${JSON.stringify(cc1.body)}`);
+  const need = await q(`SELECT COALESCE(final_paisa, estimate_paisa - discount_paisa) AS o FROM bookings WHERE booking_no=$1`, [lb.body.bookingNo]);
+  const cc2 = await pro(`/api/bookings/${lb.body.bookingNo}/cash-collect`, { method: "POST", body: JSON.stringify({ amountPaisa: Number(need.rows[0].o) }) });
+  check("exact cash 201", cc2.status === 201, `${cc2.status}`);
+  const cc3 = await pro(`/api/bookings/${lb.body.bookingNo}/cash-collect`, { method: "POST", body: JSON.stringify({ amountPaisa: Number(need.rows[0].o) }) });
+  check("dup cash 409", cc3.status === 409, `${cc3.status}`);
+}
+{
+  // esewa unconfigured, push paths, quote negatives, rules, tickets, invites
+  const es = await cus("/api/payments/00000000-0000-0000-0000-000000000000/esewa/initiate", { method: "POST", body: JSON.stringify({}) });
+  check("esewa unconfigured 400", es.status === 400, `${es.status}`);
+  const pa = await cus("/api/push/subscribe", { method: "POST", body: JSON.stringify({ endpoint: "https://fcm.googleapis.com/fake-sim-endpoint", p256dh: "abcdefghij1234567890", auth: "abcdefghij1234567890", audience: "worker" }) });
+  check("audience mismatch 403", pa.status === 403, `${pa.status}`);
+  const pd = await cus("/api/push/devices", {});
+  check("devices list", pd.status === 200 && Array.isArray(pd.body.devices), `${pd.status}`);
+  const pt = await cus("/api/push/test", { method: "POST", body: JSON.stringify({}) });
+  check("push test 200", pt.status === 200, `${pt.status}`);
+  const cProp = await cus("/api/quotes/requests/mine", {});
+  void cProp;
+  const qBadRole = await cus(`/api/quotes/requests/00000000-0000-0000-0000-000000000000/proposals`, { method: "POST", body: JSON.stringify({ pricePaisa: 1000, scope: "x".repeat(20), availability: "soon!!" }) });
+  check("customer propose 403", qBadRole.status === 403, `${qBadRole.status}`);
+  const qNull = await cus("/api/quotes/requests", { method: "POST", body: JSON.stringify({ title: "Admin-authored sim quote!", description: "Long enough description here.", landmark: "Damak-3, Test", windowStart: "2030-08-01T10:00:00.000Z", windowEnd: "2030-08-02T10:00:00.000Z", photos: [] }) });
+  const qp = await admin(`/api/quotes/requests/${qNull.body.id}/proposals`, { method: "POST", body: JSON.stringify({ pricePaisa: 600000, scope: "Admin scoped proposal text.", availability: "Anytime soon" }) });
+  const qa = await admin(`/api/quotes/proposals/${qp.body.id}/approve`, { method: "POST", body: JSON.stringify({}) });
+  check("admin proposal approved", qa.status === 200, `${qa.status}`);
+  const qAcc = await cus(`/api/quotes/proposals/${qp.body.id}/accept`, { method: "POST", body: JSON.stringify({}) });
+  check("null-worker accept 400", qAcc.status === 400, `${qAcc.status} ${JSON.stringify(qAcc.body)}`);
+  const cr1 = await admin("/api/admin/commission-rules", { method: "POST", body: JSON.stringify({ scope: "global", categoryId: null, workerId: null, rateBps: 1500 }) });
+  check("global rule ok", cr1.status === 200, `${cr1.status}`);
+  const cr2 = await admin("/api/admin/commission-rules", { method: "POST", body: JSON.stringify({ scope: "category", categoryId: null, workerId: null, rateBps: 1500 }) });
+  check("bad scope 400", cr2.status === 400, `${cr2.status}`);
+  const tr = await admin("/api/admin/tickets/00000000-0000-0000-0000-000000000000/reply", { method: "POST", body: JSON.stringify({ body: "x" }) });
+  check("reply ghost 404", tr.status === 404, `${tr.status}`);
+  const myT = await q(`SELECT id FROM support_tickets WHERE user_id=(SELECT id FROM users WHERE email=$1) LIMIT 1`, [`sim-${TS}-cus@example.com`]);
+  await admin(`/api/admin/tickets/${myT.rows[0].id}/reply`, { method: "POST", body: JSON.stringify({ body: "Sim reply from support." }) });
+  const seen = await cus("/api/tickets", {});
+  check("reply visible", JSON.stringify(seen.body).includes("Sim reply"), "missing");
+  const admId = await q(`SELECT id FROM users WHERE email='admin@sajilo.local'`);
+  const selfInv = await admin("/api/admin/workers/invite-user", { method: "POST", body: JSON.stringify({ userId: admId.rows[0].id }) });
+  check("self-invite 400", selfInv.status === 400, `${selfInv.status}`);
+}
+
+console.log("== 11. cleanup scratch ==");
+{
+  const ids = await q(`SELECT id FROM users WHERE email IN ($1,$2,$3,$4)`, [`sim-${TS}-cus@example.com`, proEmail, `sim-${TS}-other@example.com`, `sim-${TS}-ref@example.com`]);
   const idList = ids.rows.map((r) => r.id);
   // reuse cleanup-users ordering inline
   const bids = await q(`SELECT id FROM bookings WHERE customer_id = ANY($1) OR worker_id = ANY($1)`, [idList]);
@@ -319,6 +439,15 @@ console.log("== 10. cleanup scratch ==");
   await q(`DELETE FROM user_permissions WHERE user_id = ANY($1)`, [idList]);
   await q(`DELETE FROM users WHERE id = ANY($1)`, [idList]);
   check("scratch removed", true);
+  // residue: nothing private left behind
+  const left = await q(
+    `SELECT (SELECT COUNT(*)::int FROM bookings WHERE customer_id = ANY($1) OR worker_id = ANY($1)) AS b,
+            (SELECT COUNT(*)::int FROM notifications WHERE user_id = ANY($1)) AS n,
+            (SELECT COUNT(*)::int FROM reward_ledger WHERE user_id = ANY($1)) AS r,
+            (SELECT COUNT(*)::int FROM addresses WHERE user_id = ANY($1)) AS a`,
+    [idList]);
+  const L = left.rows[0];
+  check("no residue", L.b === 0 && L.n === 0 && L.r === 0 && L.a === 0, JSON.stringify(L));
 }
 
 await pool.end();

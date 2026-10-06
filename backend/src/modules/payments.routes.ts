@@ -42,6 +42,7 @@ router.post(
     const full = await query(
       `SELECT b.payment_method, b.status, b.estimate_paisa, b.discount_paisa, b.final_paisa
        FROM bookings b WHERE b.id = $1`, [booking.id]);
+    if ((full.rowCount ?? 0) === 0) return res.status(404).json({ error: "Not found" });
     const row = full.rows[0];
     if (row.payment_method !== "cash") {
       return res.status(400).json({ error: "No cash payment expected for this booking" });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Search, Satellite, Map as MapIcon, X, Check, Crosshair } from "lucide-react";
+import { Search, Satellite, Map as MapIcon, Crosshair } from "lucide-react";
 import { Button } from "./ui";
 import { DAMAK_CENTER, DAMAK_BBOX, inDamak, roundPin, searchPlaces, reverseLabel, type Pin, type SearchHit } from "../lib/geo";
 

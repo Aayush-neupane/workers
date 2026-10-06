@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, MapPin, User } from "lucide-react";
 import { Button, Card, Field, PageHero, Select, TextField } from "../components/ui";
@@ -32,6 +32,13 @@ export default function Onboarding() {
   // Rewards step
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (user?.onboarded) navigate(homeFor(role ?? "customer"), { replace: true });
@@ -80,11 +87,13 @@ export default function Onboarding() {
       setError("Enter a valid phone number for this address.");
       return;
     }
+    const parsedWard = Number(ward);
+    const wardValue = ward.trim() === "" ? null : (Number.isInteger(parsedWard) && parsedWard >= 1 && parsedWard <= 10 ? parsedWard : null);
     setBusy(true);
     try {
       await post("/api/addresses", {
         label, line: line.trim(), city: "Damak",
-        ward: ward ? Number(ward) : null,
+        ward: wardValue,
         phone: addrPhone.trim(),
         lat: pin?.lat ?? null, lng: pin?.lng ?? null,
       });
@@ -141,7 +150,7 @@ export default function Onboarding() {
                   <TextField value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Gita Sharma" autoComplete="name" />
                 </Field>
                 <Field label="Phone">
-                  <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" autoComplete="tel" />
+                  <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" autoComplete="tel" maxLength={20} />
                 </Field>
                 {error && <p role="alert" className="text-sm font-medium text-error">{error}</p>}
                 <Button className="w-full py-3" onClick={() => saveProfile(true)} disabled={busy}>
@@ -166,10 +175,10 @@ export default function Onboarding() {
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Ward (optional)">
-                    <TextField value={ward} onChange={(e) => setWard(e.target.value)} type="number" min={1} max={10} placeholder="5" />
+                    <TextField value={ward} onChange={(e) => setWard(e.target.value)} type="number" min={1} max={10} placeholder="5" maxLength={2} />
                   </Field>
                   <Field label="Phone for this address">
-                    <TextField value={addrPhone} onChange={(e) => setAddrPhone(e.target.value)} inputMode="tel" placeholder="9852600000" />
+                    <TextField value={addrPhone} onChange={(e) => setAddrPhone(e.target.value)} inputMode="tel" placeholder="9852600000" autoComplete="tel" maxLength={20} />
                   </Field>
                 </div>
                 <div>
@@ -206,7 +215,8 @@ export default function Onboarding() {
                   <button onClick={() => {
                     try { void navigator.clipboard.writeText(code); } catch { /* ignore */ }
                     setCopied(true);
-                    window.setTimeout(() => setCopied(false), 2000);
+                    if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+                    copyTimer.current = window.setTimeout(() => setCopied(false), 2000);
                   }}
                     className="mt-3 w-full rounded-md border-2 border-dashed border-primary/50 bg-primary-container/50 px-4 py-3 font-mono text-lg font-extrabold tracking-widest transition active:scale-[0.99]"
                     aria-label="Copy your referral code">

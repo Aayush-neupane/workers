@@ -118,6 +118,10 @@ await query(
 );
 
 // ---------- Bookings across the lifecycle ----------
+// Live reward rate, so demo balances match what the app would award.
+const demoPer100 = ((await query<{ value: Record<string, number> }>(
+  `SELECT value FROM settings WHERE id = 'platform'`,
+)).rows[0]?.value.rewardPerNpr100 ?? 1);
 interface DemoBooking {
   no: string; customer: string; service: string; worker: string | null;
   status: string; daysAgo: number; final: boolean; method: "cash" | "esewa";
@@ -134,6 +138,7 @@ const bookings: DemoBooking[] = [
 
 for (const b of bookings) {
   const { bps, price } = await serviceRate(b.service);
+  // daysAgo<=0 means future: shifted +1 so demo slots always pass validation.
   const slot = new Date(Date.now() + (b.daysAgo <= 0 ? -b.daysAgo + 1 : -b.daysAgo) * 86400000);
   await query(
     `INSERT INTO bookings(booking_no, customer_id, service_id, worker_id, status, address_id,
@@ -166,11 +171,13 @@ for (const b of bookings) {
       [bid, b.worker],
     );
   }
+  // Live parity: completed non-cash payments flip to verified; cash stays
+  // pending with a cash_collections row (see BK-2001 below).
   await query(
-    `INSERT INTO payments(booking_id, provider, amount_paisa, status, verified_at)
-     VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'verified' THEN now() ELSE NULL END)
+    `INSERT INTO payments(booking_id, provider, amount_paisa, status)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT DO NOTHING`,
-    [bid, b.method, price, b.status === "completed" && b.method !== "cash" ? "verified" : b.status === "completed" ? "verified" : "pending"],
+    [bid, b.method, price, b.status === "completed" && b.method !== "cash" ? "verified" : "pending"],
   );
   if (b.status === "completed") {
     const commission = calcCommission(price, bps);
@@ -179,7 +186,7 @@ for (const b of bookings) {
        VALUES ($1, $2, $3, $4, $5) ON CONFLICT (booking_id) DO NOTHING`,
       [bid, price, commission, price - commission, bps],
     );
-    const pts = earnPoints(price);
+    const pts = earnPoints(price, demoPer100);
     await query(
       `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
        VALUES ($1, $2, 'earn', 'Booking completed', $3) ON CONFLICT DO NOTHING`,
@@ -215,7 +222,9 @@ await query(`UPDATE bookings SET lat = 26.659, lng = 87.702 WHERE booking_no = '
 // (gita's earned balance must stay non-negative for the demo).
 
 // ---------- Quote request (Mode B) + proposal ----------
-const paintCat = (await query<{ id: string }>(`SELECT id FROM categories WHERE slug = 'painting'`)).rows[0].id;
+const paintCatRow = await query<{ id: string }>(`SELECT id FROM categories WHERE slug = 'painting'`);
+if ((paintCatRow.rowCount ?? 0) === 0) throw new Error("Category 'painting' missing — run db:seed first");
+const paintCat = paintCatRow.rows[0].id;
 const qr = await query<{ id: string }>(
   `INSERT INTO quote_requests(customer_id, category_id, title, description, window_start, window_end, ward, landmark)
    VALUES ($1, $2, 'Repaint two bedrooms', 'Two 12x14 rooms, ceiling cracks in one, paint not on site.',
@@ -226,7 +235,7 @@ const qr = await query<{ id: string }>(
 await query(
   `INSERT INTO quote_proposals(request_id, worker_user_id, price_paisa, scope, availability, approved)
    VALUES ($1, $2, 1800000, 'Putty + primer + two coats Asian Paints, 3 days, furniture covered.', 'Thu–Sat mornings', true)`,
-  [qr.rows[0].id, hari],
+  [qr.rows[0].id, bijay],
 );
 await query(`UPDATE quote_requests SET status = 'quoted' WHERE id = $1`, [qr.rows[0].id]);
 

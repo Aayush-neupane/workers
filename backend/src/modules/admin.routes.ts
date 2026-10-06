@@ -152,8 +152,18 @@ router.post(
       await client.query(
         `INSERT INTO verification_records(worker_user_id, state, reviewer_id, notes) VALUES ($1, $2, $3, $4)`,
         [req.params.id, f.state, req.user!.id, f.notes]);
+      await notify(client, req.params.id, "Verification update",
+        f.state === "verified" ? "You're verified — activation opens job assignments."
+        : f.state === "suspended" ? "Your pro account is suspended — contact the office."
+        : f.state === "rejected" ? "Your application was rejected — contact the office for details."
+        : "Your verification needs attention — check your pro portal.");
       await client.query("COMMIT");
       await adminAudit(req.user!.id, "worker-verify", `${req.params.id} -> ${f.state}`);
+      void pushToUser(req.params.id, {
+        title: "Verification update",
+        body: f.state === "verified" ? "You're verified." : `Status: ${f.state}.`,
+        url: "/worker",
+      });
       return res.json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK");
@@ -212,8 +222,17 @@ router.post(
             [req.params.id, sid]);
         }
       }
+      await notify(client, req.params.id, f.active ? "You're active" : "Account deactivated",
+        f.active ? "You can now receive job assignments." : "Your pro account is paused — contact the office.");
       await client.query("COMMIT");
       await adminAudit(req.user!.id, "worker-activate", `${req.params.id} active=${f.active}`);
+      if (f.active) {
+        void pushToUser(req.params.id, {
+          title: "You're active",
+          body: "You can now receive job assignments.",
+          url: "/worker",
+        });
+      }
       return res.json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK");
@@ -482,20 +501,41 @@ router.post(
         [partial ? "partially-refunded" : "refunded", f.paymentId]);
       const bk = await client.query<{ customer_id: string }>(`SELECT customer_id FROM bookings WHERE id = $1`, [p.rows[0].booking_id]);
       if ((bk.rowCount ?? 0) > 0) {
-        // Reverse earned points once — guarded so retries can't double-reverse.
-        const already = await client.query(
-          `SELECT 1 FROM reward_ledger WHERE ref_booking_id = $1 AND kind = 'reverse'`, [p.rows[0].booking_id]);
-        if ((already.rowCount ?? 0) === 0) {
+        // Each reversal is reason-scoped: earn-reversal and redeemed-return
+        // are independent, retries of either are impossible.
+        const earnBack = await client.query(
+          `SELECT 1 FROM reward_ledger WHERE ref_booking_id = $1 AND reason = 'Refund reversal'`, [p.rows[0].booking_id]);
+        if ((earnBack.rowCount ?? 0) === 0) {
           await client.query(
             `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
              SELECT $1, -points, 'reverse', 'Refund reversal', $2 FROM reward_ledger
              WHERE ref_booking_id = $2 AND kind = 'earn'`,
             [bk.rows[0].customer_id, p.rows[0].booking_id]);
         }
+        // A full refund also returns checkout-redeemed points.
+        if (!partial) {
+          const redeemBack = await client.query(
+            `SELECT 1 FROM reward_ledger WHERE ref_booking_id = $1 AND reason = 'Refund — redeemed points returned'`,
+            [p.rows[0].booking_id]);
+          if ((redeemBack.rowCount ?? 0) === 0) {
+            await client.query(
+              `INSERT INTO reward_ledger(user_id, points, kind, reason, ref_booking_id)
+               SELECT $1, -points, 'reverse', 'Refund — redeemed points returned', $2 FROM reward_ledger
+               WHERE ref_booking_id = $2 AND kind = 'redeem'`,
+              [bk.rows[0].customer_id, p.rows[0].booking_id]);
+          }
+        }
         await notify(client, bk.rows[0].customer_id, "Refund processed", `Rs ${(f.amountPaisa / 100).toFixed(0)} refunded.`);
       }
       await client.query("COMMIT");
       await adminAudit(req.user!.id, "refund", `${f.paymentId} ${f.amountPaisa}`);
+      if ((bk.rowCount ?? 0) > 0) {
+        void pushToUser(bk.rows[0].customer_id, {
+          title: "Refund processed",
+          body: `Rs ${(f.amountPaisa / 100).toFixed(0)} refunded.`,
+          url: "/dashboard",
+        });
+      }
       return res.json({ ok: true, partial });
     } catch (e) {
       await client.query("ROLLBACK");
@@ -520,11 +560,17 @@ router.post(
   ah(async (req, res) => {
     const f = req.body as { body: string };
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid ticket id" });
-    const t = await query(`SELECT id FROM support_tickets WHERE id = $1`, [req.params.id]);
+    const t = await query<{ user_id: string }>(`SELECT user_id FROM support_tickets WHERE id = $1`, [req.params.id]);
     if ((t.rowCount ?? 0) === 0) return res.status(404).json({ error: "Ticket not found" });
     await query(`INSERT INTO ticket_messages(ticket_id, from_role, body) VALUES ($1, 'admin', $2)`,
       [req.params.id, f.body]);
     await query(`UPDATE support_tickets SET status = 'in-progress', updated_at = now() WHERE id = $1`, [req.params.id]);
+    await notify(pool, t.rows[0].user_id, "Support replied", f.body.slice(0, 140));
+    void pushToUser(t.rows[0].user_id, {
+      title: "Support replied",
+      body: f.body.slice(0, 120),
+      url: "/support",
+    });
     return res.json({ ok: true });
   }),
 );
@@ -675,9 +721,12 @@ router.get("/admin/reviews", requirePermission("reviews.view"), ah(async (_req, 
 }));
 
 router.delete("/admin/reviews/:id", requirePermission("reviews.moderate"), ah(async (req, res) => {
-  const r = await query(`DELETE FROM reviews WHERE id = $1`, [req.params.id]);
-  if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: "Review not found" });
+  const gone = await query<{ customer_id: string; booking_id: string }>(
+    `DELETE FROM reviews WHERE id = $1 RETURNING customer_id, booking_id`, [req.params.id]);
+  if ((gone.rowCount ?? 0) === 0) return res.status(404).json({ error: "Review not found" });
   await adminAudit(req.user!.id, "review-delete", req.params.id);
+  await notify(pool, gone.rows[0].customer_id, "Review removed",
+    "One of your reviews was removed by moderation — contact support if you disagree.");
   return res.json({ ok: true });
 }));
 

@@ -48,6 +48,7 @@ export default function Book() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [providers, setProviders] = useState({ esewa: false, khalti: false });
   const [rewardBalance, setRewardBalance] = useState(0);
+  const [rules, setRules] = useState({ redeemPoints: 100, redeemDiscountPaisa: 5000 });
   const [step, setStep] = useState(0);
   const [submitError, setSubmitError] = useState("");
   const [service, setService] = useState<Service | null>(null);
@@ -83,6 +84,9 @@ export default function Book() {
     api<{ cash: boolean; esewa: boolean; khalti: boolean }>("/api/payments/providers")
       .then((d) => setProviders({ esewa: d.esewa, khalti: d.khalti })).catch(() => {});
     api<{ balance: number }>("/api/rewards/mine").then((d) => setRewardBalance(d.balance)).catch(() => {});
+    api<{ redeemPoints: number; redeemDiscountPaisa: number }>("/api/settings")
+      .then((d) => setRules({ redeemPoints: d.redeemPoints, redeemDiscountPaisa: d.redeemDiscountPaisa }))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -99,6 +103,7 @@ export default function Book() {
   }
 
   const addressId = watch("addressId");
+  const matchedLine = addresses.find((a) => a.id === addressId)?.line ?? "";
 
   // Approximate map area from the address text when nobody pinned it yet,
   // so checkout shows YOUR area instead of a generic Damak view.
@@ -109,11 +114,12 @@ export default function Book() {
       setLocating(false);
       return;
     }
+    const targetLine = matchedLine;
     setLocating(true);
     const ctrl = new AbortController();
     const t = window.setTimeout(async () => {
       try {
-        setApprox(await geocodeArea(addr.line, ctrl.signal));
+        setApprox(await geocodeArea(targetLine, ctrl.signal));
       } catch {
         /* offline — Damak overview stays */
       } finally {
@@ -124,7 +130,7 @@ export default function Book() {
       ctrl.abort();
       window.clearTimeout(t);
     };
-  }, [addresses, addressId, bookingPin]);
+  }, [matchedLine, addressId, bookingPin]);
 
   async function saveQuickAddress() {
     setAddrError("");
@@ -161,8 +167,8 @@ export default function Book() {
 
   const paymentMethod = watch("paymentMethod");
   const useRewards = watch("useRewards");
-  const canRedeem = rewardBalance >= 100;
-  const discount = useRewards && canRedeem ? 5000 : 0;
+  const canRedeem = rewardBalance >= rules.redeemPoints;
+  const discount = useRewards && canRedeem ? rules.redeemDiscountPaisa : 0;
   const estimate = service.base_price_paisa;
   const total = Math.max(0, estimate - discount);
   const address = addresses.find((a) => a.id === watch("addressId"));
@@ -216,7 +222,7 @@ export default function Book() {
                   <TextField value={line} onChange={(e) => setLine(e.target.value)} placeholder="Damak-5, Himal Chowk, House 12" />
                 </Field>
                 <Field label="Phone">
-                  <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" />
+                  <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" autoComplete="tel" maxLength={20} />
                 </Field>
                 {addrError && <p role="alert" className="text-sm font-medium text-error">{addrError}</p>}
                 <Button onClick={saveQuickAddress}>Save & continue</Button>
@@ -351,8 +357,8 @@ export default function Book() {
                 </fieldset>
                 <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-outline p-3.5 text-sm">
                   <input type="checkbox" {...register("useRewards")} disabled={!canRedeem} className="mt-0.5 size-4 accent-[#0f6b44]" />
-                  <span><span className="font-bold">Redeem 100 points for Rs 50 off</span>
-                  <span className="block text-xs text-on-surface-variant">{canRedeem ? `Balance: ${rewardBalance} points.` : `You have ${rewardBalance} points — 100 needed.`}</span></span>
+                  <span><span className="font-bold">Redeem {rules.redeemPoints} points for Rs {rules.redeemDiscountPaisa / 100} off</span>
+                  <span className="block text-xs text-on-surface-variant">{canRedeem ? `Balance: ${rewardBalance} points.` : `You have ${rewardBalance} points — ${rules.redeemPoints} needed.`}</span></span>
                 </label>
               </div>
             )}

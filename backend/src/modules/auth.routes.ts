@@ -63,7 +63,7 @@ router.post(
       await ensureReferralCode(client, userId, f.name);
       if (f.referralCode) {
         try {
-          await redeemReferralCode(client, f.referralCode, f.email, userId);
+          await redeemReferralCode(client, f.referralCode, f.email, userId, phone);
         } catch (e) {
           await client.query("ROLLBACK");
           return res.status((e as { status?: number }).status ?? 400).json({

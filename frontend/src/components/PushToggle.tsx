@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BellRing, BellOff } from "lucide-react";
 import { Button } from "./ui";
 import { useAuth } from "../lib/auth";
@@ -11,9 +11,21 @@ export function PushToggle() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     const audience = role === "worker" ? "worker" : role === "admin" ? "admin" : role === "customer" ? "customer" : undefined;
-    pushStatus(audience).then(setState).catch(() => {});
+    pushStatus(audience)
+      .then((s) => {
+        if (mounted.current) setState(s);
+      })
+      .catch(() => {});
   }, [role]);
 
   async function toggle() {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Copy, Gift, Users } from "lucide-react";
 import { Button, Card, EmptyState, PageHero } from "../components/ui";
@@ -27,6 +27,13 @@ export default function Rewards() {
   const [referral, setReferral] = useState<{ code: string; bonus: number; uses: { referee: string; rewarded: boolean; created_at: string }[] } | null>(null);
   const [copied, setCopied] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const copyTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+    };
+  }, []);
 
   function load() {
     setLoadError("");
@@ -42,7 +49,8 @@ export default function Rewards() {
     try {
       await navigator.clipboard.writeText(referral.code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(false), 2000);
     } catch {
       /* clipboard unavailable */
     }

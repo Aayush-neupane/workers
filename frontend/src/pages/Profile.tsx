@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,12 +14,23 @@ import type { Address } from "../lib/types";
 const addressSchema = z.object({
   label: z.string().trim().min(2, "Label your address"),
   line: z.string().trim().min(5, "Enter ward, street and house"),
-  ward: z.coerce.number().int().min(1).max(10).optional(),
+  ward: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? undefined : v),
+    z.coerce.number().int().min(1).max(10).optional(),
+  ),
   phone: z.string().trim().min(10, "Enter a valid phone").max(20),
 });
 
 export default function Profile() {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [addrError, setAddrError] = useState("");
   const [name, setName] = useState(user?.name ?? "");
@@ -92,6 +104,7 @@ export default function Profile() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (g) => {
+        if (!mounted.current) return;
         setLocating(false);
         const p = roundPin({ lat: g.coords.latitude, lng: g.coords.longitude });
         if (!inDamak(p)) {
@@ -100,8 +113,10 @@ export default function Profile() {
         }
         setPin(p);
         // Autofill the address box from the GPS fix — editable after.
-        reverseLabel(p)
+        const ctrl = new AbortController();
+        reverseLabel(p, ctrl.signal)
           .then((t) => {
+            if (!mounted.current) return;
             const street = suggestStreet(t);
             if (street) addr.setValue("line", street, { shouldValidate: true, shouldDirty: true });
             const w = parseWardFromText(t);
@@ -110,6 +125,7 @@ export default function Profile() {
           .catch(() => {});
       },
       () => {
+        if (!mounted.current) return;
         setLocating(false);
         setAddrError("Location blocked — allow access or pin on the map instead.");
       },
@@ -126,7 +142,7 @@ export default function Profile() {
           <p className="text-sm text-on-surface-variant">{user?.email}</p>
           <div className="mt-4 space-y-4">
             <Field label="Full name"><TextField value={name} onChange={(e) => setName(e.target.value)} /></Field>
-            <Field label="Phone"><TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" /></Field>
+            <Field label="Phone"><TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" autoComplete="tel" maxLength={20} /></Field>
             <Button onClick={saveProfile}>Save profile</Button>
             {profileError && <p role="alert" className="text-sm font-medium text-error">{profileError}</p>}
             {saved && <p role="status" className="text-sm font-medium">{saved}</p>}
@@ -147,7 +163,7 @@ export default function Profile() {
                 /* session already dead — still leave */
               }
               await signOut();
-              window.location.href = "/signin";
+              navigate("/signin");
             }}
           >
             Sign out everywhere
@@ -180,7 +196,7 @@ export default function Profile() {
               <TextField {...addr.register("ward")} type="number" min={1} max={10} placeholder="5" />
             </Field>
             <Field label="Phone" error={addr.formState.errors.phone?.message}>
-              <TextField {...addr.register("phone")} inputMode="tel" placeholder="9852600000" />
+              <TextField {...addr.register("phone")} inputMode="tel" placeholder="9852600000" autoComplete="tel" maxLength={20} />
             </Field>
             <div>
               <span className="mb-1.5 block text-sm font-semibold">Map pin (optional)</span>

@@ -85,8 +85,8 @@ export default function Home() {
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    api<{ categories: Category[] }>("/api/categories").then((d) => setCats(d.categories)).catch(() => setLoadError("server"));
-    api<{ services: Service[] }>("/api/services?sort=popular").then((d) => setPopular(d.services.slice(0, 6))).catch(() => setLoadError("server"));
+    api<{ categories: Category[] }>("/api/categories").then((d) => { setCats(d.categories); setLoadError(""); }).catch(() => setLoadError("server"));
+    api<{ services: Service[] }>("/api/services?sort=popular").then((d) => { setPopular(d.services.slice(0, 6)); setLoadError(""); }).catch(() => setLoadError("server"));
     api<{ reviews: Review[] }>("/api/reviews?limit=3").then((d) => setReviews(d.reviews)).catch(() => {});
     api<{ wards: { ward: number; is_open: boolean }[] }>("/api/wards")
       .then((d) => setOpenWards(d.wards.filter((w) => w.is_open).length)).catch(() => {});

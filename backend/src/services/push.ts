@@ -69,3 +69,30 @@ export async function pushToAudience(
     return 0;
   }
 }
+
+/**
+ * Push to on-duty staff: all super-admins plus sub-admins holding the given
+ * permission. Role-only audiences ("ADMIN") would silently skip dispatchers.
+ */
+export async function pushToStaff(permission: string, payload: PushPayload): Promise<number> {
+  try {
+    if (!pushEnabled) return 0;
+    const users = await query<{ id: string }>(
+      `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
+       JOIN roles r ON r.id = ur.role_id
+       WHERE r.name = 'ADMIN' AND u.is_active = true
+       UNION
+       SELECT up.user_id FROM user_permissions up
+       JOIN permissions p ON p.id = up.permission_id
+       JOIN users u ON u.id = up.user_id
+       WHERE p.name = $1 AND u.is_active = true`,
+      [permission]);
+    let sent = 0;
+    for (const u of users.rows) {
+      sent += await pushToUser(u.id, payload);
+    }
+    return sent;
+  } catch {
+    return 0;
+  }
+}

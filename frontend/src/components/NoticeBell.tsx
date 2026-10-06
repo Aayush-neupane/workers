@@ -41,7 +41,9 @@ export function NoticeBell() {
   }
 
   const unread = notes.filter((n) => !n.is_read);
-  const recent = [...notes].sort((a, b) => Number(b.is_read) - Number(a.is_read)).slice(0, 5);
+  const recent = [...notes]
+    .sort((a, b) => Number(a.is_read) - Number(b.is_read) || new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 5);
 
   return (
     <div className="relative">

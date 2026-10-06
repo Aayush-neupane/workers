@@ -2,7 +2,6 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, MapPin, Phone, House, LayoutGrid, CalendarCheck, CircleUser, ChevronDown, LogOut } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../lib/auth";
-import { homeFor } from "../lib/auth";
 import { NoticeBell } from "./NoticeBell";
 import type { Role } from "../lib/types";
 

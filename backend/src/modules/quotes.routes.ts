@@ -8,7 +8,7 @@ import { closedWardMessage } from "../utils/coverage.js";
 import { parseWard, mentionsDamak, OUTSIDE_DAMAK } from "../utils/coverage.js";
 import { notify } from "../services/notify.js";
 import { audit } from "../services/notify.js";
-import { pushToUser } from "../services/push.js";
+import { pushToStaff, pushToUser } from "../services/push.js";
 import { inDamakPin, OUTSIDE_PIN, validPin } from "../utils/geo.js";
 import { randomInt } from "node:crypto";
 
@@ -71,6 +71,11 @@ router.post(
        JOIN users u ON u.id = up.user_id
        WHERE p.name = 'quotes.view' AND u.is_active = true`,
     );
+    void pushToStaff("quotes.view", {
+      title: "New quote request",
+      body: "A complex job needs proposals — open quotes.",
+      url: "/admin",
+    });
     return res.status(201).json({ ok: true, id: r.rows[0].id });
   }),
 );
@@ -78,7 +83,7 @@ router.post(
 router.get("/quotes/requests/mine", requireAuth, ah(async (req, res) => {
   const r = await query(
     `SELECT q.*, c.name AS category_name,
-       (SELECT json_agg(p) FROM quote_proposals p WHERE p.request_id = q.id) AS proposals
+       (SELECT json_agg(p ORDER BY p.created_at, p.id) FROM quote_proposals p WHERE p.request_id = q.id) AS proposals
      FROM quote_requests q LEFT JOIN categories c ON c.id = q.category_id
      WHERE q.customer_id = $1 ORDER BY q.created_at DESC`, [req.user!.id]);
   return res.json({ requests: r.rows });
@@ -117,37 +122,71 @@ router.post(
     const f = req.body as z.infer<typeof proposalSchema>;
     const uid = req.user!.id;
     const isAdmin = req.user!.roles.includes("ADMIN");
-    const q = await query<{ id: string; status: string; category_id: string | null }>(
-      `SELECT id, status, category_id FROM quote_requests WHERE id = $1`, [req.params.id]);
-    if (q.rowCount === 0) return res.status(404).json({ error: "Not found" });
-    if (!["open", "quoted"].includes(q.rows[0].status)) {
-      return res.status(409).json({ error: "Request no longer open" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Lock the request: a proposal racing an accept lands on a live row.
+      const q = await client.query<{ id: string; status: string; category_id: string | null }>(
+        `SELECT id, status, category_id FROM quote_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if ((q.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Not found" });
+      }
+      if (!["open", "quoted"].includes(q.rows[0].status)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Request no longer open" });
+      }
+      let workerId: string | null = null;
+      if (!isAdmin) {
+        const w = await client.query<{ ok: boolean }>(
+          `SELECT (verification_state = 'verified' AND is_active = true) AS ok FROM worker_profiles WHERE user_id = $1`, [uid]);
+        if (w.rowCount === 0 || !w.rows[0].ok) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({ error: "Only verified, active pros" });
+        }
+        workerId = uid;
+        const dup = await client.query(
+          `SELECT 1 FROM quote_proposals WHERE request_id = $1 AND worker_user_id = $2`, [q.rows[0].id, uid]);
+        if ((dup.rowCount ?? 0) > 0) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: "You already proposed on this request" });
+        }
+      }
+      const settings = await client.query<{ value: Record<string, number | boolean> }>(`SELECT value FROM settings WHERE id = 'platform'`);
+      const v = settings.rows[0]?.value ?? {};
+      const needApproval = v.quotesRequireAdminApproval !== false && f.pricePaisa >= Number(v.quotesApprovalThresholdPaisa ?? 500000);
+      let pid: string;
+      try {
+        const r = await client.query<{ id: string }>(
+          `INSERT INTO quote_proposals(request_id, worker_user_id, price_paisa, scope, availability, approved, approved_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [q.rows[0].id, workerId, f.pricePaisa, f.scope, f.availability, !needApproval, !needApproval ? uid : null]);
+        pid = r.rows[0].id;
+      } catch (e) {
+        if ((e as { code?: string }).code === "23505") {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: "You already proposed on this request" });
+        }
+        throw e;
+      }
+      await client.query(`UPDATE quote_requests SET status = 'quoted' WHERE id = $1`, [q.rows[0].id]);
+      const cust = await client.query<{ customer_id: string }>(
+        `SELECT customer_id FROM quote_requests WHERE id = $1`, [q.rows[0].id]);
+      await client.query("COMMIT");
+      if ((cust.rowCount ?? 0) > 0) {
+        void pushToUser(cust.rows[0].customer_id, {
+          title: "New proposal",
+          body: "A pro proposed a price — compare it in your dashboard.",
+          url: "/dashboard",
+        });
+      }
+      return res.status(201).json({ ok: true, id: pid, needsApproval: needApproval });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
     }
-    let workerId: string | null = null;
-    if (!isAdmin) {
-      const w = await query<{ ok: boolean }>(
-        `SELECT (verification_state = 'verified' AND is_active = true) AS ok FROM worker_profiles WHERE user_id = $1`, [uid]);
-      if (w.rowCount === 0 || !w.rows[0].ok) return res.status(403).json({ error: "Only verified, active pros" });
-      workerId = uid;
-    }
-    const settings = await query<{ value: Record<string, number | boolean> }>(`SELECT value FROM settings WHERE id = 'platform'`);
-    const v = settings.rows[0]?.value ?? {};
-    const needApproval = v.quotesRequireAdminApproval !== false && f.pricePaisa >= Number(v.quotesApprovalThresholdPaisa ?? 500000);
-    const r = await query<{ id: string }>(
-      `INSERT INTO quote_proposals(request_id, worker_user_id, price_paisa, scope, availability, approved, approved_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [q.rows[0].id, workerId, f.pricePaisa, f.scope, f.availability, !needApproval, !needApproval ? uid : null]);
-    await query(`UPDATE quote_requests SET status = 'quoted' WHERE id = $1`, [q.rows[0].id]);
-    const cust = await query<{ customer_id: string }>(
-      `SELECT customer_id FROM quote_requests WHERE id = $1`, [q.rows[0].id]);
-    if ((cust.rowCount ?? 0) > 0) {
-      void pushToUser(cust.rows[0].customer_id, {
-        title: "New proposal",
-        body: "A pro proposed a price — compare it in your dashboard.",
-        url: "/dashboard",
-      });
-    }
-    return res.status(201).json({ ok: true, id: r.rows[0].id, needsApproval: needApproval });
   }),
 );
 
@@ -212,6 +251,12 @@ router.post("/quotes/proposals/:id/accept", requireAuth, ah(async (req, res) => 
     if (!prop.worker_user_id) {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "Admin-authored proposal needs a pro assigned first" });
+    }
+    // Windows go stale: a request accepted weeks later must not mint a
+    // booking with a past slot.
+    if (new Date(prop.window_start).getTime() < Date.now()) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "This request's window has passed — ask for a fresh quote" });
     }
     // Re-validate the pro at accept time — suspended/unverified pros keep
     // neither bookings nor payouts.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, Price } from "../components/ui";
 import { MiniMap } from "../components/MiniMap";
@@ -38,11 +38,19 @@ export default function Track() {
   const [newSlot, setNewSlot] = useState("");
   const [rescheduling, setRescheduling] = useState(false);
   const [reschedBusy, setReschedBusy] = useState(false);
+  const seqRef = useRef(0);
 
   function reload() {
+    const my = ++seqRef.current;
     api<{ booking: Booking; history: History[] }>(`/api/bookings/${id}`)
-      .then((d) => { setBooking(d.booking); setHistory(d.history); })
-      .catch((e) => setError(e instanceof Error ? e.message : "Not found"));
+      .then((d) => {
+        if (seqRef.current !== my) return;
+        setBooking(d.booking); setHistory(d.history);
+      })
+      .catch((e) => {
+        if (seqRef.current !== my) return;
+        setError(e instanceof Error ? e.message : "Not found");
+      });
   }
 
   useEffect(reload, [id]);
@@ -88,7 +96,11 @@ export default function Track() {
     }
   }
 
-  const minSlot = new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16);
+  const minSlot = (() => {
+    const d = new Date(Date.now() + 3600 * 1000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
 
   async function reschedule() {
     if (!newSlot) return;

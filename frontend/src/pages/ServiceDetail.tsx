@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Star, Check, X } from "lucide-react";
-import { Badge, Button, Card, EmptyState, Price } from "../components/ui";
+import { Badge, Button, Card, EmptyState } from "../components/ui";
 import { api } from "../lib/api";
 import { formatNPR } from "../lib/format";
 import type { Service } from "../lib/types";
@@ -72,7 +72,7 @@ export default function ServiceDetail() {
               <Card className="p-4">
                 <p className="text-xs font-extrabold tracking-widest text-on-surface-variant uppercase">What's included</p>
                 <ul className="mt-2 space-y-1.5 text-sm">
-                  {(service.requirements.length > 0 ? service.requirements : ["Trained verified pro", "Standard materials check", "Cleanup after work"]).map((r) => (
+                  {((service.requirements ?? []).length > 0 ? (service.requirements ?? []) : ["Trained verified pro", "Standard materials check", "Cleanup after work"]).map((r) => (
                     <li key={r} className="flex items-start gap-1.5"><Check size={15} className="mt-0.5 shrink-0 text-success" aria-hidden="true" /> {r}</li>
                   ))}
                 </ul>
@@ -80,7 +80,7 @@ export default function ServiceDetail() {
               <Card className="p-4">
                 <p className="text-xs font-extrabold tracking-widest text-on-surface-variant uppercase">Not included</p>
                 <ul className="mt-2 space-y-1.5 text-sm">
-                  {(service.exclusions.length > 0 ? service.exclusions : ["Major parts (billed at MRP with your approval)"]).map((r) => (
+                  {((service.exclusions ?? []).length > 0 ? (service.exclusions ?? []) : ["Major parts (billed at MRP with your approval)"]).map((r) => (
                     <li key={r} className="flex items-start gap-1.5"><X size={15} className="mt-0.5 shrink-0 text-error" aria-hidden="true" /> {r}</li>
                   ))}
                 </ul>
