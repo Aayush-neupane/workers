@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, BellRing, Check, Gift, MapPin, User } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, MapPin, User } from "lucide-react";
 import { Button, Card, Field, PageHero, Select, TextField } from "../components/ui";
 import { MapPicker } from "../components/MapPicker";
 import { PushToggle } from "../components/PushToggle";
@@ -8,10 +8,10 @@ import { api, post } from "../lib/api";
 import { homeFor, useAuth } from "../lib/auth";
 import type { Pin } from "../lib/geo";
 
-const STEPS = ["Welcome", "Profile", "Location", "Alerts", "Rewards"];
+const STEPS = ["Account", "Location", "Done"];
 
-/** First-run tutorial: how Sajilo works, who you are, where you live,
- *  how we reach you, and how loyalty pays. Skippable, resumable, once. */
+/** First-run setup in three quick steps: who you are, where you live,
+ *  then alerts + rewards + go. Skippable, resumable, once. */
 export default function Onboarding() {
   const { user, role, refresh } = useAuth();
   const navigate = useNavigate();
@@ -122,29 +122,21 @@ export default function Onboarding() {
           {step === 0 && (
             <div>
               <h2 className="font-display text-2xl font-semibold">Ramro Sewa, Sajilo Jeevan.</h2>
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 space-y-2.5">
                 {[
-                  ["Book in Damak", "Fixed-price services or quote requests — wards 1–10 only, checked server-side."],
-                  ["A verified pro arrives", "Invite-only pros. Watch every status change live in tracking."],
+                  ["Book in Damak", "Fixed-price services or quote requests — wards 1–10 only."],
+                  ["A verified pro arrives", "Invite-only pros, tracked live in the app."],
                   ["Close with your code", "A one-time code reaches only you. No code, no completion."],
                 ].map(([t, b], i) => (
-                  <div key={t} className="flex gap-3 rounded-lg bg-surface-container/60 p-3.5">
-                    <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-pine-950 text-sm font-extrabold text-marigold-300">{i + 1}</span>
+                  <div key={t} className="flex gap-3 rounded-lg bg-surface-container/60 p-3">
+                    <span aria-hidden="true" className="grid size-7 shrink-0 place-items-center rounded-full bg-pine-950 text-sm font-extrabold text-marigold-300">{i + 1}</span>
                     <p className="text-sm"><strong>{t}.</strong> <span className="text-on-surface-variant">{b}</span></p>
                   </div>
                 ))}
               </div>
-              <Button className="mt-6 w-full py-3" onClick={() => setStep(1)}>
-                Set up my account <ArrowRight size={15} aria-hidden="true" />
-              </Button>
-            </div>
-          )}
-
-          {step === 1 && (
-            <div>
-              <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><User size={22} aria-hidden="true" /> Who are you?</h2>
-              <p className="mt-1 text-sm text-on-surface-variant">Pros see this name and number on job day.</p>
-              <div className="mt-4 space-y-4">
+              <h3 className="mt-5 flex items-center gap-2 font-display text-lg font-semibold"><User size={19} aria-hidden="true" /> Who are you?</h3>
+              <p className="mt-0.5 text-sm text-on-surface-variant">Pros see this name and number on job day.</p>
+              <div className="mt-3 space-y-4">
                 <Field label="Full name">
                   <TextField value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Gita Sharma" autoComplete="name" />
                 </Field>
@@ -152,15 +144,14 @@ export default function Onboarding() {
                   <TextField value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="9852600000" autoComplete="tel" />
                 </Field>
                 {error && <p role="alert" className="text-sm font-medium text-error">{error}</p>}
-                <div className="flex justify-between gap-3">
-                  <Button variant="outline" onClick={() => setStep(0)}><ArrowLeft size={15} aria-hidden="true" /> Back</Button>
-                  <Button onClick={() => saveProfile(true)} disabled={busy}>{busy ? "Saving…" : "Save & continue"}</Button>
-                </div>
+                <Button className="w-full py-3" onClick={() => saveProfile(true)} disabled={busy}>
+                  {busy ? "Saving…" : <>Save & continue <ArrowRight size={15} aria-hidden="true" /></>}
+                </Button>
               </div>
             </div>
           )}
 
-          {step === 2 && (
+          {step === 1 && (
             <div>
               <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><MapPin size={22} aria-hidden="true" /> Where do we come?</h2>
               <p className="mt-1 text-sm text-on-surface-variant">Save your Damak address once — every booking reuses it. Drop a pin so pros find you faster.</p>
@@ -188,9 +179,9 @@ export default function Onboarding() {
                 </div>
                 {error && <p role="alert" className="text-sm font-medium text-error">{error}</p>}
                 <div className="flex justify-between gap-3">
-                  <Button variant="outline" onClick={() => setStep(1)}><ArrowLeft size={15} aria-hidden="true" /> Back</Button>
+                  <Button variant="outline" onClick={() => setStep(0)}><ArrowLeft size={15} aria-hidden="true" /> Back</Button>
                   <div className="flex gap-2">
-                    <Button variant="ghost" onClick={() => setStep(3)}>Skip for now</Button>
+                    <Button variant="ghost" onClick={() => setStep(2)}>Skip for now</Button>
                     <Button onClick={saveAddress} disabled={busy}>{busy ? "Saving…" : "Save address"}</Button>
                   </div>
                 </div>
@@ -202,30 +193,14 @@ export default function Onboarding() {
             </div>
           )}
 
-          {step === 3 && (
+          {step === 2 && (
             <div>
-              <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><BellRing size={22} aria-hidden="true" /> Stay in the loop</h2>
+              <h2 className="font-display text-2xl font-semibold">You're set.</h2>
               <p className="mt-1 text-sm leading-relaxed text-on-surface-variant">
-                Assignments, pro-en-route pings, your completion codes and rewards arrive as in-app
-                notifications. Turn on push to get them with the app closed — the code itself always
-                stays inside the app.
+                Job updates and completion codes arrive as notifications — turn on push to get them
+                with the app closed. Every completed job also earns loyalty points (100 pts = Rs 50 off).
               </p>
               <div className="mt-4 rounded-lg bg-surface-container/60 p-4"><PushToggle /></div>
-              <div className="mt-6 flex justify-between gap-3">
-                <Button variant="outline" onClick={() => setStep(2)}><ArrowLeft size={15} aria-hidden="true" /> Back</Button>
-                <Button onClick={() => setStep(4)}>Continue <ArrowRight size={15} aria-hidden="true" /></Button>
-              </div>
-            </div>
-          )}
-
-          {step === 4 && (
-            <div>
-              <h2 className="flex items-center gap-2 font-display text-2xl font-semibold"><Gift size={22} aria-hidden="true" /> Get paid to return</h2>
-              <ul className="mt-3 space-y-2.5 text-sm">
-                <li className="rounded-md bg-surface-container/60 p-3"><strong>Points on every job</strong> <span className="text-on-surface-variant">— 100 pts becomes Rs 50 off at checkout.</span></li>
-                <li className="rounded-md bg-surface-container/60 p-3"><strong>Milestone bonuses</strong> <span className="text-on-surface-variant">— extra points every few completions.</span></li>
-                <li className="rounded-md bg-surface-container/60 p-3"><strong>Referrals</strong> <span className="text-on-surface-variant">— share your code, you both earn on their first job.</span></li>
-              </ul>
               {code && (
                 <>
                   <button onClick={() => {
@@ -238,13 +213,13 @@ export default function Onboarding() {
                     {code}
                   </button>
                   <p aria-live="polite" className="mt-1.5 text-center text-sm font-bold text-success">
-                    {copied ? "Copied!" : ""}
+                    {copied ? "Copied! Share it — you both earn on their first job." : "Your referral code — share it, you both earn on their first job."}
                   </p>
                 </>
               )}
               {error && <p role="alert" className="mt-3 text-sm font-medium text-error">{error}</p>}
               <div className="mt-6 flex justify-between gap-3">
-                <Button variant="outline" onClick={() => setStep(3)}><ArrowLeft size={15} aria-hidden="true" /> Back</Button>
+                <Button variant="outline" onClick={() => setStep(1)}><ArrowLeft size={15} aria-hidden="true" /> Back</Button>
                 <Button onClick={finish} disabled={busy}>
                   {busy ? "Finishing…" : "Start booking"} <Check size={15} aria-hidden="true" />
                 </Button>
