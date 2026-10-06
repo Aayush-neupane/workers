@@ -31,8 +31,9 @@ pm2 restart sajilo-api
 - Same-domain frontend+API keeps default cookies; split domains need
   `COOKIE_SAMESITE=none` + `COOKIE_DOMAIN=.sajilodamak.com` (+ `TRUST_PROXY`
   matching your proxy hops).
-- Backups: nightly `pg_dump` + off-site copy; document restore before launch.
-  (No backup script ships yet — add `backend/scripts/backup.sh` + cron.)
+- Backups: nightly `pg_dump` via `backend/scripts/backup.sh` (cron example
+  inside) + off-site copy of `/var/backups/sajilo`; test-restore monthly
+  into a scratch database before launch.
 
 ## Payments & notifications
 
