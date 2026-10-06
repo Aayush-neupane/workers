@@ -13,7 +13,11 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-const MINUTES = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
+
+const ITEM_H = 36;
+const DRUM_VISIBLE = 5;
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
@@ -134,8 +138,96 @@ const inputClass =
   "w-full rounded-md border border-outline bg-white px-3.5 py-2.5 font-mono text-sm outline-none transition focus:border-primary";
 const iconButtonClass =
   "grid shrink-0 place-items-center rounded-md border border-outline bg-white px-2.5 transition hover:border-pine-800";
-const miniSelectClass =
-  "rounded-md border border-outline bg-white px-2 py-1.5 font-mono text-sm outline-none transition focus:border-primary";
+
+/**
+ * Rotating drum column (hour / minute / AM-PM). Scroll, flick, or tap —
+ * the centered value is the pick, with a 3D tilt + fade like a lock dial.
+ */
+function Drum({ label, values, value, onChange }: {
+  label: string; values: string[]; value: string; onChange: (v: string) => void;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [sel, setSel] = useState(() => Math.max(0, values.indexOf(value)));
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // Typed-in values move the drum to match.
+  useEffect(() => {
+    const i = values.indexOf(value);
+    if (i >= 0 && i !== sel) {
+      setSel(i);
+      listRef.current?.scrollTo({ top: i * ITEM_H });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  // Start on the current value.
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: sel * ITEM_H });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleScroll() {
+    const el = listRef.current;
+    if (!el) return;
+    const i = Math.min(values.length - 1, Math.max(0, Math.round(el.scrollTop / ITEM_H)));
+    if (i !== sel) {
+      setSel(i);
+      if (values[i] !== value) onChangeRef.current(values[i]);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center">
+      <span className="mb-1 text-[10px] font-extrabold tracking-widest text-on-surface-variant uppercase">{label}</span>
+      <div className="relative" style={{ perspective: "320px" }}>
+        <div
+          ref={listRef}
+          onScroll={handleScroll}
+          role="listbox"
+          aria-label={label}
+          tabIndex={0}
+          className="drum-scroll w-14 overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:hidden"
+          style={{ height: ITEM_H * DRUM_VISIBLE, scrollSnapType: "y mandatory", scrollbarWidth: "none" }}
+        >
+          <div style={{ height: ITEM_H * 2 }} aria-hidden="true" />
+          {values.map((v, i) => {
+            const off = i - sel;
+            const abs = Math.abs(off);
+            return (
+              <button
+                key={v}
+                type="button"
+                role="option"
+                aria-selected={i === sel}
+                tabIndex={-1}
+                onClick={() => listRef.current?.scrollTo({ top: i * ITEM_H, behavior: "smooth" })}
+                style={{
+                  height: ITEM_H,
+                  scrollSnapAlign: "center",
+                  transform: `rotateX(${off * -24}deg)`,
+                  opacity: abs > 3 ? 0 : 1 - abs * 0.28,
+                }}
+                className={`w-full rounded font-mono text-sm ${
+                  i === sel ? "font-extrabold text-pine-950" : "text-on-surface-variant"
+                }`}
+              >
+                {v}
+              </button>
+            );
+          })}
+          <div style={{ height: ITEM_H * 2 }} aria-hidden="true" />
+        </div>
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0"
+          style={{ height: ITEM_H * 2, background: "linear-gradient(to bottom, white, transparent)" }} />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0"
+          style={{ height: ITEM_H * 2, background: "linear-gradient(to top, white, transparent)" }} />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 rounded border-y border-outline/70"
+          style={{ top: ITEM_H * 2, height: ITEM_H }} />
+      </div>
+    </div>
+  );
+}
 
 /** Date + time as yyyy/mm/dd HH:MM — typed or picked from the calendar. */
 export function DateTimeField({ id, value, onChange, placeholder }: {
@@ -154,14 +246,27 @@ export function DateTimeField({ id, value, onChange, placeholder }: {
     onChange(toSlotText(new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, mi)));
   }
 
-  function setTime(h: number, mi: number) {
+  function setTime(h24: number, mi: number) {
     const base = current ?? new Date();
-    onChange(toSlotText(new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, mi)));
+    onChange(toSlotText(new Date(base.getFullYear(), base.getMonth(), base.getDate(), h24, mi)));
   }
 
-  const selH = current ? current.getHours() : 9;
-  const selM = pad(current ? current.getMinutes() : 0);
-  const minuteOptions = MINUTES.includes(selM) ? MINUTES : [...MINUTES, selM].sort();
+  const h24 = current ? current.getHours() : 9;
+  const h12 = pad(h24 % 12 === 0 ? 12 : h24 % 12);
+  const ampm = h24 < 12 ? "AM" : "PM";
+  const min = pad(current ? current.getMinutes() : 0);
+
+  function setHour12(v: string) {
+    setTime((Number(v) % 12) + (ampm === "PM" ? 12 : 0), Number(min));
+  }
+
+  function setMinute(v: string) {
+    setTime(h24, Number(v));
+  }
+
+  function setAmpm(v: string) {
+    setTime((Number(h12) % 12) + (v === "PM" ? 12 : 0), Number(min));
+  }
 
   return (
     <div ref={wrapRef} className="relative">
@@ -187,23 +292,10 @@ export function DateTimeField({ id, value, onChange, placeholder }: {
       {open && (
         <div className="elev-2 absolute z-50 mt-1.5 w-64 rounded-lg border border-outline bg-white p-3">
           <Calendar value={current} onPick={pickDay} disablePast />
-          <div className="mt-2 flex items-center gap-1.5 border-t border-outline/60 pt-2.5">
-            <span className="text-xs font-bold text-on-surface-variant">Time</span>
-            <select value={pad(selH)} aria-label="Hour"
-              onChange={(e) => setTime(Number(e.target.value), Number(selM))}
-              className={miniSelectClass}>
-              {Array.from({ length: 24 }).map((_, h) => (
-                <option key={h} value={pad(h)}>{pad(h)}</option>
-              ))}
-            </select>
-            <span aria-hidden="true" className="font-mono text-sm font-bold">:</span>
-            <select value={selM} aria-label="Minute"
-              onChange={(e) => setTime(selH, Number(e.target.value))}
-              className={miniSelectClass}>
-              {minuteOptions.map((mi) => (
-                <option key={mi} value={mi}>{mi}</option>
-              ))}
-            </select>
+          <div className="mt-2 flex justify-center gap-2 border-t border-outline/60 pt-2.5">
+            <Drum label="Hour" values={HOURS_12} value={h12} onChange={setHour12} />
+            <Drum label="Min" values={MINUTES_60} value={min} onChange={setMinute} />
+            <Drum label="AM/PM" values={["AM", "PM"]} value={ampm} onChange={setAmpm} />
           </div>
         </div>
       )}
