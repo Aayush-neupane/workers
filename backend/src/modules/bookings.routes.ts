@@ -247,10 +247,10 @@ router.put(
     if (["completed", "cancelled"].includes(b.status)) {
       return res.status(409).json({ error: `Cannot reschedule a ${b.status} booking` });
     }
-    // Once a pro has confirmed, moving the slot needs their consent — so
-    // customers can only reschedule while unconfirmed; staff handle the rest.
+    // Once a pro has confirmed, moving the slot needs the other side's
+    // consent — both sides request through the admin from here on.
     if (!isAdmin && !["pending", "awaiting-worker"].includes(b.status)) {
-      return res.status(409).json({ error: `Cannot reschedule while ${b.status} — contact support` });
+      return res.status(409).json({ error: `Cannot move directly while ${b.status} — send a reschedule request for admin review` });
     }
     await query(`UPDATE bookings SET slot = $1, updated_at = now() WHERE id = $2`, [f.slot, b.id]);
     await query(
@@ -259,6 +259,125 @@ router.put(
     return res.json({ ok: true });
   }),
 );
+
+/**
+ * Reschedule request: after confirmation neither side moves the slot
+ * directly. The assigned pro or the customer proposes a new slot with a
+ * reason; an admin approves (slot moves, both sides notified) or rejects.
+ * One pending request per booking.
+ */
+const rescheduleRequestSchema = z.object({
+  proposedSlot: z.string().datetime({ offset: true }),
+  reason: z.string().trim().max(500).default(""),
+});
+
+router.post(
+  "/bookings/:id/reschedule-requests",
+  requireAuth,
+  validate(rescheduleRequestSchema),
+  ah(async (req, res) => {
+    const f = req.body as { proposedSlot: string; reason: string };
+    if (new Date(f.proposedSlot).getTime() < Date.now() + 3600_000) {
+      return res.status(400).json({ error: "Propose a slot at least an hour ahead" });
+    }
+    const key = bookingKey(req.params.id);
+    if (!key) return res.status(400).json({ error: "Invalid request" });
+    const r = await query<{ id: string; customer_id: string; worker_id: string | null; status: string }>(
+      `SELECT id, customer_id, worker_id, status FROM bookings WHERE ${key.column} = $1`, [key.value]);
+    if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
+    const b = r.rows[0];
+    if (["completed", "cancelled"].includes(b.status)) {
+      return res.status(409).json({ error: `Cannot reschedule a ${b.status} booking` });
+    }
+    const roles = req.user!.roles;
+    const uid = req.user!.id;
+    const isOwner = b.customer_id === uid;
+    const isAssignedPro = b.worker_id === uid && roles.includes("WORKER");
+    const isSuper = roles.includes("ADMIN");
+    const isStaffDispatcher = !isSuper && roles.includes("SUB_ADMIN") &&
+      (await effectivePermissions(uid)).includes("bookings.assign");
+    if (!isOwner && !isAssignedPro && !isSuper && !isStaffDispatcher) {
+      return res.status(403).json({ error: "Forbidden for your role" });
+    }
+    const byRole = isOwner ? "customer" : isAssignedPro ? "worker" : "admin";
+    const dup = await query(`SELECT id FROM reschedule_requests WHERE booking_id = $1 AND status = 'pending'`, [b.id]);
+    if ((dup.rowCount ?? 0) > 0) {
+      return res.status(409).json({ error: "A request is already waiting for admin review" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const ins = await client.query<{ id: string }>(
+        `INSERT INTO reschedule_requests(booking_id, requested_by, requested_role, proposed_slot, reason)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [b.id, uid, byRole, f.proposedSlot, f.reason]);
+      await client.query(
+        `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note) VALUES ($1, $2, $3, $4, $5)`,
+        [b.id, b.status, byRole, uid, `Reschedule requested`]);
+      const title = "Reschedule requested";
+      const body = `A new time was proposed for booking ${b.id.slice(0, 8)} — review it in dispatch.`;
+      if (byRole === "worker") {
+        // Pro asks → admins review, customer is told a request is in flight.
+        await client.query(
+          `INSERT INTO notifications(user_id, title, body)
+           SELECT u.id, 'Reschedule requested', 'Your pro proposed a new time — the admin confirms it shortly.'
+           FROM users u WHERE u.id = $1`, [b.customer_id]);
+        await client.query(
+          `INSERT INTO notifications(user_id, title, body)
+           SELECT u.id, $1, $2 FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
+           WHERE r.name = 'ADMIN' AND u.is_active = true
+           UNION
+           SELECT up.user_id, $1, $2 FROM user_permissions up JOIN permissions p ON p.id = up.permission_id
+           JOIN users u ON u.id = up.user_id WHERE p.name = 'bookings.assign' AND u.is_active = true`,
+          [title, body]);
+      } else {
+        // Customer (or admin on their behalf) asks → assigned pro + admins.
+        if (b.worker_id) await notify(client, b.worker_id, title, "The customer proposed a new time — the admin confirms it shortly.");
+        await client.query(
+          `INSERT INTO notifications(user_id, title, body)
+           SELECT u.id, $1, $2 FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
+           WHERE r.name = 'ADMIN' AND u.is_active = true
+           UNION
+           SELECT up.user_id, $1, $2 FROM user_permissions up JOIN permissions p ON p.id = up.permission_id
+           JOIN users u ON u.id = up.user_id WHERE p.name = 'bookings.assign' AND u.is_active = true`,
+          [title, body]);
+      }
+      await client.query("COMMIT");
+      void pushToStaff("bookings.assign", { title, body, url: "/admin" });
+      if (byRole === "worker") {
+        void pushToUser(b.customer_id, { title: "Reschedule requested", body: "Your pro proposed a new time — the admin confirms it shortly.", url: `/track/${b.id}` });
+      } else if (b.worker_id) {
+        void pushToUser(b.worker_id, { title, body: "The customer proposed a new time — the admin confirms it shortly.", url: "/worker" });
+      }
+      return res.status(201).json({ ok: true, id: ins.rows[0].id });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
+/** Parties to a booking (plus dispatch staff) see its reschedule requests. */
+router.get("/bookings/:id/reschedule-requests", requireAuth, ah(async (req, res) => {
+  const key = bookingKey(req.params.id);
+  if (!key) return res.status(400).json({ error: "Invalid request" });
+  const r = await query<{ id: string; customer_id: string; worker_id: string | null }>(
+    `SELECT id, customer_id, worker_id FROM bookings WHERE ${key.column} = $1`, [key.value]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Not found" });
+  const b = r.rows[0];
+  const roles = req.user!.roles;
+  const uid = req.user!.id;
+  const party = b.customer_id === uid || b.worker_id === uid || roles.includes("ADMIN") ||
+    (roles.includes("SUB_ADMIN") && (await effectivePermissions(uid)).includes("bookings.view"));
+  if (!party) return res.status(404).json({ error: "Not found" });
+  const list = await query(
+    `SELECT rr.*, u.name AS requested_by_name FROM reschedule_requests rr
+     LEFT JOIN users u ON u.id = rr.requested_by
+     WHERE rr.booking_id = $1 ORDER BY rr.created_at DESC`, [b.id]);
+  return res.json({ requests: list.rows });
+}));
 
 /**
  * Pros eligible for a booking: verified + active + skilled in its service.
@@ -326,17 +445,33 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(`UPDATE bookings SET worker_id = $1, updated_at = now() WHERE id = $2`, [f.workerId, booking.id]);
+      // Dispatch advances a fresh booking: assigning a pending job moves it
+      // to awaiting-worker in the same transaction, so the pro's portal
+      // immediately offers Confirm instead of a dead-end with no actions.
+      // Reassignments never regress an already-moving job.
+      const advanced = booking.status === "pending";
+      const nextStatus = advanced ? "awaiting-worker" : booking.status;
+      await client.query(
+        `UPDATE bookings SET worker_id = $1, status = $2, updated_at = now() WHERE id = $3`,
+        [f.workerId, nextStatus, booking.id]);
       await client.query(
         `INSERT INTO assignments(booking_id, worker_user_id, assigned_by, reason) VALUES ($1, $2, $3, $4)`,
         [booking.id, f.workerId, req.user!.id, f.reason || (booking.worker_id ? "reassignment" : "assignment")]);
       await client.query(
         `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note)
          VALUES ($1, $2, 'admin', $3, $4)`,
-        [booking.id, booking.status, req.user!.id, `Assigned to pro${booking.worker_id ? " (reassigned)" : ""}`]);
+        [booking.id, nextStatus, req.user!.id,
+          `Assigned to pro${booking.worker_id ? " (reassigned)" : ""}${advanced ? " — opened for confirmation" : ""}`]);
       await notify(client, f.workerId, "New assignment", "A booking was assigned to you.");
       if (booking.worker_id && booking.worker_id !== f.workerId) {
         await notify(client, booking.worker_id, "Assignment changed", "A booking was reassigned away from you.");
+      }
+      const cust = await client.query<{ customer_id: string }>(
+        `SELECT customer_id FROM bookings WHERE id = $1`, [booking.id]);
+      const customerId = (cust.rowCount ?? 0) > 0 ? cust.rows[0].customer_id : null;
+      if (customerId) {
+        await notify(client, customerId, "Pro assigned",
+          `A verified pro was assigned to your booking — they confirm shortly.`);
       }
       await client.query("COMMIT");
       try {
@@ -350,7 +485,14 @@ router.post(
         body: "A Damak booking was assigned to you — open your jobs.",
         url: "/worker",
       });
-      return res.json({ ok: true, reassigned: Boolean(booking.worker_id) });
+      if (customerId) {
+        void pushToUser(customerId, {
+          title: "Pro assigned",
+          body: "A verified pro was assigned — track confirmation live.",
+          url: `/track/${booking.id}`,
+        });
+      }
+      return res.json({ ok: true, reassigned: Boolean(booking.worker_id), advanced });
     } catch (e) {
       await client.query("ROLLBACK");
       throw e;

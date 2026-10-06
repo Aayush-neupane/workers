@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { FileText, Mail, MapPin, Phone } from "lucide-react";
 import { Card, PageHero } from "../components/ui";
 import { loadConsent } from "../lib/consent";
+import { formatDate } from "../lib/format";
 
 const EFFECTIVE = "15 October 2026";
 const VERSION = "v1.0";
@@ -273,7 +274,7 @@ export function Cookies() {
       <section>
         <H id="current" n="4.">Your current choices</H>
         <P>{c
-          ? `On this device: preferences ${c.preferences ? "on" : "off"} · analytics ${c.analytics ? "on" : "off"} · marketing ${c.marketing ? "on" : "off"} (policy ${c.policyVersion}, recorded ${new Date(c.ts).toLocaleDateString()}).`
+          ? `On this device: preferences ${c.preferences ? "on" : "off"} · analytics ${c.analytics ? "on" : "off"} · marketing ${c.marketing ? "on" : "off"} (policy ${c.policyVersion}, recorded ${formatDate(c.ts)}).`
           : "No choices recorded on this device yet — the banner appears on first visit."}</P>
       </section>
       <section>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Card, EmptyState, PageHero } from "../components/ui";
 import { PushToggle } from "../components/PushToggle";
 import { api, post } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 
 interface Note {
   id: string;
@@ -80,7 +81,7 @@ export default function Notifications() {
                 {!n.is_read && <span aria-label="Unread" className="size-2.5 shrink-0 rounded-full bg-primary" />}
               </span>
               <span className="mt-0.5 block text-sm leading-relaxed">{n.body}</span>
-              <span className="mt-1.5 block text-xs text-on-surface-variant">{new Date(n.created_at).toLocaleString()}</span>
+              <span className="mt-1.5 block text-xs text-on-surface-variant">{formatDateTime(n.created_at)}</span>
             </button>
           ))}
         </div>

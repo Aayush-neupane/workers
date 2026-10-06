@@ -9,6 +9,7 @@ import { MapPicker } from "../components/MapPicker";
 import { api, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { suggestStreet, type Pin } from "../lib/geo";
+import { previewDateTimeLocal } from "../lib/format";
 import type { Category } from "../lib/types";
 
 const schema = z.object({
@@ -116,12 +117,18 @@ export default function QuoteNew() {
                 }} />
             )}
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Preferred window start" error={form.formState.errors.windowStart?.message}>
-                <TextField {...form.register("windowStart")} type="datetime-local" />
-              </Field>
-              <Field label="Preferred window end" error={form.formState.errors.windowEnd?.message}>
-                <TextField {...form.register("windowEnd")} type="datetime-local" />
-              </Field>
+              <div>
+                <Field label="Preferred window start" error={form.formState.errors.windowStart?.message}>
+                  <TextField {...form.register("windowStart")} type="datetime-local" style={{ colorScheme: "light" }} />
+                </Field>
+                <p className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(form.watch("windowStart")) || "yyyy/mm/dd HH:MM"}</p>
+              </div>
+              <div>
+                <Field label="Preferred window end" error={form.formState.errors.windowEnd?.message}>
+                  <TextField {...form.register("windowEnd")} type="datetime-local" style={{ colorScheme: "light" }} />
+                </Field>
+                <p className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(form.watch("windowEnd")) || "yyyy/mm/dd HH:MM"}</p>
+              </div>
             </div>
             {error && <p role="alert" className="rounded-md bg-error-container p-3 text-sm font-medium text-error">{error}</p>}
             <Button type="submit" className="w-full">Submit request</Button>

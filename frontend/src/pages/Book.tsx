@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
 import { api, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { formatSlot } from "../lib/format";
+import { formatDay, formatSlot } from "../lib/format";
 import type { Address, Service } from "../lib/types";
 
 const schema = z.object({
@@ -207,7 +207,7 @@ export default function Book() {
                   {visibleDays.map(([day, daySlots]) => (
                     <div key={day}>
                       <p className="mb-1.5 text-xs font-extrabold tracking-wide text-on-surface-variant uppercase">
-                        {new Date(daySlots[0]).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+                        {formatDay(daySlots[0])}
                       </p>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Time slots">
                         {daySlots.map((s) => (

@@ -7,7 +7,7 @@ import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextAr
 import { LiveMap } from "../components/LiveMap";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
-import { formatSlot, formatNPR } from "../lib/format";
+import { formatDate, formatDateTime, formatSlot, formatNPR } from "../lib/format";
 import { useAuth } from "../lib/auth";
 
 type Tab =
@@ -334,7 +334,7 @@ function AgeBadge({ createdAt, status, assigned }: { createdAt: string; status: 
   const aging = !assigned && ["pending", "awaiting-worker"].includes(status) && mins >= 120;
   const stale = !assigned && ["pending", "awaiting-worker"].includes(status) && mins >= 30;
   return (
-    <span title={new Date(createdAt).toLocaleString()}>
+    <span title={formatDateTime(createdAt)}>
       {aging ? <Badge tone="error">Aging · {label}</Badge>
         : stale ? <Badge tone="warning">{label}</Badge>
         : <span className="text-on-surface-variant">{label}</span>}
@@ -411,6 +411,8 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
   const [workerId, setWorkerId] = useState("");
   const [reason, setReason] = useState("");
   const [eligibleFailed, setEligibleFailed] = useState(false);
+  const [reqs, setReqs] = useState<{ id: string; status: string; proposed_slot: string; requested_role: string; reason: string; requested_by_name: string | null }[]>([]);
+  const [rejectNote, setRejectNote] = useState("");
   const seqRef = useRef(0);
 
   function reload() {
@@ -421,8 +423,21 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
     api<{ workers: typeof workers }>(`/api/bookings/${bookingNo}/eligible-workers`)
       .then((d) => { if (seqRef.current !== my) return; setWorkers(d.workers); setEligibleFailed(false); })
       .catch(() => { if (seqRef.current !== my) return; setWorkers([]); setEligibleFailed(true); });
+    api<{ requests: typeof reqs }>(`/api/bookings/${bookingNo}/reschedule-requests`)
+      .then((d) => { if (seqRef.current !== my) return; setReqs(d.requests); }).catch(() => {});
   }
   useEffect(reload, [bookingNo]);
+
+  async function decideReq(id: string, decision: "approve" | "reject") {
+    try {
+      await post(`/api/admin/reschedule-requests/${id}/${decision}`, decision === "reject" ? { reason: rejectNote } : {});
+      onMsg(decision === "approve" ? "New time confirmed — both sides notified." : "Request declined — requester notified.");
+      setRejectNote("");
+      reload();
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Decision failed");
+    }
+  }
 
   async function assign() {
     if (!workerId) return;
@@ -507,6 +522,33 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
           )}
 
           <div className="rounded-lg border border-outline/60 bg-white p-4">
+            <p className="font-bold">Reschedule requests</p>
+            {reqs.filter((r) => r.status === "pending").length === 0 ? (
+              <p className="mt-1 text-sm text-on-surface-variant">No pending requests — pros and customers propose new times here for your review.</p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {reqs.filter((r) => r.status === "pending").map((r) => (
+                  <li key={r.id} className="rounded-md bg-surface-container p-3 text-sm">
+                    <p><strong>{r.requested_role === "worker" ? "Pro" : "Customer"}</strong>{r.requested_by_name ? ` · ${r.requested_by_name}` : ""} proposes <strong>{formatSlot(r.proposed_slot)}</strong></p>
+                    {r.reason && <p className="mt-0.5 text-xs text-on-surface-variant">“{r.reason}”</p>}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Button onClick={() => decideReq(r.id, "approve")}>Approve & move slot</Button>
+                      <TextField value={rejectNote} onChange={(e) => setRejectNote(e.target.value)}
+                        placeholder="Decline reason (optional)" aria-label="Decline reason" className="max-w-55" />
+                      <Button variant="outline" onClick={() => decideReq(r.id, "reject")}>Decline</Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {reqs.filter((r) => r.status !== "pending").length > 0 && (
+              <p className="mt-2 text-xs text-on-surface-variant">
+                Decided: {reqs.filter((r) => r.status !== "pending").map((r) => `${formatDateTime(r.proposed_slot)} (${r.status})`).join(" · ")}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-outline/60 bg-white p-4">
             <p className="font-bold">Status correction</p>
             <p className="text-xs text-on-surface-variant">Controlled exception path — every move is logged.</p>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -523,7 +565,7 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
             <p className="font-bold">Assignment history</p>
             {assigns.length === 0 ? <p className="text-sm text-on-surface-variant">No assignments yet.</p> : (
               <ul className="mt-1 space-y-1 text-sm">
-                {assigns.map((a, i) => <li key={i}>{a.worker_name ?? "—"} · {a.reason} · {new Date(a.created_at).toLocaleString()}</li>)}
+                {assigns.map((a, i) => <li key={i}>{a.worker_name ?? "—"} · {a.reason} · {formatDateTime(a.created_at)}</li>)}
               </ul>
             )}
           </div>
@@ -533,7 +575,7 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
             <ol className="mt-2 space-y-2">
               {history.map((h, i) => (
                 <li key={i} className="border-l-2 border-outline pl-3 text-sm">
-                  <strong>{h.status}</strong> <span className="text-xs text-on-surface-variant">by {h.by_role} · {new Date(h.at).toLocaleString()}{h.note ? ` — ${h.note}` : ""}</span>
+                  <strong>{h.status}</strong> <span className="text-xs text-on-surface-variant">by {h.by_role} · {formatDateTime(h.at)}{h.note ? ` — ${h.note}` : ""}</span>
                 </li>
               ))}
             </ol>
@@ -619,7 +661,7 @@ function Workers({ onMsg }: { onMsg: (m: string) => void }) {
               </Badge>
             </td>
             <td className="px-4 py-2.5">{String(w.jobs_done)}</td>
-            <td className="px-4 py-2.5 text-xs">{w.joined_at ? new Date(String(w.joined_at)).toLocaleDateString() : "—"}</td>
+            <td className="px-4 py-2.5 text-xs">{w.joined_at ? formatDate(String(w.joined_at)) : "—"}</td>
             <td className="px-4 py-2.5"><Button variant="outline" onClick={() => setSelected(String(w.id))}>Review</Button></td>
           </tr>
         ))}
@@ -695,7 +737,7 @@ function WorkerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => void;
         <p className="font-bold">Verification documents ({docs.length})</p>
         {docs.length === 0 ? <p className="text-sm text-on-surface-variant">Checked physically at the office — nothing filed digitally.</p> : (
           <ul className="mt-1 space-y-1 text-sm">
-            {docs.map((d) => <li key={d.id}>{d.kind} · {new Date(d.uploaded_at).toLocaleDateString()}</li>)}
+            {docs.map((d) => <li key={d.id}>{d.kind} · {formatDate(d.uploaded_at)}</li>)}
           </ul>
         )}
       </Card>
@@ -1175,7 +1217,7 @@ function Finance({ onMsg }: { onMsg: (m: string) => void }) {
               <td className="px-4 py-2.5 font-mono text-xs">{String(c.booking_no)}</td>
               <td className="px-4 py-2.5 font-bold">{formatNPR(Number(c.amount_paisa))}</td>
               <td className="px-4 py-2.5">{String(c.collector ?? "—")}</td>
-              <td className="px-4 py-2.5 text-xs">{new Date(String(c.created_at)).toLocaleString()}</td>
+              <td className="px-4 py-2.5 text-xs">{formatDateTime(String(c.created_at))}</td>
             </tr>
           ))}
         </Table>
@@ -1362,7 +1404,7 @@ function SupportAdmin({ onMsg }: { onMsg: (m: string) => void }) {
             <p className="font-bold">{t.subject}</p>
             <Badge tone={t.status === "resolved" ? "success" : t.status === "in-progress" ? "info" : "warning"}>{t.status}</Badge>
           </div>
-          <p className="text-xs text-on-surface-variant">{t.user_name} · updated {new Date(t.updated_at).toLocaleString()}</p>
+          <p className="text-xs text-on-surface-variant">{t.user_name} · updated {formatDateTime(t.updated_at)}</p>
           {openId === t.id ? (
             <div className="mt-3 space-y-2">
               <TextArea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Internal reply to customer…" aria-label="Reply" />
@@ -1473,8 +1515,8 @@ function Reports() {
     <div className="space-y-5">
       <form className="flex flex-wrap items-end gap-3 rounded-lg border border-outline/60 bg-white p-4"
         onSubmit={(e) => { e.preventDefault(); load(); }}>
-        <Field label="From"><input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="rounded-md border border-outline px-3 py-2 text-sm" /></Field>
-        <Field label="To"><input type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} className="rounded-md border border-outline px-3 py-2 text-sm" /></Field>
+        <Field label="From"><TextField type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} style={{ colorScheme: "light" }} /></Field>
+        <Field label="To"><TextField type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} style={{ colorScheme: "light" }} /></Field>
         <Button type="submit">Apply</Button>
       </form>
       {!d ? <p className="text-sm text-on-surface-variant">Loading…</p> : (

@@ -404,6 +404,120 @@ router.get("/admin/bookings", requirePermission("bookings.view"), ah(async (req,
   return res.json({ bookings: r.rows });
 }));
 
+// ---------- Reschedule requests (pro/customer propose, admin decides) ----------
+router.get("/admin/reschedule-requests", requireAnyPermission("bookings.assign", "bookings.view"), ah(async (req, res) => {
+  const only = typeof req.query.status === "string" ? req.query.status : "pending";
+  const r = await query(
+    `SELECT rr.*, b.booking_no, b.status AS booking_status, s.name AS service_name,
+            cu.name AS customer_name, w.name AS worker_name, u.name AS requested_by_name
+     FROM reschedule_requests rr
+     JOIN bookings b ON b.id = rr.booking_id
+     LEFT JOIN services s ON s.id = b.service_id
+     LEFT JOIN users cu ON cu.id = b.customer_id
+     LEFT JOIN users w ON w.id = b.worker_id
+     LEFT JOIN users u ON u.id = rr.requested_by
+     ${only ? "WHERE rr.status = $1" : ""} ORDER BY rr.created_at DESC LIMIT 100`,
+    only ? [only] : []);
+  return res.json({ requests: r.rows });
+}));
+
+router.post(
+  "/admin/reschedule-requests/:id/approve",
+  requireAnyPermission("bookings.assign", "worker.assign"),
+  ah(async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const r = await client.query<{ id: string; booking_id: string; proposed_slot: string; requested_by: string | null }>(
+        `SELECT id, booking_id, proposed_slot, requested_by FROM reschedule_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if ((r.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Request not found" });
+      }
+      const rr = r.rows[0];
+      if ((await client.query(`SELECT status FROM reschedule_requests WHERE id = $1`, [rr.id])).rows[0].status !== "pending") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Request already decided" });
+      }
+      const b = await client.query<{ id: string; status: string; customer_id: string; worker_id: string | null; slot: string }>(
+        `SELECT id, status, customer_id, worker_id, slot FROM bookings WHERE id = $1 FOR UPDATE`, [rr.booking_id]);
+      if ((b.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Booking not found" });
+      }
+      const booking = b.rows[0];
+      if (["completed", "cancelled"].includes(booking.status)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: `Cannot reschedule a ${booking.status} booking` });
+      }
+      if (new Date(rr.proposed_slot).getTime() < Date.now() + 3600_000) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Proposed slot is no longer an hour ahead — ask for a fresh time" });
+      }
+      await client.query(
+        `UPDATE reschedule_requests SET status = 'approved', reviewed_by = $1, reviewed_at = now() WHERE id = $2`,
+        [req.user!.id, rr.id]);
+      await client.query(`UPDATE bookings SET slot = $1, updated_at = now() WHERE id = $2`, [rr.proposed_slot, booking.id]);
+      await client.query(
+        `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note) VALUES ($1, $2, 'admin', $3, 'Reschedule approved — new slot set')`,
+        [booking.id, booking.status, req.user!.id]);
+      await notify(client, booking.customer_id, "New time confirmed", "Your booking was moved to the agreed time — see the updated slot.");
+      if (booking.worker_id) await notify(client, booking.worker_id, "New time confirmed", "The booking was moved to the agreed time — see the updated slot.");
+      await client.query("COMMIT");
+      await adminAudit(req.user!.id, "reschedule-approve", `${rr.id} booking ${booking.id} -> ${rr.proposed_slot}`);
+      void pushToUser(booking.customer_id, { title: "New time confirmed", body: "Your booking was moved to the agreed time.", url: `/track/${booking.id}` });
+      if (booking.worker_id) void pushToUser(booking.worker_id, { title: "New time confirmed", body: "The booking was moved to the agreed time.", url: "/worker" });
+      return res.json({ ok: true, slot: rr.proposed_slot });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
+router.post(
+  "/admin/reschedule-requests/:id/reject",
+  requireAnyPermission("bookings.assign", "worker.assign"),
+  validate(z.object({ reason: z.string().trim().max(300).default("") })),
+  ah(async (req, res) => {
+    const f = req.body as { reason: string };
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const r = await client.query<{ id: string; booking_id: string; requested_by: string | null; status: string }>(
+        `SELECT id, booking_id, requested_by, status FROM reschedule_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if ((r.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Request not found" });
+      }
+      const rr = r.rows[0];
+      if (rr.status !== "pending") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Request already decided" });
+      }
+      await client.query(
+        `UPDATE reschedule_requests SET status = 'rejected', reviewed_by = $1, reviewed_at = now() WHERE id = $2`,
+        [req.user!.id, rr.id]);
+      await client.query(
+        `INSERT INTO booking_events(booking_id, status, by_role, by_user_id, note)
+         VALUES ($1, (SELECT status FROM bookings WHERE id = $1), 'admin', $2, 'Reschedule declined')`,
+        [rr.booking_id, req.user!.id]);
+      if (rr.requested_by) await notify(client, rr.requested_by, "Reschedule declined", f.reason || "The proposed time didn't work — propose another one.");
+      await client.query("COMMIT");
+      await adminAudit(req.user!.id, "reschedule-reject", `${rr.id}: ${f.reason || "no reason"}`);
+      if (rr.requested_by) void pushToUser(rr.requested_by, { title: "Reschedule declined", body: "The proposed time didn't work — propose another one.", url: "/dashboard" });
+      return res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
 router.post(
   "/admin/settlements",
   requirePermission("finance.settle"),

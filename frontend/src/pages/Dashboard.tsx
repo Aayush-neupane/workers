@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { BadgeCheck } from "lucide-react";
 import { Badge, Button, Card, EmptyState, PageHero, Price } from "../components/ui";
 import { api, post } from "../lib/api";
-import { formatSlot } from "../lib/format";
+import { formatDate, formatSlot } from "../lib/format";
 import type { Booking, QuoteRequest } from "../lib/types";
 
 interface Invite {
@@ -96,7 +96,7 @@ export default function Dashboard() {
                   </p>
                   <p className="mt-1 text-sm leading-relaxed text-on-surface-variant">
                     Our office verified your application. Accept to open the pro portal —
-                    verification decides when you start receiving jobs. Expires {new Date(inv.expires_at).toLocaleDateString()}.
+                    verification decides when you start receiving jobs. Expires {formatDate(inv.expires_at)}.
                   </p>
                   <Button className="mt-3" onClick={() => acceptInvite(inv.id)}>Accept & open pro portal</Button>
                 </Card>

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Badge, Button, Card, EmptyState, Price } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Price, TextField } from "../components/ui";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
-import { formatSlot } from "../lib/format";
+import { formatDateTime, formatSlot, previewDateTimeLocal } from "../lib/format";
 import type { Booking } from "../lib/types";
 
 interface History {
@@ -38,6 +38,11 @@ export default function Track() {
   const [newSlot, setNewSlot] = useState("");
   const [rescheduling, setRescheduling] = useState(false);
   const [reschedBusy, setReschedBusy] = useState(false);
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqSlot, setReqSlot] = useState("");
+  const [reqReason, setReqReason] = useState("");
+  const [reqBusy, setReqBusy] = useState(false);
+  const [requests, setRequests] = useState<{ id: string; status: string; proposed_slot: string; requested_role: string; reason: string }[]>([]);
   const seqRef = useRef(0);
 
   function reload() {
@@ -51,6 +56,9 @@ export default function Track() {
         if (seqRef.current !== my) return;
         setError(e instanceof Error ? e.message : "Not found");
       });
+    api<{ requests: typeof requests }>(`/api/bookings/${id}/reschedule-requests`)
+      .then((d) => { if (seqRef.current === my) setRequests(d.requests); })
+      .catch(() => {});
   }
 
   useEffect(reload, [id]);
@@ -125,6 +133,31 @@ export default function Track() {
     }
   }
 
+  const pendingReq = requests.find((r) => r.status === "pending");
+
+  async function requestReschedule() {
+    if (!reqSlot) return;
+    if (new Date(reqSlot).getTime() < Date.now() + 3600 * 1000) {
+      setError("Propose a slot at least an hour ahead.");
+      return;
+    }
+    setError("");
+    setReqBusy(true);
+    try {
+      await post(`/api/bookings/${id}/reschedule-requests`, {
+        proposedSlot: new Date(reqSlot).toISOString(), reason: reqReason.trim(),
+      });
+      setReqOpen(false);
+      setReqSlot("");
+      setReqReason("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setReqBusy(false);
+    }
+  }
+
   if (error && !booking) {
     return <div className="wrap py-12"><EmptyState title="Booking not found" body={error} /></div>;
   }
@@ -149,16 +182,22 @@ export default function Track() {
                   <span aria-hidden="true" className="absolute top-0.5 -left-[7px] size-3 rounded-full bg-primary" />
                   <p className="text-sm font-bold">{LABELS[h.status] ?? h.status}</p>
                   <p className="text-xs text-on-surface-variant">
-                    {new Date(h.at).toLocaleString()} · by {h.by_role}{h.note ? ` — ${h.note}` : ""}
+                    {formatDateTime(h.at)} · by {h.by_role}{h.note ? ` — ${h.note}` : ""}
                   </p>
                 </li>
               ))}
             </ol>
             {error && <p role="alert" className="mt-4 rounded-md bg-error-container p-3 text-sm font-medium text-error">{error}</p>}
             <div className="mt-6 flex flex-wrap gap-2">
-              {["pending", "awaiting-worker", "confirmed"].includes(booking.status) && (
+              {["pending", "awaiting-worker"].includes(booking.status) && (
                 <>
                   <Button variant="outline" onClick={() => setRescheduling((r) => !r)}>Reschedule</Button>
+                  <Button variant="outline" onClick={() => { if (window.confirm("Cancel this booking?")) transition("cancelled", { note: "cancelled by customer" }); }}>Cancel booking</Button>
+                </>
+              )}
+              {["confirmed", "en-route", "in-progress"].includes(booking.status) && (
+                <>
+                  <Button variant="outline" onClick={() => setReqOpen((r) => !r)}>Request new time</Button>
                   <Button variant="outline" onClick={() => { if (window.confirm("Cancel this booking?")) transition("cancelled", { note: "cancelled by customer" }); }}>Cancel booking</Button>
                 </>
               )}
@@ -173,10 +212,32 @@ export default function Track() {
               <Card className="mt-3 flex flex-col gap-2 p-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
                   <label htmlFor="new-slot" className="mb-1.5 block text-sm font-semibold">New slot (at least an hour ahead)</label>
-                  <input id="new-slot" type="datetime-local" value={newSlot} min={minSlot} onChange={(e) => setNewSlot(e.target.value)}
-                    className="w-full rounded-md border border-outline bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+                  <TextField id="new-slot" type="datetime-local" value={newSlot} min={minSlot} onChange={(e) => setNewSlot(e.target.value)}
+                    style={{ colorScheme: "light" }} aria-describedby="new-slot-preview" />
+                  <p id="new-slot-preview" className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(newSlot) || "yyyy/mm/dd HH:MM"}</p>
                 </div>
                 <Button onClick={reschedule} disabled={!newSlot || reschedBusy}>{reschedBusy ? "Moving…" : "Confirm move"}</Button>
+              </Card>
+            )}
+            {pendingReq && (
+              <p role="status" className="mt-3 rounded-md bg-warning-container p-3 text-sm font-medium">
+                New time {pendingReq.status} review: {formatDateTime(pendingReq.proposed_slot)} — the admin confirms it with your pro.
+              </p>
+            )}
+            {reqOpen && !pendingReq && (
+              <Card className="mt-3 space-y-2 p-4">
+                <div>
+                  <label htmlFor="req-slot" className="mb-1.5 block text-sm font-semibold">Proposed new time (at least an hour ahead)</label>
+                  <TextField id="req-slot" type="datetime-local" value={reqSlot} min={minSlot} onChange={(e) => setReqSlot(e.target.value)}
+                    style={{ colorScheme: "light" }} aria-describedby="req-slot-preview" />
+                  <p id="req-slot-preview" className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(reqSlot) || "yyyy/mm/dd HH:MM"}</p>
+                </div>
+                <div>
+                  <label htmlFor="req-reason" className="mb-1.5 block text-sm font-semibold">Reason (sent to the admin)</label>
+                  <TextField id="req-reason" value={reqReason} onChange={(e) => setReqReason(e.target.value)}
+                    placeholder="e.g. Family emergency, need next-day morning" maxLength={500} />
+                </div>
+                <Button onClick={requestReschedule} disabled={!reqSlot || reqBusy}>{reqBusy ? "Sending…" : "Send request"}</Button>
               </Card>
             )}
             {booking.status === "completed" && (

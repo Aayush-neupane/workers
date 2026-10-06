@@ -5,6 +5,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button, Card, Field, PageHero, TextArea, TextField } from "../components/ui";
 import { api, post } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 import { useAuth } from "../lib/auth";
 
 const schema = z.object({
@@ -98,7 +99,7 @@ export default function Support() {
           {tickets.map((t) => (
             <Card key={t.id} className="p-5">
               <p className="font-bold">{t.subject}</p>
-              <p className="text-xs text-on-surface-variant">{t.status} · updated {new Date(t.updated_at).toLocaleString()}</p>
+              <p className="text-xs text-on-surface-variant">{t.status} · updated {formatDateTime(t.updated_at)}</p>
               <div className="mt-2 space-y-1.5 text-sm">
                 {(t.messages ?? []).map((m, i) => (
                   <p key={i} className="rounded-md bg-surface-container p-2.5">

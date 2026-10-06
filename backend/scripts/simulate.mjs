@@ -144,8 +144,8 @@ let BK = null;
   check("second customer", other.status === 201, `${other.status}`);
   const asg = await admin(`/api/bookings/${BK}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
   check("assign skilled pro", asg.status === 200, `${asg.status} ${JSON.stringify(asg.body)}`);
-  const tr0 = await admin(`/api/bookings/${BK}/transition`, { method: "POST", body: JSON.stringify({ to: "awaiting-worker", note: "sim" }) });
-  check("pending->awaiting-worker (admin)", tr0.status === 200, `${tr0.status} ${JSON.stringify(tr0.body)}`);
+  const autoSt = await q(`SELECT status, worker_id FROM bookings WHERE booking_no=$1`, [BK]);
+  check("assign auto-opens for confirmation", autoSt.rows[0].status === "awaiting-worker" && autoSt.rows[0].worker_id === proId, JSON.stringify(autoSt.rows[0]));
   const tr1 = await admin(`/api/bookings/${BK}/transition`, { method: "POST", body: JSON.stringify({ to: "confirmed", note: "sim" }) });
   check("awaiting-worker->confirmed (admin)", tr1.status === 200, `${tr1.status} ${JSON.stringify(tr1.body)}`);
   const rs2 = await cus(`/api/bookings/${BK}/slot`, { method: "PUT", body: JSON.stringify({ slot: "2030-06-04T10:00:00.000Z" }) });
@@ -299,18 +299,18 @@ console.log("== 10. redeem, referral, milestone, lockout, dispute, cash, push, q
   check("poor redeem 400", poor.status === 400, `${poor.status}`);
 }
 {
-  // referral: new user signs up with sim-cus code, completes first job, both paid from snapshot
+  // referral: bonus is snapshotted at signup, so set it BEFORE the referee registers
+  await admin("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value: { referralBonus: 77 } }) });
   const myCode = await q(`SELECT code FROM referral_codes WHERE owner_user_id=(SELECT id FROM users WHERE email=$1)`, [`sim-${TS}-cus@example.com`]);
   const ref = await anon("/api/auth/register", { method: "POST", body: JSON.stringify({ name: "Sim Ref", phone: "9852600104", email: `sim-${TS}-ref@example.com`, password: "Simtest123!", referralCode: myCode.rows[0].code }) });
   check("referral signup 201", ref.status === 201, `${ref.status} ${JSON.stringify(ref.body)}`);
-  await admin("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value: { referralBonus: 77 } }) });
   const rj = jar();
   await rj("/api/auth/login", { method: "POST", body: JSON.stringify({ email: `sim-${TS}-ref@example.com`, password: "Simtest123!" }) });
   const rAddr = await rj("/api/addresses", { method: "POST", body: JSON.stringify({ label: "Home", line: "Damak-5, Test lane", phone: "9852600104" }) });
   const rBk = await rj("/api/bookings", { method: "POST", body: JSON.stringify({ serviceId: SVC, addressId: rAddr.body.address.id, slot: "2030-06-09T10:00:00.000Z", instructions: "Referral sim booking works.", paymentMethod: "cash" }) });
   check("referee books w/ addressId", rBk.status === 201, `${rBk.status}`);
   await admin(`/api/bookings/${rBk.body.bookingNo}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
-  for (const to of ["awaiting-worker", "confirmed", "en-route", "in-progress"]) {
+  for (const to of ["confirmed", "en-route", "in-progress"]) {
     await admin(`/api/bookings/${rBk.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to, note: "sim" }) });
   }
   await admin(`/api/bookings/${rBk.body.bookingNo}/otp/issue`, { method: "POST", body: JSON.stringify({}) });
@@ -325,7 +325,7 @@ console.log("== 10. redeem, referral, milestone, lockout, dispute, cash, push, q
   await admin("/api/admin/settings", { method: "PUT", body: JSON.stringify({ value: { milestoneBookings: 1, milestoneBonus: 11 } }) });
   const mb = await cus("/api/bookings", { method: "POST", body: JSON.stringify(mk({ slot: "2030-06-10T10:00:00.000Z" })) });
   await admin(`/api/bookings/${mb.body.bookingNo}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
-  for (const to of ["awaiting-worker", "confirmed", "en-route", "in-progress"]) {
+  for (const to of ["confirmed", "en-route", "in-progress"]) {
     await admin(`/api/bookings/${mb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to, note: "sim" }) });
   }
   await admin(`/api/bookings/${mb.body.bookingNo}/otp/issue`, { method: "POST", body: JSON.stringify({}) });
@@ -341,7 +341,7 @@ console.log("== 10. redeem, referral, milestone, lockout, dispute, cash, push, q
   // OTP lockout then dispute lifecycle + finalPaisa cap
   const lb = await cus("/api/bookings", { method: "POST", body: JSON.stringify(mk({ slot: "2030-06-11T10:00:00.000Z" })) });
   await admin(`/api/bookings/${lb.body.bookingNo}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
-  for (const to of ["awaiting-worker", "confirmed", "en-route", "in-progress"]) {
+  for (const to of ["confirmed", "en-route", "in-progress"]) {
     await admin(`/api/bookings/${lb.body.bookingNo}/transition`, { method: "POST", body: JSON.stringify({ to, note: "sim" }) });
   }
   await pro(`/api/bookings/${lb.body.bookingNo}/otp/issue`, { method: "POST", body: JSON.stringify({}) });
@@ -401,6 +401,39 @@ console.log("== 10. redeem, referral, milestone, lockout, dispute, cash, push, q
   check("self-invite 400", selfInv.status === 400, `${selfInv.status}`);
 }
 
+console.log("== 10b. reschedule requests via admin ==");
+{
+  // worker proposes -> admin approves -> slot moves, both sides notified
+  const wb = await cus("/api/bookings", { method: "POST", body: JSON.stringify(mk({ slot: "2030-09-01T10:00:00.000Z" })) });
+  check("resched booking 201", wb.status === 201, `${wb.status}`);
+  const W = wb.body.bookingNo;
+  await admin(`/api/bookings/${W}/assign`, { method: "POST", body: JSON.stringify({ workerId: proId, reason: "sim" }) });
+  await admin(`/api/bookings/${W}/transition`, { method: "POST", body: JSON.stringify({ to: "confirmed", note: "sim" }) });
+  const direct = await cus(`/api/bookings/${W}/slot`, { method: "PUT", body: JSON.stringify({ slot: "2030-09-02T10:00:00.000Z" }) });
+  check("direct move after confirm blocked", direct.status === 409, `${direct.status}`);
+  const past = await pro(`/api/bookings/${W}/reschedule-requests`, { method: "POST", body: JSON.stringify({ proposedSlot: "2020-01-01T10:00:00.000Z", reason: "too soon" }) });
+  check("past proposal 400", past.status === 400, `${past.status}`);
+  const rq = await pro(`/api/bookings/${W}/reschedule-requests`, { method: "POST", body: JSON.stringify({ proposedSlot: "2030-09-03T10:00:00.000Z", reason: "van broke down" }) });
+  check("worker request 201", rq.status === 201, `${rq.status} ${JSON.stringify(rq.body)}`);
+  const dup = await cus(`/api/bookings/${W}/reschedule-requests`, { method: "POST", body: JSON.stringify({ proposedSlot: "2030-09-04T10:00:00.000Z", reason: "second" }) });
+  check("second pending 409", dup.status === 409, `${dup.status}`);
+  const queue = await admin("/api/admin/reschedule-requests", {});
+  check("admin queue lists it", queue.status === 200 && queue.body.requests.some((r) => r.id === rq.body.id), `${queue.status}`);
+  const ap = await admin(`/api/admin/reschedule-requests/${rq.body.id}/approve`, { method: "POST", body: JSON.stringify({}) });
+  check("approve moves slot", ap.status === 200 && ap.body.slot === "2030-09-03T10:00:00.000Z", `${ap.status} ${JSON.stringify(ap.body)}`);
+  const moved = await q(`SELECT slot FROM bookings WHERE booking_no=$1`, [W]);
+  check("slot persisted", new Date(moved.rows[0].slot).toISOString() === "2030-09-03T10:00:00.000Z", JSON.stringify(moved.rows[0]));
+  // customer proposes -> admin rejects -> slot unchanged, requester told
+  const rq2 = await cus(`/api/bookings/${W}/reschedule-requests`, { method: "POST", body: JSON.stringify({ proposedSlot: "2030-09-05T10:00:00.000Z", reason: "change of plans" }) });
+  check("customer request 201", rq2.status === 201, `${rq2.status}`);
+  const rj2 = await admin(`/api/admin/reschedule-requests/${rq2.body.id}/reject`, { method: "POST", body: JSON.stringify({ reason: "pro unavailable then" }) });
+  check("reject ok", rj2.status === 200, `${rj2.status}`);
+  const kept = await q(`SELECT slot FROM bookings WHERE booking_no=$1`, [W]);
+  check("slot kept after reject", new Date(kept.rows[0].slot).toISOString() === "2030-09-03T10:00:00.000Z", JSON.stringify(kept.rows[0]));
+  const rj3 = await admin(`/api/admin/reschedule-requests/${rq2.body.id}/reject`, { method: "POST", body: JSON.stringify({}) });
+  check("double-decide 409", rj3.status === 409, `${rj3.status}`);
+}
+
 console.log("== 11. cleanup scratch ==");
 {
   const ids = await q(`SELECT id FROM users WHERE email IN ($1,$2,$3,$4)`, [`sim-${TS}-cus@example.com`, proEmail, `sim-${TS}-other@example.com`, `sim-${TS}-ref@example.com`]);
@@ -418,6 +451,7 @@ console.log("== 11. cleanup scratch ==");
     await q(`DELETE FROM commission_ledger WHERE booking_id = ANY($1)`, [bl]);
     await q(`DELETE FROM payments WHERE booking_id = ANY($1)`, [bl]);
     await q(`DELETE FROM booking_events WHERE booking_id = ANY($1)`, [bl]);
+    await q(`DELETE FROM reschedule_requests WHERE booking_id = ANY($1)`, [bl]);
     await q(`DELETE FROM booking_otps WHERE booking_id = ANY($1)`, [bl]);
     await q(`DELETE FROM assignments WHERE booking_id = ANY($1)`, [bl]);
     await q(`DELETE FROM bookings WHERE id = ANY($1)`, [bl]);

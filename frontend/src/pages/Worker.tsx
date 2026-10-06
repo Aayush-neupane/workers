@@ -5,7 +5,7 @@ import { Badge, Button, Card, EmptyState, PageHero, Price, TextField } from "../
 import { LiveMap } from "../components/LiveMap";
 import { fetchRoute, formatKm, type Pin } from "../lib/geo";
 import { api, post } from "../lib/api";
-import { formatSlot, formatNPR } from "../lib/format";
+import { formatDate, formatNPR, formatSlot, previewDateTimeLocal } from "../lib/format";
 import type { Booking } from "../lib/types";
 
 interface Me {
@@ -50,6 +50,7 @@ interface Doc {
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const NEXT: Record<string, { to: string; label: string }> = {
+  "awaiting-worker": { to: "confirmed", label: "Confirm job" },
   confirmed: { to: "en-route", label: "Mark en route" },
   "en-route": { to: "in-progress", label: "Start work" },
 };
@@ -175,7 +176,7 @@ export default function Worker() {
                   <Star size={14} className="fill-marigold-500 text-marigold-500" /> {r.rating}/5 · <span className="font-mono font-normal">{r.booking_no}</span>
                 </p>
                 <p className="mt-1 text-sm">{r.text || "—"}</p>
-                <p className="mt-1 text-xs text-on-surface-variant">{new Date(r.created_at).toLocaleDateString()}</p>
+                <p className="mt-1 text-xs text-on-surface-variant">{formatDate(r.created_at)}</p>
               </Card>
             ))}
           </div>
@@ -227,7 +228,45 @@ function JobCard({ job, onDone, onMsg }: {
   const [routeInfo, setRouteInfo] = useState("");
   const [routing, setRouting] = useState(false);
   const [locMsg, setLocMsg] = useState("");
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqSlot, setReqSlot] = useState("");
+  const [reqReason, setReqReason] = useState("");
+  const [reqBusy, setReqBusy] = useState(false);
+  const [reqs, setReqs] = useState<{ id: string; status: string; proposed_slot: string }[]>([]);
   const next = NEXT[job.status];
+  const pendingReq = reqs.find((r) => r.status === "pending");
+
+  useEffect(() => {
+    if (!open) return;
+    api<{ requests: typeof reqs }>(`/api/bookings/${job.id}/reschedule-requests`)
+      .then((d) => setReqs(d.requests)).catch(() => {});
+  }, [open, job.id]);
+
+  const minSlot = (() => {
+    const d = new Date(Date.now() + 3600 * 1000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
+
+  async function requestReschedule() {
+    if (!reqSlot) return;
+    setReqBusy(true);
+    try {
+      await post(`/api/bookings/${job.id}/reschedule-requests`, {
+        proposedSlot: new Date(reqSlot).toISOString(), reason: reqReason.trim(),
+      });
+      onMsg("Request sent — the admin confirms the new time with the customer.");
+      setReqOpen(false);
+      setReqSlot("");
+      setReqReason("");
+      const d = await api<{ requests: typeof reqs }>(`/api/bookings/${job.id}/reschedule-requests`);
+      setReqs(d.requests);
+    } catch (e) {
+      onMsg(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setReqBusy(false);
+    }
+  }
 
   async function issue() {
     setBusy(true);
@@ -355,7 +394,28 @@ function JobCard({ job, onDone, onMsg }: {
           <div className="flex flex-wrap gap-2">
             {next && <Button onClick={() => move(job.id, next.to, onDone, onMsg)}>{next.label}</Button>}
             {job.status === "in-progress" && <Button onClick={issue} disabled={busy}>Finish — send code to customer</Button>}
+            {["awaiting-worker", "confirmed", "en-route", "in-progress"].includes(job.status) && (
+              <Button variant="outline" onClick={() => setReqOpen((o) => !o)}>Request new time</Button>
+            )}
           </div>
+          {pendingReq && (
+            <p role="status" className="rounded-md bg-warning-container p-3 text-xs font-medium">
+              New time awaiting admin review: {formatSlot(pendingReq.proposed_slot)}.
+            </p>
+          )}
+          {reqOpen && !pendingReq && (
+            <div className="space-y-2 rounded-md border border-outline/60 bg-white p-3">
+              <div>
+                <label htmlFor={`req-slot-${job.id}`} className="mb-1.5 block text-xs font-bold">Proposed new time (at least an hour ahead)</label>
+                <TextField id={`req-slot-${job.id}`} type="datetime-local" value={reqSlot} min={minSlot}
+                  onChange={(e) => setReqSlot(e.target.value)} style={{ colorScheme: "light" }} />
+                <p className="mt-1 font-mono text-xs text-on-surface-variant">{previewDateTimeLocal(reqSlot) || "yyyy/mm/dd HH:MM"}</p>
+              </div>
+              <TextField value={reqReason} onChange={(e) => setReqReason(e.target.value)}
+                placeholder="Reason (sent to admin)" aria-label="Reason" maxLength={500} />
+              <Button onClick={requestReschedule} disabled={reqBusy || !reqSlot}>{reqBusy ? "Sending…" : "Send request"}</Button>
+            </div>
+          )}
           {job.status === "awaiting-confirmation" && (
             <div className="rounded-md border border-marigold-500/60 bg-white p-3">
               <p className="font-bold">Customer's completion code</p>
@@ -408,7 +468,7 @@ function EarningsView({ earnings }: { earnings: Earnings }) {
           <p className="font-bold">Settlement history</p>
           <ul className="mt-1 space-y-1 text-sm">
             {earnings.settlements.map((s) => (
-              <li key={s.id}>{s.kind} {formatNPR(s.amount_paisa)} · {s.note} · {new Date(s.created_at).toLocaleDateString()}</li>
+              <li key={s.id}>{s.kind} {formatNPR(s.amount_paisa)} · {s.note} · {formatDate(s.created_at)}</li>
             ))}
           </ul>
         </Card>
@@ -525,7 +585,7 @@ function DocsTab({ docs, state }: {
         <p className="font-bold">Submitted documents ({docs.length})</p>
         {docs.length === 0 ? <p className="text-sm text-on-surface-variant">Nothing on file yet — our office records what you submit in person.</p> : (
           <ul className="mt-1 space-y-1 text-sm">
-            {docs.map((d) => <li key={d.id} className="flex items-center gap-1.5"><FileUp size={14} aria-hidden="true" /> {d.kind} · {new Date(d.uploaded_at).toLocaleDateString()}</li>)}
+            {docs.map((d) => <li key={d.id} className="flex items-center gap-1.5"><FileUp size={14} aria-hidden="true" /> {d.kind} · {formatDate(d.uploaded_at)}</li>)}
           </ul>
         )}
       </Card>

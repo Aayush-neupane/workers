@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Copy, Gift, Users } from "lucide-react";
 import { Button, Card, EmptyState, PageHero } from "../components/ui";
 import { api } from "../lib/api";
+import { formatDate } from "../lib/format";
 
 interface Tx {
   id: string;
@@ -136,7 +137,7 @@ export default function Rewards() {
                 <tbody>
                   {[...txs].reverse().map((t) => (
                     <tr key={t.id} className="border-t border-outline/60">
-                      <td className="px-4 py-2.5 text-xs text-on-surface-variant">{new Date(t.at).toLocaleDateString()}</td>
+                      <td className="px-4 py-2.5 text-xs text-on-surface-variant">{formatDate(t.at)}</td>
                       <td className="px-4 py-2.5">{t.reason}</td>
                       <td className="px-4 py-2.5 capitalize">{t.kind}</td>
                       <td className={`px-4 py-2.5 text-right font-bold ${t.points < 0 ? "text-error" : "text-success"}`}>
