@@ -3,15 +3,11 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ArrowRight, ShieldCheck, MapPin } from "lucide-react";
+import { ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, PageHero, Price, Select, TextArea, TextField } from "../components/ui";
-import { MapPicker } from "../components/MapPicker";
-import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatSlot } from "../lib/format";
-import { DAMAK_CENTER, geocodeArea, suggestStreet } from "../lib/geo";
-import type { Pin } from "../lib/geo";
 import type { Address, Service } from "../lib/types";
 
 const schema = z.object({
@@ -56,10 +52,6 @@ export default function Book() {
   const [line, setLine] = useState("");
   const [phone, setPhone] = useState("");
   const [addrError, setAddrError] = useState("");
-  const [bookingPin, setBookingPin] = useState<Pin | null>(null);
-  const [bookingMapOpen, setBookingMapOpen] = useState(false);
-  const [approx, setApprox] = useState<Pin | null>(null);
-  const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showAllSlots, setShowAllSlots] = useState(false);
   const slots = useMemo(buildSlots, []);
@@ -102,36 +94,6 @@ export default function Book() {
     }).catch(() => {});
   }
 
-  const addressId = watch("addressId");
-  const matchedLine = addresses.find((a) => a.id === addressId)?.line ?? "";
-
-  // Approximate map area from the address text when nobody pinned it yet,
-  // so checkout shows YOUR area instead of a generic Damak view.
-  useEffect(() => {
-    setApprox(null);
-    const addr = addresses.find((a) => a.id === addressId);
-    if (!addr || addr.lat != null || bookingPin) {
-      setLocating(false);
-      return;
-    }
-    const targetLine = matchedLine;
-    setLocating(true);
-    const ctrl = new AbortController();
-    const t = window.setTimeout(async () => {
-      try {
-        setApprox(await geocodeArea(targetLine, ctrl.signal));
-      } catch {
-        /* offline — Damak overview stays */
-      } finally {
-        setLocating(false);
-      }
-    }, 600);
-    return () => {
-      ctrl.abort();
-      window.clearTimeout(t);
-    };
-  }, [matchedLine, addressId, bookingPin]);
-
   async function saveQuickAddress() {
     setAddrError("");
     if (line.trim().length < 5) { setAddrError("Enter ward, street and house (e.g. Damak-5, Himal Chowk)."); return; }
@@ -139,7 +101,7 @@ export default function Book() {
     try {
       const out = await post<{ address: Address }>("/api/addresses", {
         label: "Home", line: line.trim(), city: "Damak", phone: phone.trim(),
-        lat: bookingPin?.lat ?? null, lng: bookingPin?.lng ?? null,
+        lat: null, lng: null,
       });
       setAddresses((a) => [...a, out.address]);
       setValue("addressId", out.address.id);
@@ -187,7 +149,7 @@ export default function Book() {
       const out = await post<{ bookingNo: string }>("/api/bookings", {
         serviceId: service.id, addressId: f.addressId || undefined, slot: f.slot,
         instructions: f.instructions, paymentMethod: f.paymentMethod, useRewards: f.useRewards && canRedeem,
-        lat: bookingPin?.lat ?? null, lng: bookingPin?.lng ?? null,
+        lat: null, lng: null,
       });
       navigate(`/track/${out.bookingNo}`);
     } catch (e) {
@@ -238,70 +200,6 @@ export default function Book() {
                 </Field>
               </>
             ) : null}
-            {step === 0 && (
-              <details className="mt-5 rounded-lg border border-outline/60 bg-surface-container/40 px-4 py-3">
-                <summary className="flex cursor-pointer items-center gap-1.5 text-sm font-extrabold">
-                  <MapPin size={15} aria-hidden="true" /> Job location on map (optional)
-                  {bookingPin && <span className="ml-auto text-xs font-bold text-success">Pinned ✓</span>}
-                </summary>
-                <p className="mt-0.5 text-xs text-on-surface-variant">
-                  {bookingPin
-                    ? "Pinned for this booking — the pro navigates here."
-                    : addresses.length === 0
-                      ? "Drop a pin now — it saves with your address and guides the pro."
-                      : address?.lat != null
-                        ? "Using your saved address pin — adjust it for this job if needed."
-                        : approx
-                          ? "Approximate area from your address — drop a pin to pinpoint it."
-                          : locating
-                            ? "Locating your area…"
-                            : "Showing Damak — drop a pin to pinpoint your exact spot."}
-                </p>
-                {bookingPin && (
-                  <p className="mt-2 rounded-md bg-success-container/60 p-2.5 text-xs font-semibold text-on-primary-container">
-                    Pinned — address box filled from the map. Edit it freely above.
-                  </p>
-                )}
-                <div className="mt-2.5">
-                  <MiniMap
-                    pin={bookingPin ?? (address?.lat != null && address?.lng != null
-                      ? { lat: address.lat, lng: address.lng }
-                      : approx ?? DAMAK_CENTER)}
-                    center={bookingPin ?? (address?.lat != null && address?.lng != null
-                      ? undefined
-                      : (approx ?? DAMAK_CENTER))}
-                    zoom={bookingPin != null || address?.lat != null ? 16 : 14}
-                    marker={bookingPin != null || address?.lat != null}
-                    height={170}
-                  />
-                </div>
-                <div className="mt-2.5 flex gap-2">
-                  <Button type="button" variant="outline" onClick={() => setBookingMapOpen(true)}>
-                    {bookingPin ? "Move pin" : "Drop a pin"}
-                  </Button>
-                  {bookingPin && (
-                    <Button type="button" variant="ghost" onClick={() => setBookingPin(null)}>Use address pin</Button>
-                  )}
-                </div>
-              </details>
-            )}
-            {bookingMapOpen && (
-              <MapPicker
-                initial={bookingPin ?? (address?.lat != null && address?.lng != null
-                  ? { lat: address.lat, lng: address.lng }
-                  : DAMAK_CENTER)}
-                onClose={() => setBookingMapOpen(false)}
-                onConfirm={(p, label) => {
-                  setBookingPin(p);
-                  setBookingMapOpen(false);
-                  // Autofill the quick address box from the pin — editable after.
-                  if (addresses.length === 0) {
-                    const street = suggestStreet(label);
-                    if (street) setLine(street);
-                  }
-                }}
-              />
-            )}
             {step === 1 && (
               <fieldset>
                 <legend className="mb-2.5 text-sm font-semibold">Available slots (next 7 days)</legend>
@@ -370,18 +268,6 @@ export default function Book() {
                 <div className="flex justify-between gap-4 border-t border-outline pt-3"><dt className="text-on-surface-variant">Estimate</dt><dd><Price paisa={estimate} /></dd></div>
                 {discount > 0 && <div className="flex justify-between gap-4 font-semibold text-success"><dt>Rewards discount</dt><dd>−Rs {discount / 100}</dd></div>}
                 <div className="flex justify-between gap-4 border-t border-outline pt-3 text-base"><dt className="font-bold">Total due</dt><dd className="font-bold"><Price paisa={total} /></dd></div>
-                <div className="pt-1">
-                  <MiniMap
-                    pin={bookingPin ?? (address?.lat != null && address?.lng != null
-                      ? { lat: address.lat, lng: address.lng }
-                      : DAMAK_CENTER)}
-                    marker={bookingPin != null || address?.lat != null}
-                    height={150}
-                  />
-                  <p className="mt-1 text-xs text-on-surface-variant">
-                    {bookingPin ? "Booking pin set — the pro navigates here." : "Address location preview."}
-                  </p>
-                </div>
               </dl>
             )}
             {submitError && <p role="alert" className="mt-4 rounded-md bg-error-container p-3 text-sm font-medium text-error">{submitError}</p>}
