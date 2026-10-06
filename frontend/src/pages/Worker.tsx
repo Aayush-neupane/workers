@@ -392,7 +392,7 @@ function JobCard({ job, onDone, onMsg }: {
           <div className="flex flex-wrap gap-2">
             {next && <Button onClick={() => move(job.id, next.to, onDone, onMsg)}>{next.label}</Button>}
             {job.status === "in-progress" && <Button onClick={issue} disabled={busy}>Finish — send code to customer</Button>}
-            {["awaiting-worker", "confirmed", "en-route", "in-progress"].includes(job.status) && (
+            {["pending", "awaiting-worker", "confirmed", "en-route", "in-progress"].includes(job.status) && (
               <Button variant="outline" onClick={() => setReqOpen((o) => !o)}>Request new time</Button>
             )}
           </div>

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Badge, Button, Card, DateTimeField, EmptyState, Price, TextField } from "../components/ui";
 import { MiniMap } from "../components/MiniMap";
 import { api, post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { formatDateTime, formatSlot, parseSlotInput } from "../lib/format";
 import type { Booking } from "../lib/types";
 
@@ -27,6 +28,7 @@ const LABELS: Record<string, string> = {
 
 export default function Track() {
   const { id } = useParams();
+  const { user, can } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [history, setHistory] = useState<History[]>([]);
   const [error, setError] = useState("");
@@ -165,6 +167,17 @@ export default function Track() {
   }
   if (!booking) return <p role="status" className="wrap py-12 text-center text-on-surface-variant">Loading…</p>;
 
+  // Actions mirror the backend gates: direct moves for the owner/dispatch,
+  // requests for owner + assigned pro + dispatch, cancel/dispute for owner.
+  // Showing a button the API would 403 is worse than hiding it.
+  const isOwner = user?.id === booking.customer_id;
+  const isPro = booking.worker_id != null && user?.id === booking.worker_id;
+  const isDispatch = can("bookings.assign");
+  const canMove = isOwner || isDispatch;
+  const canRequest = isOwner || isPro || isDispatch;
+  const canCancel = isOwner || isDispatch;
+  const canDispute = isOwner;
+
   return (
     <div className="fade-up">
       <div className="wrap py-8">
@@ -191,26 +204,26 @@ export default function Track() {
             </ol>
             {error && <p role="alert" className="mt-4 rounded-md bg-error-container p-3 text-sm font-medium text-error">{error}</p>}
             <div className="mt-6 flex flex-wrap gap-2">
-              {["pending", "awaiting-worker"].includes(booking.status) && (
+              {["pending", "awaiting-worker"].includes(booking.status) && canMove && (
                 <>
                   <Button variant="outline" onClick={() => setRescheduling((r) => !r)}>Reschedule</Button>
                   <Button variant="outline" onClick={() => { if (window.confirm("Cancel this booking?")) transition("cancelled", { note: "cancelled by customer" }); }}>Cancel booking</Button>
                 </>
               )}
-              {["confirmed", "en-route", "in-progress"].includes(booking.status) && (
-                <>
-                  <Button variant="outline" onClick={() => setReqOpen((r) => !r)}>Request new time</Button>
-                  <Button variant="outline" onClick={() => { if (window.confirm("Cancel this booking?")) transition("cancelled", { note: "cancelled by customer" }); }}>Cancel booking</Button>
-                </>
+              {["confirmed", "en-route", "in-progress"].includes(booking.status) && canRequest && (
+                <Button variant="outline" onClick={() => setReqOpen((r) => !r)}>Request new time</Button>
               )}
-              {["in-progress", "awaiting-confirmation"].includes(booking.status) && (
+              {["confirmed", "en-route", "in-progress"].includes(booking.status) && canCancel && (
+                <Button variant="outline" onClick={() => { if (window.confirm("Cancel this booking?")) transition("cancelled", { note: "cancelled by customer" }); }}>Cancel booking</Button>
+              )}
+              {["in-progress", "awaiting-confirmation"].includes(booking.status) && canDispute && (
                 <Button variant="outline" onClick={() => { if (window.confirm("Report a problem with this booking?")) transition("disputed", { note: "raised by customer" }); }}>Report a problem</Button>
               )}
               {["completed", "cancelled"].includes(booking.status) && (
                 <Link to={`/book/${booking.service_id}`}><Button>Book again</Button></Link>
               )}
             </div>
-            {rescheduling && (
+            {rescheduling && canMove && (
               <Card className="mt-3 flex flex-col gap-2 p-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
                   <label htmlFor="new-slot" className="mb-1.5 block text-sm font-semibold">New slot (at least an hour ahead)</label>
@@ -224,7 +237,7 @@ export default function Track() {
                 New time {pendingReq.status} review: {formatDateTime(pendingReq.proposed_slot)} — the admin confirms it with your pro.
               </p>
             )}
-            {reqOpen && !pendingReq && (
+            {reqOpen && !pendingReq && canRequest && (
               <Card className="mt-3 space-y-2 p-4">
                 <div>
                   <label htmlFor="req-slot" className="mb-1.5 block text-sm font-semibold">Proposed new time (at least an hour ahead)</label>
