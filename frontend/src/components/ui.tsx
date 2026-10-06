@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { formatDateTime, parseDateInput, parseSlotInput } from "../lib/format";
+
+export { DateTimeField, DateField } from "./DatePicker";
 
 type Variant = "primary" | "outline" | "outline-light" | "gold" | "ghost" | "danger";
 
@@ -97,58 +98,6 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
       {...props}
       className={`w-full rounded-md border border-outline bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-primary ${props.className ?? ""}`}
     />
-  );
-}
-
-/**
- * Date + time as plain yyyy/mm/dd HH:MM text. Native datetime-local renders
- * mm/dd/yyyy in US-locale browsers and ignores our format, so this strict
- * text field (exact shape + real calendar date) replaces it everywhere.
- */
-export function DateTimeField({ id, value, onChange, placeholder }: {
-  id?: string; value: string; onChange: (v: string) => void; placeholder?: string;
-}) {
-  const t = value.trim();
-  const iso = t === "" ? "" : parseSlotInput(t);
-  return (
-    <div>
-      <input
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder ?? "yyyy/mm/dd HH:MM"}
-        inputMode="numeric"
-        aria-invalid={t !== "" && !iso}
-        className="w-full rounded-md border border-outline bg-white px-3.5 py-2.5 font-mono text-sm outline-none transition focus:border-primary"
-      />
-      <p className={`mt-1 font-mono text-xs ${t !== "" && !iso ? "text-error" : "text-on-surface-variant"}`}>
-        {t === "" ? "yyyy/mm/dd HH:MM" : iso ? `→ ${formatDateTime(iso)}` : "Use yyyy/mm/dd HH:MM"}
-      </p>
-    </div>
-  );
-}
-
-/**
- * Calendar date as plain yyyy/mm/dd text — same native-picker problem as above.
- */
-export function DateField({ id, value, onChange, placeholder }: {
-  id?: string; value: string; onChange: (v: string) => void; placeholder?: string;
-}) {
-  const t = value.trim();
-  const ok = t === "" || parseDateInput(t) !== null;
-  return (
-    <div>
-      <input
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder ?? "yyyy/mm/dd"}
-        inputMode="numeric"
-        aria-invalid={!ok}
-        className="w-full rounded-md border border-outline bg-white px-3.5 py-2.5 font-mono text-sm outline-none transition focus:border-primary"
-      />
-      {!ok && <p role="alert" className="mt-1 font-mono text-xs text-error">Use yyyy/mm/dd</p>}
-    </div>
   );
 }
 

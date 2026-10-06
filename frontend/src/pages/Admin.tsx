@@ -531,11 +531,13 @@ function BookingDrawer({ bookingNo, onClose, onMsg }: { bookingNo: string; onClo
                   <li key={r.id} className="rounded-md bg-surface-container p-3 text-sm">
                     <p><strong>{r.requested_role === "worker" ? "Pro" : "Customer"}</strong>{r.requested_by_name ? ` · ${r.requested_by_name}` : ""} proposes <strong>{formatSlot(r.proposed_slot)}</strong></p>
                     {r.reason && <p className="mt-0.5 text-xs text-on-surface-variant">“{r.reason}”</p>}
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className="mt-2 space-y-2">
                       <Button onClick={() => decideReq(r.id, "approve")}>Approve & move slot</Button>
-                      <TextField value={rejectNote} onChange={(e) => setRejectNote(e.target.value)}
-                        placeholder="Decline reason (optional)" aria-label="Decline reason" className="max-w-55" />
-                      <Button variant="outline" onClick={() => decideReq(r.id, "reject")}>Decline</Button>
+                      <div className="flex gap-2">
+                        <TextField value={rejectNote} onChange={(e) => setRejectNote(e.target.value)}
+                          placeholder="Decline reason (optional)" aria-label="Decline reason" className="flex-1" />
+                        <Button variant="outline" onClick={() => decideReq(r.id, "reject")} className="shrink-0">Decline</Button>
+                      </div>
                     </div>
                   </li>
                 ))}
