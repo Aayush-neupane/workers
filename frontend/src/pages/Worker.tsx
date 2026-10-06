@@ -186,7 +186,7 @@ export default function Worker() {
         )}
 
         {tab === "documents" && (
-          <DocsTab docs={docs} state={me?.profile?.verification_state ?? ""} onDone={reload} onMsg={setMsg} />
+          <DocsTab docs={docs} state={me?.profile?.verification_state ?? ""} />
         )}
       </div>
     </div>
@@ -488,55 +488,22 @@ function DaysEditor({ days, setDays, onMsg }: {
   );
 }
 
-function DocsTab({ docs, state, onDone, onMsg }: {
-  docs: Doc[]; state: string; onDone: () => void; onMsg: (m: string) => void;
+function DocsTab({ docs, state }: {
+  docs: Doc[]; state: string;
 }) {
-  const [kind, setKind] = useState("citizenship");
-  const [path, setPath] = useState("");
-
-  async function submit() {
-    if (path.trim().length < 3) {
-      onMsg("Enter the storage reference for the uploaded file.");
-      return;
-    }
-    try {
-      await post("/api/worker/documents", { kind, storagePath: path.trim() });
-      onMsg("Document recorded — your file moves to under-review.");
-      setPath("");
-      onDone();
-    } catch (e) {
-      onMsg(e instanceof Error ? e.message : "Upload failed");
-    }
-  }
-
   return (
     <div className="mt-4 space-y-4">
       <Card className="p-4">
         <p className="font-bold">Verification state: <Badge tone={state === "verified" ? "success" : "warning"}>{state || "—"}</Badge></p>
-        <p className="mt-1 text-sm text-on-surface-variant">Only verified + active pros receive assignments. Rejected pros may re-submit.</p>
+        <p className="mt-1 text-sm text-on-surface-variant">Only verified + active pros receive assignments. Verification happens physically at our office — bring your citizenship and trade certificates there.</p>
       </Card>
       <Card className="p-4">
         <p className="font-bold">Submitted documents ({docs.length})</p>
-        {docs.length === 0 ? <p className="text-sm text-on-surface-variant">Nothing submitted yet.</p> : (
+        {docs.length === 0 ? <p className="text-sm text-on-surface-variant">Nothing on file yet — our office records what you submit in person.</p> : (
           <ul className="mt-1 space-y-1 text-sm">
             {docs.map((d) => <li key={d.id} className="flex items-center gap-1.5"><FileUp size={14} aria-hidden="true" /> {d.kind} · {new Date(d.uploaded_at).toLocaleDateString()}</li>)}
           </ul>
         )}
-      </Card>
-      <Card className="p-4">
-        <p className="font-bold">Record a document</p>
-        <p className="text-xs text-on-surface-variant">After uploading through the admin-shared channel, record its reference here.</p>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-          <select value={kind} onChange={(e) => setKind(e.target.value)}
-            className="rounded-md border border-outline bg-white px-3 py-2 text-sm" aria-label="Document kind">
-            <option value="citizenship">Citizenship</option>
-            <option value="trade-certificate">Trade certificate</option>
-            <option value="reference-letter">Reference letter</option>
-            <option value="photo">Passport photo</option>
-          </select>
-          <TextField value={path} onChange={(e) => setPath(e.target.value)} placeholder="Storage reference, e.g. verify/bijay-citizenship.jpg" aria-label="Storage reference" />
-          <Button onClick={submit}>Record</Button>
-        </div>
       </Card>
     </div>
   );

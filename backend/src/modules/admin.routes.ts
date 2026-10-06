@@ -186,6 +186,12 @@ router.post(
           await client.query("ROLLBACK");
           return res.status(400).json({ error: "Only verified pros can be activated" });
         }
+        // An active pro with zero skills can never be assigned — refuse the
+        // trap instead of creating a silently unusable worker.
+        if (f.serviceIds.length === 0) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Tick at least one specialty — otherwise nobody can assign this pro" });
+        }
         if (f.serviceIds.length > 0) {
           const svc = await client.query<{ n: number }>(
             `SELECT COUNT(*)::int AS n FROM services WHERE id = ANY ($1::uuid[])`, [f.serviceIds]);
@@ -197,10 +203,14 @@ router.post(
       }
       await client.query(`UPDATE worker_profiles SET is_active = $1, updated_at = now() WHERE user_id = $2`,
         [f.active, req.params.id]);
-      await client.query(`DELETE FROM worker_services WHERE worker_user_id = $1`, [req.params.id]);
-      for (const sid of f.serviceIds) {
-        await client.query(`INSERT INTO worker_services(worker_user_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [req.params.id, sid]);
+      // Skills are only rewritten when activating (or when a new set is
+      // sent) — deactivating never wipes them, so re-activation keeps them.
+      if (f.active || f.serviceIds.length > 0) {
+        await client.query(`DELETE FROM worker_services WHERE worker_user_id = $1`, [req.params.id]);
+        for (const sid of f.serviceIds) {
+          await client.query(`INSERT INTO worker_services(worker_user_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [req.params.id, sid]);
+        }
       }
       await client.query("COMMIT");
       await adminAudit(req.user!.id, "worker-activate", `${req.params.id} active=${f.active}`);
@@ -217,6 +227,21 @@ router.post(
 router.get("/admin/workers/:id/documents", requireAnyPermission("worker.verify", "workers.view"), ah(async (req, res) => {
   const r = await query(`SELECT id, kind, uploaded_at FROM verification_documents WHERE worker_user_id = $1`, [req.params.id]);
   return res.json({ documents: r.rows });
+}));
+
+// Single worker file: current verification state, activation, and skill set.
+// Powers the review drawer so admins see (and keep) what's already set.
+router.get("/admin/workers/:id", requireAnyPermission("worker.verify", "workers.view"), ah(async (req, res) => {
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid worker id" });
+  const u = await query(
+    `SELECT u.id, u.name, u.email, u.phone, u.is_active,
+            wp.verification_state, wp.is_active AS profile_active, wp.bio, wp.years_exp
+     FROM users u LEFT JOIN worker_profiles wp ON wp.user_id = u.id WHERE u.id = $1`,
+    [req.params.id]);
+  if ((u.rowCount ?? 0) === 0) return res.status(404).json({ error: "Worker not found" });
+  const skills = await query<{ service_id: string }>(
+    `SELECT service_id FROM worker_services WHERE worker_user_id = $1`, [req.params.id]);
+  return res.json({ worker: u.rows[0], skillIds: skills.rows.map((s) => s.service_id) });
 }));
 
 // ---------- Customers (least-privilege: masked contact) ----------

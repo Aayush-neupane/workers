@@ -111,21 +111,4 @@ router.put(
   }),
 );
 
-/** Verification document metadata (private-storage upload wiring lands here later). */
-router.post(
-  "/worker/documents",
-  requireRole("WORKER", "ADMIN"),
-  validate(z.object({ kind: z.string().trim().min(2).max(60), storagePath: z.string().trim().min(3).max(500) })),
-  ah(async (req, res) => {
-    const f = req.body as { kind: string; storagePath: string };
-    const r = await query(
-      `INSERT INTO verification_documents(worker_user_id, kind, storage_path) VALUES ($1, $2, $3) RETURNING id`,
-      [req.user!.id, f.kind, f.storagePath]);
-    await query(
-      `UPDATE worker_profiles SET verification_state = 'under-review', updated_at = now()
-       WHERE user_id = $1 AND verification_state IN ('draft', 'awaiting-documents', 'rejected')`, [req.user!.id]);
-    return res.status(201).json({ ok: true, id: (r.rows[0] as { id: string }).id });
-  }),
-);
-
 export default router;

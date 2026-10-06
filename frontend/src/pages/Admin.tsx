@@ -621,11 +621,17 @@ function WorkerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => void;
   const [services, setServices] = useState<{ id: string; name: string }[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Record<string, string>[]>([]);
+  const [file, setFile] = useState<{
+    name: string; email: string; phone: string;
+    verification_state: string | null; profile_active: boolean | null;
+  } | null>(null);
 
   useEffect(() => {
     api<{ documents: typeof docs }>(`/api/admin/workers/${id}/documents`).then((d) => setDocs(d.documents)).catch(() => {});
     api<{ services: typeof services }>("/api/admin/services-all").then((d) => setServices(d.services)).catch(() => {});
     api<{ bookings: typeof jobs }>("/api/admin/bookings").then((d) => setJobs(d.bookings.filter((b) => b.worker_id === id).slice(0, 10))).catch(() => {});
+    api<{ worker: typeof file; skillIds: string[] }>(`/api/admin/workers/${id}`)
+      .then((d) => { setFile(d.worker); setPicked(d.skillIds); }).catch(() => {});
   }, [id]);
 
   async function verify(state: string) {
@@ -633,6 +639,8 @@ function WorkerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => void;
     try {
       await post(`/api/admin/workers/${id}/verify`, { state, notes: `Set to ${state} from control centre` });
       onMsg(`Worker ${state}. Verification history preserved.`);
+      const d = await api<{ worker: typeof file; skillIds: string[] }>(`/api/admin/workers/${id}`);
+      setFile(d.worker);
     } catch (e) {
       onMsg(e instanceof Error ? e.message : "Action failed");
     }
@@ -655,14 +663,27 @@ function WorkerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => void;
 
   return (
     <Drawer title="Worker review" onClose={onClose}>
+      {file && (
+        <Card className="p-4 text-sm">
+          <p className="font-bold">{file.name}</p>
+          <p className="text-on-surface-variant">{file.email} · {file.phone}</p>
+          <p className="mt-2 flex flex-wrap gap-1.5">
+            <Badge tone={file.verification_state === "verified" ? "success" : "warning"}>
+              {file.verification_state ?? "no profile"}
+            </Badge>
+            {file.profile_active
+              ? <Badge tone="success">Active</Badge>
+              : <Badge tone="warning">Inactive</Badge>}
+          </p>
+        </Card>
+      )}
       <Card className="p-4">
         <p className="font-bold">Verification documents ({docs.length})</p>
-        {docs.length === 0 ? <p className="text-sm text-on-surface-variant">None submitted yet.</p> : (
+        {docs.length === 0 ? <p className="text-sm text-on-surface-variant">Checked physically at the office — nothing filed digitally.</p> : (
           <ul className="mt-1 space-y-1 text-sm">
-            {docs.map((d) => <li key={d.id}>{d.kind} · {new Date(d.uploaded_at).toLocaleString()}</li>)}
+            {docs.map((d) => <li key={d.id}>{d.kind} · {new Date(d.uploaded_at).toLocaleDateString()}</li>)}
           </ul>
         )}
-        <p className="mt-2 text-xs text-on-surface-variant">Documents live in private storage with narrowly scoped access.</p>
       </Card>
       <Card className="p-4">
         <p className="font-bold">Decision</p>
@@ -675,7 +696,9 @@ function WorkerDrawer({ id, onClose, onMsg }: { id: string; onClose: () => void;
       </Card>
       <Card className="p-4">
         <p className="font-bold">Skills & activation</p>
-        <p className="text-xs text-on-surface-variant">Activation requires verified state. Tick the services this pro may take.</p>
+        <p className="text-xs text-on-surface-variant">
+          Activation requires verified state plus at least one ticked specialty — unticked skills stay as they are.
+        </p>
         <div className="mt-2 grid grid-cols-1 gap-1.5">
           {services.map((s) => (
             <label key={s.id} className="flex cursor-pointer items-center gap-2 rounded-md border border-outline p-2.5 text-sm">
