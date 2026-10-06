@@ -123,7 +123,7 @@ export default function Worker() {
           {(["today", "requests", "quotes", "earnings", "reviews", "availability", "documents"] as const).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
               className={`rounded-md px-4 py-2 text-sm font-bold capitalize ${tab === t ? "bg-pine-950 text-white" : "bg-white border border-outline/60"}`}>
-              {t}{t === "requests" && requests.length > 0 ? ` (${requests.length})` : ""}
+              {t}{t === "today" && jobs.length > 0 ? ` (${jobs.length})` : ""}{t === "requests" && requests.length > 0 ? ` (${requests.length})` : ""}
             </button>
           ))}
         </div>
@@ -237,10 +237,9 @@ function JobCard({ job, onDone, onMsg }: {
   const pendingReq = reqs.find((r) => r.status === "pending");
 
   useEffect(() => {
-    if (!open) return;
     api<{ requests: typeof reqs }>(`/api/bookings/${job.id}/reschedule-requests`)
       .then((d) => setReqs(d.requests)).catch(() => {});
-  }, [open, job.id]);
+  }, [job.id]);
 
   async function requestReschedule() {
     const iso = parseSlotInput(reqSlot);
@@ -349,6 +348,7 @@ function JobCard({ job, onDone, onMsg }: {
         </div>
         <span className="flex items-center gap-2">
           <Badge tone={job.status === "awaiting-confirmation" ? "warning" : "info"}>{job.status}</Badge>
+          {pendingReq && <Badge tone="warning">New time?</Badge>}
           <ChevronDown size={18} className={`transition ${open ? "rotate-180" : ""}`} aria-hidden="true" />
         </span>
       </button>

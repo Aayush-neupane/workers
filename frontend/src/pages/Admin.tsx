@@ -141,7 +141,6 @@ export default function Admin() {
   const [tab, setTab] = useState<Tab>("overview");
   const [msg, setMsg] = useMsg();
   const { permissions, isSuperAdmin } = useAuth();
-
   const visible = TABS.filter((t) =>
     isSuperAdmin || TAB_PERMS[t.id].some((p) => permissions.includes(p)),
   );
@@ -149,6 +148,21 @@ export default function Admin() {
 
   useEffect(() => {
     if (!visible.some((t) => t.id === tab) && visible[0]) setTab(visible[0].id);
+  }, [permissions, isSuperAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pending reschedule count for the dispatch nav badge — refreshed minutely.
+  const [pendingResched, setPendingResched] = useState(0);
+  useEffect(() => {
+    if (!visible.some((t) => t.id === "dispatch")) return;
+    let stop = false;
+    const fetchCount = () => {
+      api<{ requests: unknown[] }>("/api/admin/reschedule-requests")
+        .then((r) => { if (!stop) setPendingResched(r.requests.length); })
+        .catch(() => {});
+    };
+    fetchCount();
+    const t = window.setInterval(fetchCount, 60000);
+    return () => { stop = true; window.clearInterval(t); };
   }, [permissions, isSuperAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (visible.length === 0) {
@@ -189,6 +203,11 @@ export default function Admin() {
                   }`}
                 >
                   {t.label}
+                  {t.id === "dispatch" && pendingResched > 0 && (
+                    <span className="ml-1.5 rounded-full bg-marigold-300 px-2 py-0.5 text-[11px] font-extrabold text-pine-950">
+                      {pendingResched}
+                    </span>
+                  )}
                 </button>
               </div>
             );
@@ -346,6 +365,7 @@ function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
   const [status, setStatus] = useState("");
   const [list, setList] = useState<Record<string, string>[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [reqs, setReqs] = useState<Record<string, string>[]>([]);
   const seqRef = useRef(0);
 
   function load(s: string) {
@@ -353,7 +373,12 @@ function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
     api<{ bookings: Record<string, string>[] }>(`/api/admin/bookings${s ? `?status=${s}` : ""}`)
       .then((r) => { if (seqRef.current === my) setList(r.bookings); }).catch(() => {});
   }
+  function loadReqs() {
+    api<{ requests: Record<string, string>[] }>("/api/admin/reschedule-requests")
+      .then((r) => setReqs(r.requests)).catch(() => {});
+  }
   useEffect(() => { load(status); }, [status]);
+  useEffect(loadReqs, []);
 
   const stops = list
     .filter((b) => typeof b.lat === "number" && typeof b.lng === "number")
@@ -371,6 +396,24 @@ function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
         <div>
           <p className="mb-2 text-sm font-bold">Live job map ({stops.length} pinned)</p>
           <LiveMap stops={stops} height={280} />
+        </div>
+      )}
+      {reqs.length > 0 && (
+        <div className="rounded-lg border border-marigold-500/60 bg-white p-4">
+          <p className="font-bold">Reschedule requests ({reqs.length})</p>
+          <p className="text-xs text-on-surface-variant">Proposed new times waiting for your decision — approving moves the slot and tells both sides.</p>
+          <ul className="mt-2 space-y-2">
+            {reqs.map((r) => (
+              <li key={String(r.id)} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-container p-3 text-sm">
+                <span>
+                  <strong className="font-mono text-xs">{String(r.booking_no)}</strong>
+                  {" · "}{String(r.requested_role) === "worker" ? "Pro" : "Customer"}
+                  {r.requested_by_name ? ` ${String(r.requested_by_name)}` : ""} → <strong>{formatSlot(String(r.proposed_slot))}</strong>
+                </span>
+                <Button variant="outline" onClick={() => setSelected(String(r.booking_no))}>Manage</Button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Booking status filter">
@@ -398,7 +441,7 @@ function Dispatch({ onMsg }: { onMsg: (m: string) => void }) {
         ))}
       </Table>
       {list.length === 0 && <EmptyState title="No bookings here" body="Try another status filter." />}
-      {selected && <BookingDrawer bookingNo={selected} onClose={() => { setSelected(null); load(status); }} onMsg={onMsg} />}
+      {selected && <BookingDrawer bookingNo={selected} onClose={() => { setSelected(null); load(status); loadReqs(); }} onMsg={onMsg} />}
     </div>
   );
 }

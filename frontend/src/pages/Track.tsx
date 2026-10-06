@@ -187,7 +187,7 @@ export default function Track() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="font-display text-2xl font-semibold md:text-3xl">{booking.service_name}</h1>
               <Badge tone={booking.status === "completed" ? "success" : booking.status === "disputed" || booking.status === "cancelled" ? "error" : "info"}>
-                {LABELS[booking.status] ?? booking.status}
+                {isPro && booking.status === "awaiting-worker" ? "Open for pros" : (LABELS[booking.status] ?? booking.status)}
               </Badge>
             </div>
             <p className="mt-1 font-mono text-sm text-on-surface-variant">{booking.booking_no}</p>
@@ -234,7 +234,11 @@ export default function Track() {
             )}
             {pendingReq && (
               <p role="status" className="mt-3 rounded-md bg-warning-container p-3 text-sm font-medium">
-                New time {pendingReq.status} review: {formatDateTime(pendingReq.proposed_slot)} — the admin confirms it with your pro.
+                New time pending review: {formatDateTime(pendingReq.proposed_slot)} — {isPro
+                  ? "the admin confirms it with the customer."
+                  : isOwner
+                    ? "the admin confirms it with your pro."
+                    : "review it in the admin dispatch queue."}
               </p>
             )}
             {reqOpen && !pendingReq && canRequest && (
@@ -251,7 +255,7 @@ export default function Track() {
                 <Button onClick={requestReschedule} disabled={!parseSlotInput(reqSlot) || reqBusy}>{reqBusy ? "Sending…" : "Send request"}</Button>
               </Card>
             )}
-            {booking.status === "completed" && (
+            {booking.status === "completed" && isOwner && (
               <Card className="mt-6 p-5">
                 <p className="font-bold">Rate this job</p>
                 <div className="mt-2 flex gap-1" role="radiogroup" aria-label="Rating">
@@ -282,9 +286,11 @@ export default function Track() {
                 <div className="flex justify-between"><dt className="text-on-surface-variant">Payment</dt><dd className="font-semibold capitalize">{booking.payment_method} · {booking.payment_status}</dd></div>
               </dl>
               <p className="mt-3 rounded-md bg-info-container p-3 text-xs leading-relaxed text-info">
-                Completion needs your one-time code — sent to your notifications when the work ends.
-                Share it only when the work is actually done. Problems after completion go through
-                a support ticket linked to this booking.
+                {isPro
+                  ? "The completion code goes to the customer — issue it from your pro portal when the work actually ends, and ask them to read it out."
+                  : isOwner
+                    ? "Completion needs your one-time code — sent to your notifications when the work ends. Share it only when the work is actually done. Problems after completion go through a support ticket linked to this booking."
+                    : "Completion is verified by a one-time code sent to the customer when the work ends."}
               </p>
               {booking.lat != null && booking.lng != null && (
                 <div className="mt-3">
