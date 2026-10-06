@@ -169,6 +169,7 @@ export default function Book() {
   const slot = watch("slot");
 
   const stepFields: (keyof Form)[][] = [["addressId"], ["slot"], ["instructions", "paymentMethod"], []];
+  const STEP_LABELS = ["Address", "Slot", "Details", "Review"];
   async function next() {
     if (await trigger(stepFields[step])) setStep((s) => Math.min(s + 1, 3));
   }
@@ -200,6 +201,14 @@ export default function Book() {
         </Link>
         <div className="mt-6 grid items-start gap-5 lg:grid-cols-[1fr_320px]">
           <Card className="p-6 md:p-7">
+            <ol className="mb-5 flex gap-1.5" aria-label="Booking progress">
+              {STEP_LABELS.map((label, i) => (
+                <li key={label} title={label} className={`h-1.5 flex-1 rounded-full ${i <= step ? "bg-primary" : "bg-surface-container-high"}`} aria-current={i === step ? "step" : undefined} />
+              ))}
+            </ol>
+            <p className="mb-4 text-xs font-extrabold tracking-[0.12em] text-on-surface-variant uppercase">
+              Step {step + 1} of 4 · {STEP_LABELS[step]}
+            </p>
             {step === 0 && addresses.length === 0 ? (
               <div className="space-y-4">
                 <p className="text-sm text-on-surface-variant">No saved addresses yet — add your Damak address to continue.</p>
@@ -224,10 +233,11 @@ export default function Book() {
               </>
             ) : null}
             {step === 0 && (
-              <div className="mt-5 rounded-lg border border-outline/60 bg-surface-container/40 p-4">
-                <p className="flex items-center gap-1.5 text-sm font-extrabold">
-                  <MapPin size={15} aria-hidden="true" /> Job location on map
-                </p>
+              <details className="mt-5 rounded-lg border border-outline/60 bg-surface-container/40 px-4 py-3">
+                <summary className="flex cursor-pointer items-center gap-1.5 text-sm font-extrabold">
+                  <MapPin size={15} aria-hidden="true" /> Job location on map (optional)
+                  {bookingPin && <span className="ml-auto text-xs font-bold text-success">Pinned ✓</span>}
+                </summary>
                 <p className="mt-0.5 text-xs text-on-surface-variant">
                   {bookingPin
                     ? "Pinned for this booking — the pro navigates here."
@@ -267,7 +277,7 @@ export default function Book() {
                     <Button type="button" variant="ghost" onClick={() => setBookingPin(null)}>Use address pin</Button>
                   )}
                 </div>
-              </div>
+              </details>
             )}
             {bookingMapOpen && (
               <MapPicker
