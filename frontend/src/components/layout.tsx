@@ -317,7 +317,7 @@ export function Shell({ children }: { children: ReactNode }) {
               className="inline-flex items-center gap-2 font-semibold text-white/85 transition hover:text-marigold-300"
             >
               <img
-                src="/logotrp.png"
+                src="/logo.svg"
                 alt="Aayush Neupane"
                 width={28}
                 height={28}

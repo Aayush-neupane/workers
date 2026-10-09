@@ -12,8 +12,8 @@ self.addEventListener("push", (event) => {
       body: data.body || "Open Sajilo Damak to see what's new.",
       tag: data.tag,
       data: { url: data.url || "/notifications" },
-      icon: "/logotrp.png",
-      badge: "/logotrp.png",
+      icon: "/logo.svg",
+      badge: "/logo.svg",
     }),
   );
 });
