@@ -310,7 +310,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="wrap flex flex-col items-center justify-between gap-3 py-4 text-xs text-white/70 sm:flex-row">
             <p>© 2026 Sajilo Damak · Damak, Jhapa</p>
             <a
-              href="https://dynamic-aayush38.netlify.app"
+              href="https://aayushnp.netlify.app"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Aayush Neupane — portfolio"
